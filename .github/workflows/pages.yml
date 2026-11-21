@@ -6,21 +6,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-  actions: read
+  contents: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publiceer:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Data-tak ophalen (als die er al is)
@@ -33,14 +27,16 @@ jobs:
             echo "Nog geen data-tak; site gaat live zonder kaartdata"
           fi
           du -sh data || true
-      - name: Site samenstellen
+      - name: Site samenstellen en naar gh-pages (zonder geschiedenis)
         run: |
           mkdir -p _site
-          cp -r index.html css js data _site/ 2>/dev/null || true
-          cp -r vloot _site/ 2>/dev/null || true
+          cp -r index.html css js _site/
+          [ -d data ] && cp -r data _site/ || true
           touch _site/.nojekyll
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-      - id: deploy
-        uses: actions/deploy-pages@v4
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "ov-simulator site"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -qm "Site $(date -u +%FT%TZ) (${GITHUB_SHA::7})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" gh-pages
