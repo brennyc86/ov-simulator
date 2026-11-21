@@ -1,1 +1,83 @@
-<!doctype html><meta charset="utf-8"><title>Knooppunt</title><p>Knooppunt wordt opgebouwd…</p>
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knooppunt</title>
+<meta name="description" content="OV-simulator van Nederland: bouw lijnen, maak een dienstregeling en onderhandel met andere vervoerders.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23173b3a'/%3E%3Cpath d='M6 22 L16 10 L26 22' stroke='%23f2c14e' stroke-width='3' fill='none'/%3E%3Ccircle cx='16' cy='10' r='4' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="css/stijl.css">
+</head>
+<body>
+<div id="kaart" aria-label="Kaart van Nederland met het OV-netwerk"></div>
+
+<header class="balk">
+  <div class="merk"><span class="logo" aria-hidden="true"></span><b>Knooppunt</b></div>
+  <div class="bedrijf" id="b-bedrijf" hidden><i id="b-kleur"></i><span id="b-naam"></span></div>
+  <div class="stat"><small>Kas</small><b id="b-geld">—</b></div>
+  <div class="stat"><small id="b-dag">Dag 1</small><b id="b-klok">06:00</b></div>
+  <div class="snelheid" role="group" aria-label="Spelsnelheid">
+    <button data-s="0" title="Pauze (spatie)">❚❚</button>
+    <button data-s="1" title="1 speelminuut per seconde">1×</button>
+    <button data-s="10" title="10 speelminuten per seconde">10×</button>
+    <button data-s="60" title="1 speeluur per seconde">60×</button>
+  </div>
+  <button class="account" id="b-account" type="button">Inloggen</button>
+</header>
+
+<nav class="gereedschap" aria-label="Gereedschap">
+  <button data-tool="kijk" class="aan" title="Kijken en selecteren"><span>⌖</span>Kijk</button>
+  <button data-tool="lijn" title="Nieuwe lijn: klik haltes of stations op volgorde"><span>＋</span>Lijn</button>
+  <button data-tool="halte" title="Bushalte, tramhalte of steiger plaatsen"><span>●</span>Halte</button>
+  <button data-tool="station" title="Treinstation bouwen of aanvragen"><span>▣</span>Station</button>
+  <button data-tool="perron" title="Extra perron bij een station"><span>≡</span>Perron</button>
+  <button data-tool="spoor" title="Spoor aanleggen of aanvragen"><span>╪</span>Spoor</button>
+  <hr>
+  <button data-paneel="verzoeken" title="Verzoeken en onderhandelingen"><span>✉</span>Overleg<em id="b-inbox" hidden>0</em></button>
+  <button data-paneel="lijnen" title="Je lijnen"><span>☰</span>Lijnen</button>
+  <button data-paneel="vloot" title="Materieel kopen en verkopen"><span>⛟</span>Vloot</button>
+  <button data-paneel="controle" title="Kaartcontrole en zwartrijden"><span>✓</span>Controle</button>
+  <button data-paneel="geld" title="Financiën"><span>€</span>Geld</button>
+  <button data-paneel="kaart" title="Kaartlagen en jaartal"><span>◫</span>Kaart</button>
+</nav>
+
+<aside class="paneel" id="paneel" hidden>
+  <button class="sluit" id="paneel-sluit" type="button" aria-label="Paneel sluiten">×</button>
+  <div id="paneel-inhoud"></div>
+</aside>
+
+<div class="hint" id="hint" hidden></div>
+<div class="melding" id="melding" role="status" aria-live="polite"></div>
+<div class="bron" id="bron"></div>
+
+<dialog id="start">
+  <form method="dialog" id="startform">
+    <h1>Knoop<em>punt</em></h1>
+    <p class="lead">Run je eigen OV-bedrijf in Nederland. Leg lijnen aan, maak een dienstregeling, koop materieel en stem je tijden af met andere vervoerders, ProRail en de provincie.</p>
+    <div id="start-account"></div>
+    <div id="start-opgeslagen"></div>
+    <fieldset>
+      <legend>Nieuw spel</legend>
+      <label for="s-naam">Naam van je bedrijf</label>
+      <input id="s-naam" value="Knooppunt Vervoer" maxlength="40" required>
+      <label for="s-jaar">Startjaar <output id="s-jaar-uit">2026</output></label>
+      <input id="s-jaar" type="range" min="1850" max="2026" value="2026">
+      <p class="klein" id="s-jaar-uitleg">Huidige situatie: echte dienstregeling van alle vervoerders.</p>
+      <div class="keuze2" id="s-soort">
+        <button type="button" data-v="blanco" aria-pressed="true"><b>Blanco beginnen</b><span>€ 25 mln startkapitaal, geen lijnen</span></button>
+        <button type="button" data-v="bestaand" aria-pressed="false"><b>Bestaande vervoerder</b><span>Neem lijnen en vloot over van een echt bedrijf</span></button>
+      </div>
+      <div id="s-vervoerders" hidden></div>
+      <label for="s-kleur">Huiskleur</label>
+      <input id="s-kleur" type="color" value="#c2412d">
+    </fieldset>
+    <button id="s-start" class="hoofdknop" type="button">Spel starten</button>
+    <p class="klein">Kaart: PDOK en Kadaster-tijdreiskaart. Netwerk: OpenStreetMap. Dienstregeling: OVapi (GTFS).</p>
+  </form>
+</dialog>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

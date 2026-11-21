@@ -1,0 +1,309 @@
+// Spelkern: bedrijf, lijnen, dienstregeling, voertuigposities, geld en reizigers.
+import { MODI, TYPE, standaardType } from './vloot.js';
+import { bboxVan } from './net.js';
+
+export const TARIEF = {
+  // instaptarief + per km (OV-chipkaart 2026, benaderd); trein degressief na 40 km
+  bus: [1.08, 0.20], hov: [1.08, 0.20], tram: [1.08, 0.20], metro: [1.08, 0.20], sneltram: [1.08, 0.20],
+  belbus: [3.00, 0.25], trein: [2.60, 0.21], veer: [2.50, 0.30], watertaxi: [8.00, 1.20],
+};
+// subsidie per dienstregelingsuur bij een concessie (benadering)
+export const SUBSIDIE_UUR = { bus: 45, hov: 50, tram: 65, metro: 80, sneltram: 70, belbus: 35, trein: 160, veer: 120, watertaxi: 0 };
+export const BOETE = 50;
+export const LOON = { controleur: 52, conducteur: 50 };
+export const PERIODES = [
+  { id: 'vroeg', naam: 'Vroeg', van: 5 * 60, tot: 7 * 60, vraag: 0.5 },
+  { id: 'ochtendspits', naam: 'Ochtendspits', van: 7 * 60, tot: 9 * 60, vraag: 1.9 },
+  { id: 'dal', naam: 'Dal', van: 9 * 60, tot: 16 * 60, vraag: 0.9 },
+  { id: 'avondspits', naam: 'Avondspits', van: 16 * 60, tot: 18.5 * 60, vraag: 1.7 },
+  { id: 'avond', naam: 'Avond', van: 18.5 * 60, tot: 24.5 * 60, vraag: 0.45 },
+];
+export const ZWARTRIJDEN_BASIS = { bus: 0.012, hov: 0.02, tram: 0.07, metro: 0.05, sneltram: 0.06, belbus: 0.0, trein: 0.04, veer: 0.03, watertaxi: 0 };
+
+export const euro = n => (n < 0 ? '−' : '') + '€ ' + Math.abs(Math.round(n)).toLocaleString('nl-NL');
+export const euroKort = n => {
+  const a = Math.abs(n), t = n < 0 ? '−' : '';
+  if (a >= 1e9) return `${t}€ ${(a / 1e9).toFixed(1).replace('.', ',')} mld`;
+  if (a >= 1e6) return `${t}€ ${(a / 1e6).toFixed(1).replace('.', ',')} mln`;
+  if (a >= 1e4) return `${t}€ ${Math.round(a / 1e3)}k`;
+  return euro(n);
+};
+export const klok = m => { m = ((Math.floor(m) % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+
+let teller = 1;
+export const nieuwId = p => `${p}${Date.now().toString(36)}${(teller++).toString(36)}`;
+
+export function nieuwSpel({ naam, kleur, jaar, start, vervoerder, kapitaal }) {
+  return {
+    versie: 1, naam, kleur, jaar, start, vervoerder: vervoerder || null,
+    dag: 0, tijd: 6 * 60, // minuten sinds middernacht
+    geld: kapitaal, historie: [], maand: nieuweMaand(),
+    voertuigen: {}, // typeId -> aantal in bezit
+    lijnen: [], haltes: [], // eigen haltes/stations {id, naam, modus, x, y, perrons, eigen}
+    controle: { steekproef: 0, poortjes: false, chauffeur: true, ploegen: [] },
+    berichten: [], verzoeken: [], goodwill: {}, spoor: [], prorail: [], volgendeAI: 2 * 1440,
+    reputatie: 60,
+  };
+}
+export function nieuweMaand() { return { inkomsten: 0, kaartjes: 0, boetes: 0, subsidie: 0, personeel: 0, energie: 0, afschrijving: 0, gebruik: 0, overig: 0, reizigers: 0, zwart: 0, betrapt: 0 }; }
+
+// ---------------------------------------------------------------- lijnen en dienstregeling
+export function maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interval, eerste, laatste, concessie }) {
+  const lijn = {
+    id: nieuwId('l'), nr, naam, modus, typeId, haltes, // haltes: [{naam,x,y,ref}]
+    route, // {pts, lengte}
+    interval: interval || { vroeg: 30, ochtendspits: 15, dal: 30, avondspits: 15, avond: 60 },
+    eerste: eerste ?? 6 * 60, laatste: laatste ?? 23 * 60, offset: 0, concessie: !!concessie,
+    kleur: MODI[modus]?.kleur || '#555', controle: 0, actief: true,
+  };
+  herbereken(lijn);
+  spel.lijnen.push(lijn);
+  return lijn;
+}
+
+// rijtijden per halte (sec), km per halte langs de route en de vertrektijden
+export function herbereken(lijn) {
+  const type = TYPE[lijn.typeId] || TYPE.citealle;
+  const mod = MODI[lijn.modus];
+  const pts = lijn.route.pts;
+  // km van elke halte langs de route (oplopend dichtstbijzijnde punt)
+  const cum = [0];
+  for (let k = 2; k < pts.length; k += 2) cum.push(cum[cum.length - 1] + Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]));
+  const factor = lijn.route.lengte && cum[cum.length - 1] ? lijn.route.lengte / cum[cum.length - 1] : 1;
+  let start = 0;
+  lijn.km = lijn.haltes.map(h => {
+    let beste = start, bd = Infinity;
+    for (let i = start; i < cum.length; i++) {
+      const d = Math.hypot(pts[i * 2] - h.x, pts[i * 2 + 1] - h.y);
+      if (d < bd) { bd = d; beste = i; }
+    }
+    start = beste;
+    return cum[beste];
+  });
+  lijn.cum = cum;
+  const v = type.vmax / 3.6 * (lijn.modus === 'bus' || lijn.modus === 'belbus' ? 0.55 : lijn.modus === 'tram' ? 0.6 : 0.8);
+  const extraHalte = lijn.modus === 'bus' && lijn.chauffeurControle ? 5 : 0;
+  lijn.t = [0];
+  for (let i = 1; i < lijn.haltes.length; i++) {
+    const d = (lijn.km[i] - lijn.km[i - 1]) * factor;
+    const vEff = Math.min(v, Math.sqrt(Math.max(1, d) * type.acc)); // korte stukken halen de topsnelheid niet
+    const rij = d / Math.max(2, vEff) + vEff / type.acc;
+    lijn.t.push(lijn.t[i - 1] + rij * 1.07 + (i < lijn.haltes.length - 1 ? mod.halteTijd + extraHalte : 0));
+  }
+  if (lijn.echt) {
+    // bestaande lijn uit de echte dienstregeling: echte rijtijden en vertrektijden
+    if (lijn.echt.km && lijn.echt.km.length === lijn.haltes.length) lijn.km = lijn.echt.km;
+    if (lijn.echt.t && lijn.echt.t.length === lijn.haltes.length) lijn.t = lijn.echt.t;
+  }
+  lijn.duur = Math.max(60, lijn.t[lijn.t.length - 1]);
+  lijn.lengteKm = (lijn.route.lengte || cum[cum.length - 1]) / 1000;
+  lijn.bbox = bboxVan(pts);
+  lijn.vertrek = lijn.echt?.v && !lijn.aangepast ? lijn.echt.v : vertrekken(lijn);
+  lijn.nodig = materieelNodig(lijn);
+}
+
+export function vertrekken(lijn) {
+  // beide richtingen; [richting][minuten]
+  const uit = [[], []];
+  for (let r = 0; r < 2; r++) {
+    let t = lijn.eerste + lijn.offset + (r ? Math.round((lijn.interval.dal || 30) / 2) : 0);
+    while (t <= lijn.laatste) {
+      uit[r].push(t);
+      const p = PERIODES.find(p => t >= p.van && t < p.tot) || PERIODES[4];
+      t += Math.max(3, lijn.interval[p.id] || 60);
+    }
+  }
+  return uit;
+}
+
+export function materieelNodig(lijn) {
+  // drukste uur: ritten (beide richtingen) × (rijtijd + keertijd) / 60
+  const mod = MODI[lijn.modus];
+  const perUur = new Array(30).fill(0);
+  for (const r of lijn.vertrek) for (const v of r) perUur[Math.min(29, Math.floor(v / 60))]++;
+  const piek = Math.max(...perUur);
+  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 + mod.keer) / 60));
+}
+
+// positie langs de lijn op afstand s (m langs de route-punten)
+export function puntOp(lijn, s) {
+  const cum = lijn.cum, pts = lijn.route.pts;
+  let lo = 0, hi = cum.length - 1;
+  while (lo < hi - 1) { const m = (lo + hi) >> 1; if (cum[m] <= s) lo = m; else hi = m; }
+  const seg = cum[hi] - cum[lo] || 1, f = Math.max(0, Math.min(1, (s - cum[lo]) / seg));
+  const x0 = pts[lo * 2], y0 = pts[lo * 2 + 1], x1 = pts[hi * 2], y1 = pts[hi * 2 + 1];
+  return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, Math.atan2(y1 - y0, x1 - x0)];
+}
+
+// alle rijdende voertuigen van een lijn op tijd tm (minuten)
+export function voertuigenOp(lijn, tm, uit) {
+  const duurMin = lijn.duur / 60;
+  for (let r = 0; r < 2; r++) {
+    for (const v of lijn.vertrek[r]) {
+      if (v > tm) break;
+      const verstreken = (tm - v) * 60;
+      if (verstreken > lijn.duur) continue;
+      // in welk stuk tussen haltes zitten we
+      const t = lijn.t, n = t.length;
+      let i = 0;
+      while (i < n - 2 && t[i + 1] <= verstreken) i++;
+      const halte = MODI[lijn.modus].halteTijd;
+      const begin = t[i] + (i > 0 ? 0 : 0), eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
+      const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
+      const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
+      const ka = lijn.km[ri], kb = lijn.km[rj];
+      const [x, y, hoek] = puntOp(lijn, ka + (kb - ka) * f);
+      uit.push({ x, y, hoek: r ? hoek + Math.PI : hoek, lijn, r, vertrek: v, f, staat: f >= 1 });
+    }
+    void duurMin;
+  }
+  return uit;
+}
+
+// ---------------------------------------------------------------- vraag naar vervoer
+// vangst: inwoners binnen bereik van een halte (exponentiële afname met afstand)
+export function vangst(plaatsen, x, y, bereik) {
+  let som = 0;
+  const max = bereik * 6;
+  for (const [, px, py, inw] of plaatsen) {
+    const d = Math.hypot(px - x, py - y);
+    if (d > max + 4000) continue;
+    // grote plaatsen zijn uitgestrekt: hun inwoners liggen gespreid rond het centrum
+    const straal = Math.sqrt(inw) * 6;
+    som += inw * Math.exp(-Math.max(0, d - straal * 0.3) / (bereik + straal * 0.5)) * Math.min(1, bereik / (straal + 1));
+  }
+  return som;
+}
+
+export function vraagLijn(lijn, plaatsen, concurrentie = 0) {
+  const mod = MODI[lijn.modus];
+  if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(plaatsen, h.x, h.y, mod.bereik));
+  const V = lijn._vangst, n = V.length;
+  let paren = 0;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    const d = Math.abs(lijn.km[j] - lijn.km[i]) / 1000;
+    paren += V[i] * V[j] / Math.pow(d + 2, 1.3);
+  }
+  const ritten = lijn.vertrek[0].length + lijn.vertrek[1].length;
+  const aanbod = 1 - Math.exp(-ritten / 50);
+  const snelheid = Math.min(1.3, Math.max(0.4, (lijn.lengteKm / (lijn.duur / 3600 || 1)) / 30));
+  const schaal = { trein: 0.0016, sneltram: 0.0009, metro: 0.0012, tram: 0.0007, bus: 0.00045, hov: 0.0006, belbus: 0.00005, veer: 0.002, watertaxi: 0.0004 }[lijn.modus] || 0.0005;
+  const perDag = Math.sqrt(paren) * schaal * 100 * aanbod * snelheid * (1 - concurrentie * 0.5);
+  return { perDag, gemKm: Math.max(1.5, lijn.lengteKm * 0.38) };
+}
+
+// capaciteit per rit
+export const capaciteit = lijn => { const t = TYPE[lijn.typeId]; return t ? t.zit + t.sta : 80; };
+
+// ---------------------------------------------------------------- geld per uur
+// Wordt elk speluur aangeroepen voor het uur dat net voorbij is.
+export function verrekenUur(spel, ctx, uurBegin) {
+  const m = spel.maand;
+  const periode = PERIODES.find(p => uurBegin >= p.van && uurBegin < p.tot);
+  for (const lijn of spel.lijnen) {
+    if (!lijn.actief) continue;
+    const type = TYPE[lijn.typeId];
+    const mod = MODI[lijn.modus];
+    // ritten die in dit uur vertrokken
+    let ritten = 0;
+    for (const r of lijn.vertrek) for (const v of r) if (v >= uurBegin && v < uurBegin + 60) ritten++;
+    // voertuiguren: voertuigen in omloop in dit uur
+    const actief = periode ? Math.min(lijn.nodig, Math.ceil(ritten * (lijn.duur / 60 + mod.keer) / 60)) : 0;
+    if (!ritten && !actief) continue;
+    // te weinig materieel: ritten vallen uit
+    const inBezit = beschikbaarVoor(spel, lijn);
+    const rijdt = Math.min(1, inBezit / Math.max(1, lijn.nodig));
+    ritten *= rijdt;
+    const voertuigUren = actief * rijdt;
+    const km = ritten * lijn.lengteKm;
+
+    // reizigers
+    const { perDag, gemKm } = vraagLijn(lijn, ctx.plaatsen, ctx.concurrentie(lijn));
+    const totaalVraag = PERIODES.reduce((s, p) => s + p.vraag * (p.tot - p.van) / 60, 0);
+    let reizigers = periode ? perDag * periode.vraag / totaalVraag : 0;
+    reizigers = Math.min(reizigers, ritten * capaciteit(lijn) * 0.8);
+    reizigers *= 0.6 + 0.4 * (spel.reputatie / 100);
+    const [instap, perKm] = TARIEF[lijn.modus] || TARIEF.bus;
+    const ritprijs = instap + perKm * (lijn.modus === 'trein' ? Math.min(gemKm, 40) + Math.max(0, gemKm - 40) * 0.7 : gemKm);
+    // zwartrijden en controle
+    const pak = pakkans(spel, lijn);
+    const basis = ZWARTRIJDEN_BASIS[lijn.modus] ?? 0.03;
+    const zwartFractie = basis * (spel.controle.poortjes && (lijn.modus === 'trein' || lijn.modus === 'metro') ? 0.35 : 1)
+      * (lijn.modus === 'bus' && spel.controle.chauffeur ? 0.5 : 1) * Math.exp(-pak * 6) * 1.6;
+    const zwart = reizigers * zwartFractie;
+    const betrapt = zwart * pak;
+    const kaartjes = (reizigers - zwart) * ritprijs;
+    const boetes = betrapt * (BOETE + ritprijs) * 0.75; // niet elke boete wordt geïnd
+
+    // kosten
+    const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0);
+    const energie = km * (type?.km || 1);
+    const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6 : 0;
+    const subsidie = lijn.concessie ? voertuigUren * (SUBSIDIE_UUR[lijn.modus] || 0) : 0;
+
+    m.kaartjes += kaartjes; m.boetes += boetes; m.subsidie += subsidie;
+    m.personeel += personeel; m.energie += energie; m.gebruik += gebruik;
+    m.reizigers += reizigers; m.zwart += zwart; m.betrapt += betrapt;
+    lijn.stat = lijn.stat || { reizigers: 0, opbrengst: 0, kosten: 0, ritten: 0, uitval: 0 };
+    lijn.stat.reizigers += reizigers; lijn.stat.opbrengst += kaartjes + boetes + subsidie;
+    lijn.stat.kosten += personeel + energie + gebruik; lijn.stat.ritten += ritten;
+    lijn.stat.uitval += ritten / Math.max(rijdt, 0.001) - ritten;
+    lijn.bezetting = ritten ? reizigers / (ritten * capaciteit(lijn)) : 0;
+    spel.geld += kaartjes + boetes + subsidie - personeel - energie - gebruik;
+  }
+  // controleurs (steekproef en ploegen)
+  if (periode) {
+    const ploegKosten = spel.controle.ploegen.reduce((s, p) => s + (uurBegin >= p.van && uurBegin < p.tot ? p.mensen * LOON.controleur : 0), 0);
+    const steek = spel.controle.steekproef * 0.01 * spel.lijnen.reduce((s, l) => s + (l.actief ? Math.min(l.nodig, beschikbaarVoor(spel, l)) : 0), 0) * LOON.controleur;
+    m.personeel += ploegKosten + steek; spel.geld -= ploegKosten + steek;
+  }
+}
+
+export function gebruiksvergoeding(spel, lijn) {
+  // ProRail rekent per treinkilometer; over eigen spoor betaal je niets (benadering)
+  return lijn.eigenSpoor ? 0 : 1.95;
+}
+
+export function pakkans(spel, lijn) {
+  let p = spel.controle.steekproef / 100 * 0.7;
+  if (lijn.conducteur) p = Math.max(p, 0.85);
+  for (const pl of spel.controle.ploegen) {
+    if (!pl.lijnen.includes(lijn.id)) continue;
+    // een controleur haalt ongeveer 2 voertuigen per uur, gedeeld over de lijnen van zijn ploeg
+    const dekking = pl.mensen * 2 / Math.max(1, pl.lijnen.length * Math.max(1, lijn.nodig));
+    p = Math.max(p, Math.min(0.8, dekking * 0.6) * ((pl.tot - pl.van) / (19 * 60)));
+  }
+  return Math.min(0.95, p);
+}
+
+// welk deel van het benodigde materieel heeft deze lijn (vloot wordt eerlijk verdeeld)
+export function beschikbaarVoor(spel, lijn) {
+  const totaal = spel.voertuigen[lijn.typeId] || 0;
+  const vraag = spel.lijnen.filter(l => l.actief && l.typeId === lijn.typeId).reduce((s, l) => s + l.nodig, 0);
+  if (vraag <= totaal) return lijn.nodig;
+  return Math.floor(totaal * lijn.nodig / vraag);
+}
+
+export function maandAfsluiten(spel) {
+  const m = spel.maand;
+  // afschrijving van de vloot per maand
+  let afschr = 0;
+  for (const [id, n] of Object.entries(spel.voertuigen)) {
+    const t = TYPE[id]; if (t) afschr += n * t.prijs / t.leven / 12;
+  }
+  // poortjes: onderhoud
+  const poortjes = spel.controle.poortjes ? spel.haltes.filter(h => h.modus === 'trein' || h.modus === 'metro').length * 4000 : 0;
+  m.afschrijving = afschr; m.overig += poortjes;
+  spel.geld -= poortjes; // afschrijving is geen kasuitgave: aanschaf is al betaald
+  m.inkomsten = m.kaartjes + m.boetes + m.subsidie;
+  m.resultaat = m.inkomsten - m.personeel - m.energie - m.gebruik - m.overig - afschr;
+  m.dag = spel.dag;
+  spel.historie.push(m);
+  if (spel.historie.length > 36) spel.historie.shift();
+  spel.maand = nieuweMaand();
+  for (const l of spel.lijnen) l.stat = null;
+}
+
+export function standaardTypeVoor(spel, modus) {
+  return standaardType(spel.vervoerder?.naam || '', modus, spel.jaar).id;
+}
