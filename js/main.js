@@ -22,11 +22,11 @@ async function json(pad) {
 async function laadData() {
   const [spoor, st, w, pl, ve, ha, vv, hi, vl] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json'].map(json));
-  D.vliegvelden = (vl?.vliegvelden || []).map(v => ({ ...v, landing: LANDING[v.s] ?? 60 }));
+  D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, landing: LANDING[v.s] ?? 60 }));
   net = new Net(spoor);
   D.stations = st?.stations || [];
   D.wissels = w?.wissels || [];
-  D.plaatsen = pl?.plaatsen || [];
+  D.plaatsen = (pl?.plaatsen || []).filter(p => (p[5] || 'NL') === 'NL'); // Caribisch Nederland volgt met de wereldkaart
   D.veren = ve?.veren || [];
   D.haltes = ha?.haltes || [];
   AI.haltes = D.haltes;

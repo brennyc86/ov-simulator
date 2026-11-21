@@ -349,12 +349,13 @@ def plaatsen(bbox, uit):
         if not inw:
             inw = {"city": 60000, "town": 12000, "village": 1500}[t["place"]]
         x, y = rd_int(e["lat"], e["lon"])
-        if not in_nl(x, y):
-            continue
-        lijst.append([t.get("name", ""), x, y, inw, t["place"][0]])
+        g = "NL" if in_nl(x, y) else "CN"
+        if g != "NL":
+            x = y = 0
+        lijst.append([t.get("name", ""), x, y, inw, t["place"][0], g, round(e["lat"], 5), round(e["lon"], 5)])
     lijst.sort(key=lambda r: -r[3])
     print(f"  {len(lijst)} plaatsen", flush=True)
-    schrijf(uit, "plaatsen.json", {"uitleg": "[naam, x, y, inwoners, c/t/v]", "plaatsen": lijst})
+    schrijf(uit, "plaatsen.json", {"uitleg": "[naam, x, y, inwoners, c/t/v, gebied NL/CN, lat, lon]", "plaatsen": lijst})
 
 
 def veren(bbox, uit):
@@ -387,16 +388,18 @@ out tags geom;""")
     for e in res["elements"]:
         t = e.get("tags", {})
         if t.get("aeroway") == "runway" and e.get("geometry"):
-            pts = [rd_int(p["lat"], p["lon"]) for p in e["geometry"]]
-            lengte = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+            # lengte via lat/lon (werkt ook buiten Europees Nederland)
+            geo = e["geometry"]
+            lengte = sum(math.hypot((b["lat"] - a["lat"]) * 111320, (b["lon"] - a["lon"]) * 111320 * math.cos(math.radians(a["lat"])))
+                         for a, b in zip(geo, geo[1:]))
             try:
                 lengte = max(lengte, float(re.sub(r"[^\d.]", "", t.get("length", "")) or 0))
             except ValueError:
                 pass
-            cx = sum(p[0] for p in pts) / len(pts)
-            cy = sum(p[1] for p in pts) / len(pts)
+            cla = sum(p["lat"] for p in geo) / len(geo)
+            clo = sum(p["lon"] for p in geo) / len(geo)
             verhard = t.get("surface", "") in ("asphalt", "concrete", "paved", "paving_stones")
-            banen.append((cx, cy, lengte, verhard))
+            banen.append((cla, clo, lengte, verhard))
             continue
         c = e.get("center") or e
         if "lat" not in c or t.get("aeroway") not in ("aerodrome", "airstrip", "heliport"):
@@ -405,8 +408,9 @@ out tags geom;""")
         if not naam:
             continue
         x, y = rd_int(c["lat"], c["lon"])
-        if not in_nl(x, y):
-            continue
+        deel = "NL" if in_nl(x, y) else "CN"  # CN = Caribisch deel van het Koninkrijk (RD geldt daar niet)
+        if deel != "NL":
+            x = y = 0
         soort = t.get("aerodrome:type") or t.get("aerodrome") or ""
         if t.get("aeroway") == "heliport":
             soort = "heliport"
@@ -414,12 +418,13 @@ out tags geom;""")
             soort = "militair"
         elif t.get("iata") and soort in ("", "public"):
             soort = "regionaal"
-        velden.append({"n": naam, "x": x, "y": y, "icao": t.get("icao", ""), "iata": t.get("iata", ""),
+        velden.append({"n": naam, "x": x, "y": y, "g": deel, "la": round(c["lat"], 5), "lo": round(c["lon"], 5), "icao": t.get("icao", ""), "iata": t.get("iata", ""),
                        "s": soort or ("airstrip" if t.get("aeroway") == "airstrip" else "veld"),
                        "b": jaar(t.get("start_date") or t.get("opening_date")), "baan": 0, "verhard": 0})
     for v in velden:
-        for bx, by, lengte, verhard in banen:
-            if math.hypot(bx - v["x"], by - v["y"]) < 3500 and lengte > v["baan"]:
+        for bla, blo, lengte, verhard in banen:
+            d = math.hypot((bla - v["la"]) * 111320, (blo - v["lo"]) * 111320 * math.cos(math.radians(v["la"])))
+            if d < 3500 and lengte > v["baan"]:
                 v["baan"], v["verhard"] = int(lengte), int(verhard)
     velden.sort(key=lambda v: -v["baan"])
     print(f"  {len(velden)} vliegvelden ({sum(1 for v in velden if v['iata'])} met IATA-code)", flush=True)
