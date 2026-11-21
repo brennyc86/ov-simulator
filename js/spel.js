@@ -5,10 +5,10 @@ import { bboxVan } from './net.js';
 export const TARIEF = {
   // instaptarief + per km (OV-chipkaart 2026, benaderd); trein degressief na 40 km
   bus: [1.08, 0.20], hov: [1.08, 0.20], tram: [1.08, 0.20], metro: [1.08, 0.20], sneltram: [1.08, 0.20],
-  belbus: [3.00, 0.25], trein: [2.60, 0.21], veer: [2.50, 0.30], watertaxi: [8.00, 1.20],
+  belbus: [3.00, 0.25], trein: [2.60, 0.21], veer: [2.50, 0.30], watertaxi: [8.00, 1.20], vlucht: [45, 0.35],
 };
 // subsidie per dienstregelingsuur bij een concessie (benadering)
-export const SUBSIDIE_UUR = { bus: 45, hov: 50, tram: 65, metro: 80, sneltram: 70, belbus: 35, trein: 160, veer: 120, watertaxi: 0 };
+export const SUBSIDIE_UUR = { bus: 45, hov: 50, tram: 65, metro: 80, sneltram: 70, belbus: 35, trein: 160, veer: 120, watertaxi: 0, vlucht: 0 };
 export const BOETE = 50;
 export const LOON = { controleur: 52, conducteur: 50 };
 export const PERIODES = [
@@ -18,7 +18,7 @@ export const PERIODES = [
   { id: 'avondspits', naam: 'Avondspits', van: 16 * 60, tot: 18.5 * 60, vraag: 1.7 },
   { id: 'avond', naam: 'Avond', van: 18.5 * 60, tot: 24.5 * 60, vraag: 0.45 },
 ];
-export const ZWARTRIJDEN_BASIS = { bus: 0.012, hov: 0.02, tram: 0.07, metro: 0.05, sneltram: 0.06, belbus: 0.0, trein: 0.04, veer: 0.03, watertaxi: 0 };
+export const ZWARTRIJDEN_BASIS = { bus: 0.012, hov: 0.02, tram: 0.07, metro: 0.05, sneltram: 0.06, belbus: 0.0, trein: 0.04, veer: 0.03, watertaxi: 0, vlucht: 0 };
 
 export const euro = n => (n < 0 ? '−' : '') + '€ ' + Math.abs(Math.round(n)).toLocaleString('nl-NL');
 export const euroKort = n => {
@@ -82,12 +82,13 @@ export function herbereken(lijn) {
   });
   lijn.cum = cum;
   const v = type.vmax / 3.6 * (lijn.modus === 'bus' || lijn.modus === 'belbus' ? 0.55 : lijn.modus === 'tram' ? 0.6 : 0.8);
+  const vlucht = lijn.modus === 'vlucht';
   const extraHalte = lijn.modus === 'bus' && lijn.chauffeurControle ? 5 : 0;
   lijn.t = [0];
   for (let i = 1; i < lijn.haltes.length; i++) {
     const d = (lijn.km[i] - lijn.km[i - 1]) * factor;
     const vEff = Math.min(v, Math.sqrt(Math.max(1, d) * type.acc)); // korte stukken halen de topsnelheid niet
-    const rij = d / Math.max(2, vEff) + vEff / type.acc;
+    const rij = vlucht ? d / v + 20 * 60 : d / Math.max(2, vEff) + vEff / type.acc; // vliegen: taxiën, opstijgen en naderen ~20 min
     lijn.t.push(lijn.t[i - 1] + rij * 1.07 + (i < lijn.haltes.length - 1 ? mod.halteTijd + extraHalte : 0));
   }
   if (lijn.echt) {
@@ -187,9 +188,11 @@ export function vraagLijn(lijn, plaatsen, concurrentie = 0) {
   const ritten = lijn.vertrek[0].length + lijn.vertrek[1].length;
   const aanbod = 1 - Math.exp(-ritten / 50);
   const snelheid = Math.min(1.3, Math.max(0.4, (lijn.lengteKm / (lijn.duur / 3600 || 1)) / 30));
-  const schaal = { trein: 0.0016, sneltram: 0.0009, metro: 0.0012, tram: 0.0007, bus: 0.00045, hov: 0.0006, belbus: 0.00005, veer: 0.002, watertaxi: 0.0004 }[lijn.modus] || 0.0005;
+  const schaal = { trein: 0.0016, sneltram: 0.0009, metro: 0.0012, tram: 0.0007, bus: 0.00045, hov: 0.0006, belbus: 0.00005, veer: 0.002, watertaxi: 0.0004, vlucht: 0.0003 }[lijn.modus] || 0.0005;
   const perDag = Math.sqrt(paren) * schaal * 100 * aanbod * snelheid * (1 - concurrentie * 0.5);
-  return { perDag, gemKm: Math.max(1.5, lijn.lengteKm * 0.38) };
+  // gemiddelde reisafstand: bij twee haltes de hele lijn, bij veel haltes een deel ervan
+  const deel = n <= 2 ? 1 : Math.min(1, 0.38 + 0.6 / n);
+  return { perDag, gemKm: Math.max(1.5, lijn.lengteKm * deel) };
 }
 
 // capaciteit per rit
@@ -238,7 +241,8 @@ export function verrekenUur(spel, ctx, uurBegin) {
     // kosten
     const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0);
     const energie = km * (type?.km || 1);
-    const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6 : 0;
+    const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
+      : lijn.modus === 'vlucht' ? ritten * (lijn.haltes.length - 1) * landingsgeld(lijn, type) : 0;
     const subsidie = lijn.concessie ? voertuigUren * (SUBSIDIE_UUR[lijn.modus] || 0) : 0;
 
     m.kaartjes += kaartjes; m.boetes += boetes; m.subsidie += subsidie;
@@ -257,6 +261,13 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const steek = spel.controle.steekproef * 0.01 * spel.lijnen.reduce((s, l) => s + (l.actief ? Math.min(l.nodig, beschikbaarVoor(spel, l)) : 0), 0) * LOON.controleur;
     m.personeel += ploegKosten + steek; spel.geld -= ploegKosten + steek;
   }
+}
+
+// landings- en passagiersgelden: groot vliegveld duur, grasveldje bijna gratis
+export function landingsgeld(lijn, type) {
+  const per = lijn.haltes.map(h => h.landing ?? 60);
+  const gem = per.reduce((s, x) => s + x, 0) / Math.max(1, per.length);
+  return gem * Math.max(0.15, (type?.zit || 50) / 100);
 }
 
 export function gebruiksvergoeding(spel, lijn) {

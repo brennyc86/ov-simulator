@@ -13,27 +13,28 @@ export const MODI = {
   belbus:  { naam: 'Belbus / regiotaxi', kleur: '#8a6d1f', loon: 40, halteTijd: 30, keer: 4, bereik: 1200, ikoon: 'R' },
   veer:    { naam: 'Veerpont',     kleur: '#127a9c', loon: 60, halteTijd: 240, keer: 5,  bereik: 1500, ikoon: 'V' },
   watertaxi:{naam: 'Watertaxi',    kleur: '#0aa3a3', loon: 50, halteTijd: 60,  keer: 3,  bereik: 800,  ikoon: 'W' },
+  vlucht:  { naam: 'Vliegtuig',    kleur: '#5b4bb7', loon: 95, halteTijd: 1800, keer: 30, bereik: 15000, ikoon: '✈' },
 };
 
 export const VLOOT = [
   // ---------------- trein ----------------
-  { id: 'stoom3700', naam: 'Stoomlocomotief NS 3700 + rijtuigen', modus: 'trein', van: 1910, tot: 1958, zit: 240, sta: 60, vmax: 90, acc: 0.25, prijs: 4.5e6, km: 9.0, energie: 'kolen', pers: 2, leven: 40, wie: 'HSM, SS, NS' },
-  { id: 'mat36', naam: 'Materieel \'36 (Mat \'36)', modus: 'trein', van: 1936, tot: 1962, zit: 200, sta: 80, vmax: 125, acc: 0.5, prijs: 6e6, km: 5.2, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
-  { id: 'hondekop', naam: 'Mat \'54 "Hondekop" (4-delig)', modus: 'trein', van: 1956, tot: 1996, zit: 216, sta: 100, vmax: 140, acc: 0.55, prijs: 8e6, km: 5.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'planv', naam: 'Mat \'64 "Plan V" (2-delig)', modus: 'trein', van: 1966, tot: 2016, zit: 152, sta: 100, vmax: 140, acc: 0.6, prijs: 5e6, km: 4.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'sgm', naam: 'SGM "Sprinter" (3-delig)', modus: 'trein', van: 1975, tot: 2021, zit: 180, sta: 190, vmax: 125, acc: 0.9, prijs: 6e6, km: 4.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'icm', naam: 'ICM "Koploper" (4-delig)', modus: 'trein', van: 1983, tot: 2027, zit: 240, sta: 120, vmax: 160, acc: 0.6, prijs: 9e6, km: 5.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'ddz', naam: 'DDZ dubbeldekker (6-delig)', modus: 'trein', van: 2011, tot: 2030, zit: 550, sta: 250, vmax: 140, acc: 0.6, prijs: 14e6, km: 8.5, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
-  { id: 'virm6', naam: 'VIRM dubbeldekker (6-delig)', modus: 'trein', van: 1994, tot: 2035, zit: 570, sta: 300, vmax: 160, acc: 0.6, prijs: 16e6, km: 8.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'icng5', naam: 'ICNG (5-delig)', modus: 'trein', van: 2023, tot: 2065, zit: 286, sta: 240, vmax: 200, acc: 0.7, prijs: 15e6, km: 6.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'slt6', naam: 'SLT Sprinter (6-delig)', modus: 'trein', van: 2009, tot: 2045, zit: 250, sta: 370, vmax: 160, acc: 1.1, prijs: 11e6, km: 6.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'sng4', naam: 'SNG Sprinter (4-delig)', modus: 'trein', van: 2018, tot: 2060, zit: 160, sta: 300, vmax: 160, acc: 1.1, prijs: 9.5e6, km: 5.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
-  { id: 'flirt4', naam: 'Stadler FLIRT (4-delig)', modus: 'trein', van: 2016, tot: 2060, zit: 200, sta: 240, vmax: 160, acc: 1.1, prijs: 8e6, km: 4.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS, Arriva, Keolis, Qbuzz' },
-  { id: 'gtw', naam: 'Stadler GTW (2/6, diesel)', modus: 'trein', van: 2006, tot: 2040, zit: 110, sta: 90, vmax: 140, acc: 0.9, prijs: 5e6, km: 4.5, energie: 'diesel', pers: 1, leven: 30, wie: 'Arriva, Keolis' },
-  { id: 'wink', naam: 'Stadler WINK (accu/HVO)', modus: 'trein', van: 2021, tot: 2060, zit: 150, sta: 120, vmax: 140, acc: 1.0, prijs: 9e6, km: 3.8, energie: 'accu-hybride', pers: 1, leven: 35, wie: 'Arriva' },
-  { id: 'lint41', naam: 'Alstom Coradia LINT 41 (diesel)', modus: 'trein', van: 2006, tot: 2040, zit: 120, sta: 80, vmax: 120, acc: 0.9, prijs: 4.5e6, km: 4.3, energie: 'diesel', pers: 1, leven: 30, wie: 'Keolis, Arriva' },
-  { id: 'buffel', naam: 'DM \'90 "Buffel" (diesel)', modus: 'trein', van: 1996, tot: 2021, zit: 128, sta: 80, vmax: 140, acc: 0.8, prijs: 5e6, km: 5.0, energie: 'diesel', pers: 1, leven: 30, wie: 'NS, Syntus' },
-  { id: 'ice3', naam: 'ICE 3 (hogesnelheid)', modus: 'trein', van: 2000, tot: 2050, zit: 440, sta: 0, vmax: 300, acc: 0.6, prijs: 35e6, km: 14, energie: 'elektrisch', pers: 1, leven: 30, wie: 'DB, NS International' },
+  { id: 'stoom3700', naam: 'Stoomlocomotief NS 3700 + rijtuigen', modus: 'trein', van: 1910, tot: 1958, zit: 240, sta: 60, vmax: 90, acc: 0.25, prijs: 4.5e6, km: 4.5, energie: 'kolen', pers: 2, leven: 40, wie: 'HSM, SS, NS' },
+  { id: 'mat36', naam: 'Materieel \'36 (Mat \'36)', modus: 'trein', van: 1936, tot: 1962, zit: 200, sta: 80, vmax: 125, acc: 0.5, prijs: 6e6, km: 2.6, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
+  { id: 'hondekop', naam: 'Mat \'54 "Hondekop" (4-delig)', modus: 'trein', van: 1956, tot: 1996, zit: 216, sta: 100, vmax: 140, acc: 0.55, prijs: 8e6, km: 2.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'planv', naam: 'Mat \'64 "Plan V" (2-delig)', modus: 'trein', van: 1966, tot: 2016, zit: 152, sta: 100, vmax: 140, acc: 0.6, prijs: 5e6, km: 2.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'sgm', naam: 'SGM "Sprinter" (3-delig)', modus: 'trein', van: 1975, tot: 2021, zit: 180, sta: 190, vmax: 125, acc: 0.9, prijs: 6e6, km: 2.1, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'icm', naam: 'ICM "Koploper" (4-delig)', modus: 'trein', van: 1983, tot: 2027, zit: 240, sta: 120, vmax: 160, acc: 0.6, prijs: 9e6, km: 2.9, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'ddz', naam: 'DDZ dubbeldekker (6-delig)', modus: 'trein', van: 2011, tot: 2030, zit: 550, sta: 250, vmax: 140, acc: 0.6, prijs: 14e6, km: 4.2, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
+  { id: 'virm6', naam: 'VIRM dubbeldekker (6-delig)', modus: 'trein', van: 1994, tot: 2035, zit: 570, sta: 300, vmax: 160, acc: 0.6, prijs: 16e6, km: 4.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'icng5', naam: 'ICNG (5-delig)', modus: 'trein', van: 2023, tot: 2065, zit: 286, sta: 240, vmax: 200, acc: 0.7, prijs: 15e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'slt6', naam: 'SLT Sprinter (6-delig)', modus: 'trein', van: 2009, tot: 2045, zit: 250, sta: 370, vmax: 160, acc: 1.1, prijs: 11e6, km: 3.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'sng4', naam: 'SNG Sprinter (4-delig)', modus: 'trein', van: 2018, tot: 2060, zit: 160, sta: 300, vmax: 160, acc: 1.1, prijs: 9.5e6, km: 2.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'flirt4', naam: 'Stadler FLIRT (4-delig)', modus: 'trein', van: 2016, tot: 2060, zit: 200, sta: 240, vmax: 160, acc: 1.1, prijs: 8e6, km: 2.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS, Arriva, Keolis, Qbuzz' },
+  { id: 'gtw', naam: 'Stadler GTW (2/6, diesel)', modus: 'trein', van: 2006, tot: 2040, zit: 110, sta: 90, vmax: 140, acc: 0.9, prijs: 5e6, km: 2.2, energie: 'diesel', pers: 1, leven: 30, wie: 'Arriva, Keolis' },
+  { id: 'wink', naam: 'Stadler WINK (accu/HVO)', modus: 'trein', van: 2021, tot: 2060, zit: 150, sta: 120, vmax: 140, acc: 1.0, prijs: 9e6, km: 1.9, energie: 'accu-hybride', pers: 1, leven: 35, wie: 'Arriva' },
+  { id: 'lint41', naam: 'Alstom Coradia LINT 41 (diesel)', modus: 'trein', van: 2006, tot: 2040, zit: 120, sta: 80, vmax: 120, acc: 0.9, prijs: 4.5e6, km: 2.1, energie: 'diesel', pers: 1, leven: 30, wie: 'Keolis, Arriva' },
+  { id: 'buffel', naam: 'DM \'90 "Buffel" (diesel)', modus: 'trein', van: 1996, tot: 2021, zit: 128, sta: 80, vmax: 140, acc: 0.8, prijs: 5e6, km: 2.5, energie: 'diesel', pers: 1, leven: 30, wie: 'NS, Syntus' },
+  { id: 'ice3', naam: 'ICE 3 (hogesnelheid)', modus: 'trein', van: 2000, tot: 2050, zit: 440, sta: 0, vmax: 300, acc: 0.6, prijs: 35e6, km: 7.0, energie: 'elektrisch', pers: 1, leven: 30, wie: 'DB, NS International' },
 
   // ---------------- metro / sneltram ----------------
   { id: 'gvbm1', naam: 'GVB M1/M2 (Linke-Hofmann-Busch)', modus: 'metro', van: 1977, tot: 2015, zit: 120, sta: 200, vmax: 70, acc: 1.0, prijs: 5e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'GVB' },
@@ -81,6 +82,20 @@ export const VLOOT = [
   { id: 'sneldienst', naam: 'Snelle catamaran (sneldienst)', modus: 'veer', van: 1995, tot: 2060, zit: 400, sta: 0, vmax: 60, acc: 0.3, prijs: 25e6, km: 90, energie: 'diesel', pers: 4, leven: 25, wie: 'Doeksen, Westerschelde Ferry' },
   { id: 'watertaxi', naam: 'Watertaxi (12 personen)', modus: 'watertaxi', van: 1990, tot: 2060, zit: 12, sta: 0, vmax: 45, acc: 0.6, prijs: 350e3, km: 6, energie: 'diesel', pers: 1, leven: 15, wie: 'Watertaxi Rotterdam' },
   { id: 'watertaxie', naam: 'Elektrische watertaxi', modus: 'watertaxi', van: 2021, tot: 2060, zit: 12, sta: 0, vmax: 30, acc: 0.5, prijs: 500e3, km: 2.5, energie: 'elektrisch', pers: 1, leven: 15, wie: 'diverse' },
+
+  // ---------------- luchtvaart (baan = minimale baanlengte in meters, gras = kan op een grasbaan) ----------------
+  { id: 'dc3', naam: 'Douglas DC-3 Dakota', modus: 'vlucht', van: 1936, tot: 1965, zit: 28, sta: 0, vmax: 290, acc: 1.5, prijs: 3e6, km: 9, energie: 'avgas', pers: 3, leven: 25, baan: 800, gras: true, wie: 'KLM' },
+  { id: 'f27', naam: 'Fokker F27 Friendship', modus: 'vlucht', van: 1958, tot: 1996, zit: 48, sta: 0, vmax: 460, acc: 1.5, prijs: 8e6, km: 10, energie: 'kerosine', pers: 3, leven: 25, baan: 1100, gras: false, wie: 'NLM, KLM' },
+  { id: 'f50', naam: 'Fokker 50', modus: 'vlucht', van: 1987, tot: 2018, zit: 50, sta: 0, vmax: 520, acc: 1.5, prijs: 12e6, km: 9, energie: 'kerosine', pers: 4, leven: 25, baan: 1100, gras: false, wie: 'KLM Cityhopper, Denim Air' },
+  { id: 'f70', naam: 'Fokker 70', modus: 'vlucht', van: 1994, tot: 2017, zit: 80, sta: 0, vmax: 780, acc: 2, prijs: 20e6, km: 14, energie: 'kerosine', pers: 5, leven: 25, baan: 1300, gras: false, wie: 'KLM Cityhopper' },
+  { id: 'cessna172', naam: 'Cessna 172 (rondvlucht/taxi)', modus: 'vlucht', van: 1956, tot: 2060, zit: 3, sta: 0, vmax: 220, acc: 1.5, prijs: 450e3, km: 1.2, energie: 'avgas', pers: 1, leven: 30, baan: 450, gras: true, wie: 'vliegscholen, Paracentrum Texel' },
+  { id: 'islander', naam: 'Britten-Norman Islander', modus: 'vlucht', van: 1967, tot: 2060, zit: 9, sta: 0, vmax: 270, acc: 1.5, prijs: 2.2e6, km: 2.8, energie: 'avgas', pers: 1, leven: 30, baan: 400, gras: true, wie: 'eilandhoppers' },
+  { id: 'pilatus', naam: 'Pilatus PC-12 (luchttaxi)', modus: 'vlucht', van: 1994, tot: 2060, zit: 8, sta: 0, vmax: 500, acc: 1.5, prijs: 5.5e6, km: 3.5, energie: 'kerosine', pers: 1, leven: 25, baan: 800, gras: true, wie: 'luchttaxibedrijven' },
+  { id: 'atr72', naam: 'ATR 72-600', modus: 'vlucht', van: 2011, tot: 2060, zit: 70, sta: 0, vmax: 510, acc: 1.5, prijs: 26e6, km: 8, energie: 'kerosine', pers: 4, leven: 25, baan: 1300, gras: false, wie: 'regionale maatschappijen' },
+  { id: 'e175', naam: 'Embraer 175', modus: 'vlucht', van: 2008, tot: 2045, zit: 88, sta: 0, vmax: 830, acc: 2, prijs: 45e6, km: 15, energie: 'kerosine', pers: 5, leven: 25, baan: 1700, gras: false, wie: 'KLM Cityhopper' },
+  { id: 'e195e2', naam: 'Embraer 195-E2', modus: 'vlucht', van: 2021, tot: 2060, zit: 132, sta: 0, vmax: 830, acc: 2, prijs: 60e6, km: 17, energie: 'kerosine', pers: 6, leven: 25, baan: 1900, gras: false, wie: 'KLM Cityhopper' },
+  { id: 'b737', naam: 'Boeing 737-800', modus: 'vlucht', van: 1998, tot: 2045, zit: 186, sta: 0, vmax: 840, acc: 2, prijs: 75e6, km: 22, energie: 'kerosine', pers: 6, leven: 25, baan: 2200, gras: false, wie: 'KLM, Transavia, TUI' },
+  { id: 'heli', naam: 'Helikopter (AW139)', modus: 'vlucht', van: 2004, tot: 2060, zit: 12, sta: 0, vmax: 300, acc: 2, prijs: 13e6, km: 16, energie: 'kerosine', pers: 2, leven: 20, baan: 0, gras: true, wie: 'offshore, ANWB MAA' },
 ];
 
 export const TYPE = Object.fromEntries(VLOOT.map(v => [v.id, v]));

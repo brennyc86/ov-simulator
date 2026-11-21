@@ -10,7 +10,7 @@ import * as Cloud from './cloud.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-const D = { stations: [], wissels: [], plaatsen: [], veren: [], haltes: [], vervoerders: [], dag: '', ok: {} };
+const D = { stations: [], wissels: [], plaatsen: [], veren: [], haltes: [], vervoerders: [], vliegvelden: [], dag: '', ok: {} };
 let net = new Net(null), kaart, spel = null, snelheid = 1, tool = 'kijk', slot = null, paneelSoort = null;
 let bouw = null, selectie = null;
 
@@ -20,8 +20,9 @@ async function json(pad) {
   catch { D.ok[pad] = false; return null; }
 }
 async function laadData() {
-  const [spoor, st, w, pl, ve, ha, vv, hi] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
-    'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json'].map(json));
+  const [spoor, st, w, pl, ve, ha, vv, hi, vl] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
+    'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json'].map(json));
+  D.vliegvelden = (vl?.vliegvelden || []).map(v => ({ ...v, landing: LANDING[v.s] ?? 60 }));
   net = new Net(spoor);
   D.stations = st?.stations || [];
   D.wissels = w?.wissels || [];
@@ -36,6 +37,9 @@ async function laadData() {
   if (!spoor) melding('De kaartdata wordt nog voor het eerst gegenereerd (GitHub Actions). Je kunt al rondkijken; spoor en stations verschijnen zodra die klaar is.', 9000);
   kaart.vuil = true;
 }
+
+// landingsgeld per landing (benadering) per soort vliegveld
+const LANDING = { international: 1500, regionaal: 500, public: 60, veld: 60, airstrip: 30, heliport: 150, private: 40, militair: 0 };
 
 // ---------------------------------------------------------------- kaartlagen
 let padCache = null;
@@ -127,6 +131,17 @@ function tekenStations(ctx, k) {
     ctx.stroke();
     if ((trein && (r < 40 || (r < 120 && s.p >= 4) || s.p >= 8)) || (!trein && r < 3)) labels.push([s.n + (s.e ? ' (opgeheven)' : ''), px + groot + 4, py, trein]);
   }
+  // vliegvelden: groot altijd, klein bij inzoomen
+  for (const v of D.vliegvelden) {
+    if (v.x < x0 || v.x > x1 || v.y < y0 || v.y > y1 || (v.b && v.b > jaar)) continue;
+    const groot = v.baan >= 1800;
+    if (!groot && r > 250) continue;
+    const px = k.sx(v.x), py = k.sy(v.y);
+    ctx.beginPath(); ctx.arc(px, py, groot ? 9 : 7, 0, 7);
+    ctx.fillStyle = v.s === 'militair' ? '#d9d9d9' : '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#5b4bb7'; ctx.stroke();
+    ctx.fillStyle = '#5b4bb7'; ctx.font = `${groot ? 12 : 10}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillText('✈', px, py + 0.5); ctx.textAlign = 'left';
+    if ((groot && r < 400) || r < 60) labels.push([`${v.n}${v.baan ? ` (${v.baan} m${v.verhard ? '' : ', gras'})` : ''}`, px + 12, py, groot]);
+  }
   // GTFS-haltes (bus) bij inzoomen
   if (r < 6) {
     for (const h of D.haltes) {
@@ -196,7 +211,8 @@ function tekenBoven(ctx, k) {
     ctx.save(); ctx.translate(px, py); ctx.rotate(-v.hoek);
     ctx.fillStyle = eigen ? spel.kleur : (v.lijn.kleur && v.lijn.kleur.length === 7 ? v.lijn.kleur : MODI[m]?.kleur || '#555');
     ctx.strokeStyle = eigen ? '#fff' : 'rgba(0,0,0,.55)'; ctx.lineWidth = eigen ? 1.5 : 0.8;
-    if (m === 'veer' || m === 'watertaxi') { ctx.beginPath(); ctx.moveTo(lang / 2, 0); ctx.lineTo(-lang / 2, breed); ctx.lineTo(-lang / 2, -breed); ctx.closePath(); }
+    if (m === 'vlucht') { ctx.beginPath(); ctx.moveTo(9 * maat, 0); ctx.lineTo(-6 * maat, 7 * maat); ctx.lineTo(-3 * maat, 0); ctx.lineTo(-6 * maat, -7 * maat); ctx.closePath(); }
+    else if (m === 'veer' || m === 'watertaxi') { ctx.beginPath(); ctx.moveTo(lang / 2, 0); ctx.lineTo(-lang / 2, breed); ctx.lineTo(-lang / 2, -breed); ctx.closePath(); }
     else { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-lang / 2, -breed / 2, lang, breed, 1.5) : ctx.rect(-lang / 2, -breed / 2, lang, breed); }
     ctx.fill(); ctx.stroke();
     ctx.restore();
@@ -474,7 +490,15 @@ const PANELEN = {
       <p class="klein">Eigen spoor is van jou: je betaalt geen gebruiksvergoeding, en anderen betalen jou als ze er willen rijden. Bouwtijd ongeveer ${Math.round(60 + km * 8)} speldagen.</p>`;
   },
   nieuweLijn(d) {
-    const typen = beschikbaar(spel.jaar, d.modus);
+    let typen = beschikbaar(spel.jaar, d.modus);
+    if (d.modus === 'vlucht') {
+      const minBaan = Math.min(...d.haltes.map(h => h.heli ? 0 : (h.baan || 600)));
+      const gras = d.haltes.some(h => !h.verhard && !h.heli);
+      const heli = d.haltes.some(h => h.heli);
+      typen = typen.filter(v => v.baan <= minBaan && (!gras || v.gras) && (!heli || v.baan === 0));
+      if (!typen.length) return `<h2>Geen toestel past</h2><p>De kortste baan op deze route is ${minBaan} m${gras ? ' en er is een grasbaan' : ''}. Er is in ${spel.jaar} geen toestel dat daar kan landen.</p><button class="knop" data-actie="lijn-annuleer">Terug</button>`;
+      d.waarschuwing = (d.waarschuwing || '') + `Kortste baan ${minBaan} m${gras ? ' (gras)' : ''}: alleen toestellen die daar kunnen landen staan in de lijst.`;
+    }
     const vrijNr = String(spel.lijnen.length + 1);
     return `<h2>Nieuwe ${MODI[d.modus].naam.toLowerCase()}lijn</h2>
       <p class="klein">${d.haltes.length} haltes · ${(d.route.lengte / 1000).toFixed(1).replace('.', ',')} km${d.route.weg === false ? ' · <b>geen wegroute gevonden, rechte lijnen</b>' : ''}${d.waarschuwing ? '<br><b style="color:var(--rood)">' + esc(d.waarschuwing) + '</b>' : ''}</p>
@@ -679,7 +703,7 @@ function zetTool(t) {
   if (t === 'spoor') { bouw = { punten: [] }; hint('Klik punten voor het nieuwe spoor. Begin en eind sluiten aan op bestaand spoor.', [['Klaar', spoorKlaar], ['Laatste punt weg', () => { bouw.punten.pop(); }], ['Stoppen', () => zetTool('kijk')]]); }
 }
 function kiesModus() {
-  const modi = [['trein', 'Trein'], ['metro', 'Metro'], ['sneltram', 'Sneltram'], ['tram', 'Tram'], ['bus', 'Bus'], ['hov', 'Snelbus'], ['belbus', 'Belbus'], ['veer', 'Veer'], ['watertaxi', 'Watertaxi']];
+  const modi = [['trein', 'Trein'], ['metro', 'Metro'], ['sneltram', 'Sneltram'], ['tram', 'Tram'], ['bus', 'Bus'], ['hov', 'Snelbus'], ['belbus', 'Belbus'], ['veer', 'Veer'], ['watertaxi', 'Watertaxi'], ['vlucht', 'Vliegtuig']];
   hint('Wat voor lijn?', modi.map(([m, n]) => [n, () => {
     bouw = { modus: m, punten: [] };
     hint(`Klik de haltes van je ${MODI[m].naam.toLowerCase()}lijn op volgorde aan.${['bus', 'hov', 'belbus', 'veer', 'watertaxi'].includes(m) ? ' Klik je naast een halte, dan komt er automatisch een nieuwe.' : ''}`,
@@ -711,6 +735,7 @@ function nieuweHalte(x, y, modus, stil) {
 // welke bestaande haltes en stations passen bij een modus
 function kandidaten(modus) {
   const uit = [];
+  if (modus === 'vlucht') return D.vliegvelden.filter(v => v.s !== 'militair' && !(v.b && v.b > spel.jaar)).map(v => ({ naam: v.n, x: v.x, y: v.y, baan: v.baan, verhard: v.verhard, landing: v.landing, heli: v.s === 'heliport' }));
   const st = { trein: ['trein'], metro: ['metro', 'sneltram'], sneltram: ['sneltram', 'tram', 'metro'], tram: ['tram', 'sneltram'], bus: ['busstation'], hov: ['busstation'], belbus: ['busstation'], veer: ['veer'], watertaxi: ['veer'] }[modus];
   for (const s of D.stations) if (st.includes(s.s) && stationZichtbaar(s, spel.jaar)) uit.push({ naam: s.n, x: s.x, y: s.y, p: s.p });
   const bit = { trein: 1, metro: 2, sneltram: 6, tram: 4, bus: 8 | 32, hov: 8, belbus: 8 | 32, veer: 16, watertaxi: 16 }[modus];
@@ -737,14 +762,14 @@ async function lijnKlaar() {
       pts.push(...r.pts); lengte += r.lengte; takken.push(...r.takken);
     }
     route = { pts, lengte, takken };
-  } else if (m === 'veer' || m === 'watertaxi') {
+  } else if (m === 'veer' || m === 'watertaxi' || m === 'vlucht') {
     const pts = p.flatMap(h => [h.x, h.y]); let lengte = 0;
     for (let i = 1; i < p.length; i++) lengte += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
     route = { pts, lengte };
   } else route = await wegRoute(p.map(h => [h.x, h.y]));
   bouw.route = route;
   hint(null);
-  openPaneel('nieuweLijn', { modus: m, haltes: p.map(h => ({ naam: h.naam, x: h.x, y: h.y })), route, waarschuwing });
+  openPaneel('nieuweLijn', { modus: m, haltes: p.map(h => ({ naam: h.naam, x: h.x, y: h.y, ...(m === 'vlucht' ? { baan: h.baan, verhard: h.verhard, landing: h.landing, heli: h.heli } : {}) })), route, waarschuwing });
 }
 function maakNieuweLijn() {
   const d = paneelData;

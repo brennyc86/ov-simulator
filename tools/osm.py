@@ -95,6 +95,11 @@ def vereenvoudig(punten, tol):
     return [p for p, h in zip(punten, houd) if h]
 
 
+def in_nl(x, y):
+    """Europees Nederland (de RD-formule geldt niet voor Caribisch Nederland)."""
+    return -30000 < x < 330000 and 270000 < y < 680000
+
+
 def rd_int(lat, lon):
     x, y = naar_rd(lat, lon)
     return int(round(x)), int(round(y))
@@ -344,6 +349,8 @@ def plaatsen(bbox, uit):
         if not inw:
             inw = {"city": 60000, "town": 12000, "village": 1500}[t["place"]]
         x, y = rd_int(e["lat"], e["lon"])
+        if not in_nl(x, y):
+            continue
         lijst.append([t.get("name", ""), x, y, inw, t["place"][0]])
     lijst.sort(key=lambda r: -r[3])
     print(f"  {len(lijst)} plaatsen", flush=True)
@@ -366,6 +373,58 @@ def veren(bbox, uit):
                       "m": 1 if t.get("motor_vehicle") in ("yes", "designated") else 0, "c": plat})
     print(f"  {len(lijst)} veerverbindingen", flush=True)
     schrijf(uit, "veren.json", {"veren": lijst})
+
+
+def vliegvelden(bbox, uit):
+    """Alle vliegvelden, ook kleine (grasbanen, zweefvliegvelden) en helihavens, met de langste baan."""
+    voor, g = gebied(bbox)
+    res = overpass(f"""[out:json][timeout:600];{voor}
+(nwr{g}["aeroway"~"^(aerodrome|airstrip|heliport)$"];);
+out center tags;
+way{g}["aeroway"="runway"];
+out tags geom;""")
+    velden, banen = [], []
+    for e in res["elements"]:
+        t = e.get("tags", {})
+        if t.get("aeroway") == "runway" and e.get("geometry"):
+            pts = [rd_int(p["lat"], p["lon"]) for p in e["geometry"]]
+            lengte = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts, pts[1:]))
+            try:
+                lengte = max(lengte, float(re.sub(r"[^\d.]", "", t.get("length", "")) or 0))
+            except ValueError:
+                pass
+            cx = sum(p[0] for p in pts) / len(pts)
+            cy = sum(p[1] for p in pts) / len(pts)
+            verhard = t.get("surface", "") in ("asphalt", "concrete", "paved", "paving_stones")
+            banen.append((cx, cy, lengte, verhard))
+            continue
+        c = e.get("center") or e
+        if "lat" not in c or t.get("aeroway") not in ("aerodrome", "airstrip", "heliport"):
+            continue
+        naam = t.get("name") or t.get("name:nl") or ""
+        if not naam:
+            continue
+        x, y = rd_int(c["lat"], c["lon"])
+        if not in_nl(x, y):
+            continue
+        soort = t.get("aerodrome:type") or t.get("aerodrome") or ""
+        if t.get("aeroway") == "heliport":
+            soort = "heliport"
+        elif t.get("military") or t.get("landuse") == "military" or "military" in soort:
+            soort = "militair"
+        elif t.get("iata") and soort in ("", "public"):
+            soort = "regionaal"
+        velden.append({"n": naam, "x": x, "y": y, "icao": t.get("icao", ""), "iata": t.get("iata", ""),
+                       "s": soort or ("airstrip" if t.get("aeroway") == "airstrip" else "veld"),
+                       "b": jaar(t.get("start_date") or t.get("opening_date")), "baan": 0, "verhard": 0})
+    for v in velden:
+        for bx, by, lengte, verhard in banen:
+            if math.hypot(bx - v["x"], by - v["y"]) < 3500 and lengte > v["baan"]:
+                v["baan"], v["verhard"] = int(lengte), int(verhard)
+    velden.sort(key=lambda v: -v["baan"])
+    print(f"  {len(velden)} vliegvelden ({sum(1 for v in velden if v['iata'])} met IATA-code)", flush=True)
+    schrijf(uit, "vliegvelden.json", {"uitleg": "n naam, s soort, baan langste baan (m), verhard 1/0, b openingsjaar",
+                                      "vliegvelden": velden})
 
 
 def historie(uit):
@@ -397,6 +456,7 @@ def main():
     wissels(a.bbox, a.uit)
     plaatsen(a.bbox, a.uit)
     veren(a.bbox, a.uit)
+    vliegvelden(a.bbox, a.uit)
     historie(a.uit)
 
 
