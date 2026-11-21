@@ -21,7 +21,7 @@ export class Kaart {
     this.lagenBoven = [];
     this.bijKlik = null; this.bijBeweeg = null; this.bijKlaar = null; this.bijBeweging = null;
     this.map = new maplibregl.Map({
-      container: mapDiv, style: kaartStijl(donker), center: [5.3, 52.2], zoom: 7, minZoom: 5, maxZoom: 19,
+      container: mapDiv, style: kaartStijl(donker), center: [5.17, 52.24], zoom: 10.3, minZoom: 5, maxZoom: 19,
       attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false, touchPitch: false,
     });
     this.map.touchZoomRotate.disableRotation();

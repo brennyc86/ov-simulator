@@ -979,7 +979,7 @@ async function nieuwSpelStarten() {
   begin();
   const bb = vervoerder?.bbox || (hist && gebiedVan(hist));
   if (bb) { const b = bb; kaart.vliegNaar((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.max(b[2] - b[0], b[3] - b[1]) / Math.min(kaart.W, kaart.H) * 1.1); }
-  else kaart.vliegNaar(136000, 456000, 25);
+  else kaart.vliegNaar(140700, 470500, 18); // 't Gooi
   $('s-start').disabled = false; $('s-start').textContent = 'Spel starten';
 }
 function begin() {
