@@ -166,7 +166,7 @@ export function beoordeelVerschuiving(spel, vz, ctx) {
 export function beoordeelPad(spel, vz, ctx) {
   const lijn = spel.lijnen.find(l => l.id === vz.lijnId);
   if (!lijn) return { status: 'afgewezen', reden: 'Lijn bestaat niet meer.' };
-  const sporen = lijn.route.takken ? ctx.net.minSporen(lijn.route.takken) : 2;
+  const sporen = lijn.route.takken ? ctx.net.minSporen(lijn.route.takken) : (lijn.route.minSporen || 2);
   const cap = sporen >= 4 ? 24 : sporen === 3 ? 18 : sporen === 2 ? 12 : 4;
   const gevraagd = Math.ceil(60 / Math.min(...Object.values(lijn.interval).map(v => v || 999)));
   const gebruik = treinenPerUurOp(lijn);

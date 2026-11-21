@@ -8,6 +8,8 @@ import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelPad, beoordeelBouw, beoordeelConcessie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
+import { vervoerdersIn, gebiedVan } from './historie.js';
+import { genereerVervoerder } from './genereer.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -831,6 +833,29 @@ function afstandTotLijnstuk(px, py, ax, ay, bx, by) {
   return Math.hypot(px - ax - dx * f, py - ay - dy * f);
 }
 
+// andere vervoerders uit hetzelfde jaar op de achtergrond opbouwen (alleen als er geen echte dienstregeling is)
+let aiBezig = false;
+async function historischeAI() {
+  if (aiBezig) return; aiBezig = true;
+  AI.lijnen = [];
+  const jaar = spel.jaar;
+  for (const v of vervoerdersIn(jaar)) {
+    if (v.id === spel.vervoerder?.id || !spel || spel.jaar !== jaar) continue;
+    const lijnen = await genereerVervoerder(v, jaar, D, net, D.plaatsen);
+    for (const l of lijnen) AI.lijnen.push(Object.assign(l, { ai: true, vervoerder: v.id, vervoerderNaam: v.naam, sleutel: `${v.id}:${l.id}:0`, lijnId: l.id, kleur: v.kleur }));
+  }
+  aiBezig = false;
+}
+// rechte busroutes vervangen door echte wegroutes (rustig, één per seconde)
+async function busroutesVerfijnen() {
+  for (const l of spel.lijnen) {
+    if (!l.route?.rechtLijnig) continue;
+    const r = await wegRoute(l.haltes.map(h => [h.x, h.y]));
+    if (r.weg) { l.route = r; S.herbereken(l); eigenNetBijwerken(); }
+    await new Promise(res => setTimeout(res, 1100));
+  }
+}
+
 // AI-dienstregelingen laden voor wat in beeld is
 let laadTimer = 0;
 function laadAIinBeeld() {
@@ -849,11 +874,29 @@ function laadAIinBeeld() {
 }
 
 // ---------------------------------------------------------------- opslaan en laden
+function vereenvoudig(pts, tol) {
+  const n = pts.length / 2; if (n < 3) return pts;
+  const houd = new Uint8Array(n); houd[0] = houd[n - 1] = 1;
+  const stapel = [[0, n - 1]];
+  while (stapel.length) {
+    const [a, b] = stapel.pop(); const ax = pts[a * 2], ay = pts[a * 2 + 1], bx = pts[b * 2], by = pts[b * 2 + 1];
+    const dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1e-9; let ver = 0, idx = -1;
+    for (let i = a + 1; i < b; i++) { const d = Math.abs(dy * pts[i * 2] - dx * pts[i * 2 + 1] + bx * ay - by * ax) / l; if (d > ver) { ver = d; idx = i; } }
+    if (ver > tol && idx > 0) { houd[idx] = 1; stapel.push([a, idx], [idx, b]); }
+  }
+  const uit = []; for (let i = 0; i < n; i++) if (houd[i]) uit.push(pts[i * 2], pts[i * 2 + 1]); return uit;
+}
+const pakPts = pts => { const v = vereenvoudig(pts, 6), u = []; let px = 0, py = 0; for (let i = 0; i < v.length; i += 2) { const x = Math.round(v[i]), y = Math.round(v[i + 1]); u.push(x - px, y - py); px = x; py = y; } return u; };
+const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; u.push(x, y); } return u; };
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
     const { cum, km, t, vertrek, _vangst, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
-    else if (rest.echt) rest.echt = { ...rest.echt, v: undefined };
+    else {
+      if (rest.echt) rest.echt = { ...rest.echt, v: undefined };
+      if (rest.route) rest.route = { d: pakPts(rest.route.pts), lengte: Math.round(rest.route.lengte), minSporen: l.route.takken ? net.minSporen(l.route.takken) : undefined, weg: rest.route.weg, rechtLijnig: rest.route.rechtLijnig };
+    }
+    rest.haltes = rest.haltes.map(h => ({ ...h, x: Math.round(h.x), y: Math.round(h.y) }));
     return rest;
   }) };
   return kopie;
@@ -873,6 +916,7 @@ async function bewaar(hand) {
 async function laadSpel(data, nieuwSlot) {
   spel = data; slot = nieuwSlot;
   for (const l of spel.lijnen) {
+    if (l.route?.d) l.route = { pts: pakUit(l.route.d), lengte: l.route.lengte, minSporen: l.route.minSporen, weg: l.route.weg, rechtLijnig: l.route.rechtLijnig };
     if (l.bron && !l.route) {
       const v = D.vervoerders.find(x => x.id === l.bron.vervoerder);
       if (v) { const ai = await laadVervoerderLijnen(v); const a = ai.find(x => x.lijnId === l.bron.lijnId && x.sleutel.endsWith(':0')); if (a) vulVanAI(l, a, ai); }
@@ -896,14 +940,23 @@ async function nieuwSpelStarten() {
   const soort = document.querySelector('#s-soort [aria-pressed="true"]').dataset.v;
   const jaar = +$('s-jaar').value;
   const naam = $('s-naam').value.trim() || 'Knooppunt Vervoer';
-  let vervoerder = null;
+  let vervoerder = null, hist = null;
   if (soort === 'bestaand') {
-    const id = document.querySelector('input[name="vervoerder"]:checked')?.value;
-    vervoerder = D.vervoerders.find(v => v.id === id);
-    if (!vervoerder) { melding('Kies eerst een vervoerder.'); return; }
+    const keuze = document.querySelector('input[name="vervoerder"]:checked')?.value || '';
+    const [bron, id] = keuze.split(':');
+    if (bron === 'gtfs') vervoerder = D.vervoerders.find(v => v.id === id);
+    if (bron === 'hist') hist = vervoerdersIn(jaar).find(v => v.id === id);
+    if (!vervoerder && !hist) { melding('Kies eerst een vervoerder.'); return; }
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
-  spel = S.nieuwSpel({ naam: vervoerder ? vervoerder.naam : naam, kleur: $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : null, kapitaal: 25e6 });
+  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: 25e6 });
+  if (hist) {
+    const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });
+    for (const l of lijnen) { l.gen = true; spel.lijnen.push(l); spel.voertuigen[l.typeId] = (spel.voertuigen[l.typeId] || 0) + Math.ceil(l.nodig * 1.1); }
+    spel.geld = 25e6 + lijnen.length * 0.3e6;
+    melding(`${hist.naam} in ${jaar}: ${lijnen.length} lijnen en ${Object.values(spel.voertuigen).reduce((s, n) => s + n, 0)} voertuigen uit die tijd.`, 7000);
+    busroutesVerfijnen();
+  }
   slot = S.nieuwId('s');
   if (vervoerder) {
     AI.lijnen = AI.lijnen.filter(a => a.vervoerder !== vervoerder.id); AI.geladen.delete(vervoerder.id);
@@ -924,7 +977,8 @@ async function nieuwSpelStarten() {
     melding(`Je neemt ${spel.lijnen.length} lijnen van ${vervoerder.naam} over, met ${Object.values(spel.voertuigen).reduce((s, n) => s + n, 0)} voertuigen.`, 7000);
   }
   begin();
-  if (vervoerder?.bbox) { const b = vervoerder.bbox; kaart.vliegNaar((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.max(b[2] - b[0], b[3] - b[1]) / Math.min(kaart.W, kaart.H) * 1.1); }
+  const bb = vervoerder?.bbox || (hist && gebiedVan(hist));
+  if (bb) { const b = bb; kaart.vliegNaar((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.max(b[2] - b[0], b[3] - b[1]) / Math.min(kaart.W, kaart.H) * 1.1); }
   else kaart.vliegNaar(136000, 456000, 25);
   $('s-start').disabled = false; $('s-start').textContent = 'Spel starten';
 }
@@ -934,24 +988,33 @@ function begin() {
   if (spel.jaar < 1995 && kaart.achtergrond !== 'historisch' && kaart.klaar) { kaart.zetAchtergrond('historisch'); $('bron').textContent = ACHTERGROND_KEUZE.historisch.bron; }
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
   netwerkLagen(); hud(); laadAIinBeeld();
+  if (spel.jaar < 2020) historischeAI();
   if (!spel.lijnen.length) setTimeout(() => melding('Tip: kies ＋ Lijn, dan Bus, en klik een paar plekken in een stad aan. Haltes komen er vanzelf bij.', 8000), 1200);
 }
 
+function vulVervoerders(jaar) {
+  const modern = jaar >= 2020 && D.vervoerders.length;
+  const MODNAAM = { trein: 'trein', bus: 'bus', tram: 'tram', metro: 'metro', veer: 'veer', belbus: 'belbus', vlucht: 'vliegtuig', sneltram: 'sneltram', hov: 'snelbus' };
+  const lijst = modern
+    ? D.vervoerders.map(v => ({ waarde: 'gtfs:' + v.id, naam: v.naam, info: `${v.lijnen} lijnen · ${Object.keys(v.modi).map(m => MODNAAM[m] || m).join(', ')} · echte dienstregeling` }))
+    : vervoerdersIn(jaar).map(v => ({ waarde: 'hist:' + v.id, naam: v.naam, info: `${v.van}–${v.tot > 2050 ? 'nu' : v.tot} · ${v.modi.map(m => MODNAAM[m] || m).join(', ')}` }));
+  $('s-vervoerders').innerHTML = lijst.length ? lijst.map((v, i) => `<label><input type="radio" name="vervoerder" value="${esc(v.waarde)}" ${i ? '' : 'checked'}> ${esc(v.naam)}<span>${esc(v.info)}</span></label>`).join('')
+    + (modern ? '' : '<p class="klein" style="padding:6px 10px">Van dit jaar is geen echte dienstregeling bewaard. Het spel bouwt een lijnennet dat past bij het spoor, de plaatsen en het materieel van toen.</p>')
+    : '<p class="klein" style="padding:8px 10px">De dienstregeling wordt nog verwerkt. Probeer het later of begin blanco.</p>';
+}
 function jaarUitleg(j) {
   if (j >= 2020) return 'Huidige situatie: echte dienstregeling van alle vervoerders rijdt mee.';
-  if (j >= 1990) return 'Recent verleden: modern spoornet zonder recente nieuwbouw (voor zover bekend in OpenStreetMap). Andere vervoerders rijden nog niet mee.';
-  return `Historisch: kaart uit ${kaartjaarVoor(j)}, opgeheven spoorlijnen zichtbaar en materieel uit die tijd. Andere vervoerders rijden nog niet mee.`;
+  if (j >= 1990) return 'Recent verleden: vervoerders en materieel van toen, met een nagebouwde dienstregeling.';
+  return `Historisch: kaart uit ${kaartjaarVoor(j)}, opgeheven spoorlijnen zichtbaar, vervoerders en materieel van toen.`;
 }
 async function toonStart() {
   const dlg = $('start');
   if (!dlg.open) dlg.showModal();
   const jaar = $('s-jaar');
-  jaar.oninput = () => { $('s-jaar-uit').textContent = jaar.value; $('s-jaar-uitleg').textContent = jaarUitleg(+jaar.value); const oud = +jaar.value < 2020; document.querySelector('#s-soort [data-v="bestaand"]').disabled = oud; if (oud) kiesSoort('blanco'); };
+  jaar.oninput = () => { $('s-jaar-uit').textContent = jaar.value; $('s-jaar-uitleg').textContent = jaarUitleg(+jaar.value); vulVervoerders(+jaar.value); };
   const kiesSoort = v => { document.querySelectorAll('#s-soort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); $('s-vervoerders').hidden = v !== 'bestaand'; };
   document.querySelectorAll('#s-soort button').forEach(b => b.onclick = () => kiesSoort(b.dataset.v));
-  const MODNAAM = { trein: 'trein', bus: 'bus', tram: 'tram', metro: 'metro', veer: 'veer', belbus: 'belbus' };
-  $('s-vervoerders').innerHTML = D.vervoerders.length ? D.vervoerders.map((v, i) => `<label><input type="radio" name="vervoerder" value="${esc(v.id)}" ${i ? '' : 'checked'}> ${esc(v.naam)}<span>${v.lijnen} lijnen · ${Object.keys(v.modi).map(m => MODNAAM[m] || m).join(', ')}</span></label>`).join('')
-    : '<p class="klein" style="padding:8px 10px">De dienstregeling wordt nog verwerkt. Probeer het later of begin blanco.</p>';
+  vulVervoerders(+jaar.value);
   $('s-start').onclick = nieuwSpelStarten;
   await toonAccount();
 }

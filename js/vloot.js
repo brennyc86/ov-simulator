@@ -49,6 +49,7 @@ export const VLOOT = [
   // ---------------- tram ----------------
   { id: 'paardentram', naam: 'Paardentram', modus: 'tram', van: 1864, tot: 1917, zit: 20, sta: 10, vmax: 10, acc: 0.3, prijs: 90e3, km: 1.8, energie: 'paarden', pers: 1, leven: 20, wie: 'HTM, AOM, RTM' },
   { id: 'stoomtram', naam: 'Stoomtram', modus: 'tram', van: 1879, tot: 1966, zit: 90, sta: 30, vmax: 30, acc: 0.3, prijs: 900e3, km: 3.2, energie: 'kolen', pers: 2, leven: 35, wie: 'RTM, NTM, GTW' },
+  { id: 'tweeasser', naam: 'Elektrische tweeasser (Werkspoor/Beijnes)', modus: 'tram', van: 1900, tot: 1970, zit: 22, sta: 40, vmax: 40, acc: 0.8, prijs: 900e3, km: 1.9, energie: 'elektrisch', pers: 2, leven: 35, wie: 'GVB, HTM, RET, GVU, NZH' },
   { id: 'pcc', naam: 'HTM PCC-car', modus: 'tram', van: 1949, tot: 1993, zit: 40, sta: 80, vmax: 60, acc: 1.2, prijs: 1.6e6, km: 2.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'HTM' },
   { id: 'gvb9g', naam: 'GVB Beijnes 9G/10G gelede tram', modus: 'tram', van: 1957, tot: 2004, zit: 40, sta: 110, vmax: 50, acc: 1.0, prijs: 1.8e6, km: 2.3, energie: 'elektrisch', pers: 1, leven: 35, wie: 'GVB' },
   { id: 'gtl8', naam: 'HTM GTL8 (BN)', modus: 'tram', van: 1981, tot: 2027, zit: 70, sta: 120, vmax: 70, acc: 1.1, prijs: 2.5e6, km: 2.4, energie: 'elektrisch', pers: 1, leven: 40, wie: 'HTM' },
@@ -59,6 +60,9 @@ export const VLOOT = [
 
   // ---------------- bus ----------------
   { id: 'omnibus', naam: 'Paardenomnibus', modus: 'bus', van: 1839, tot: 1925, zit: 14, sta: 4, vmax: 10, acc: 0.3, prijs: 45e3, km: 1.2, energie: 'paarden', pers: 1, leven: 15, wie: 'diverse' },
+  { id: 'tbus', naam: 'Vroege autobus (Ford/Chevrolet)', modus: 'bus', van: 1920, tot: 1950, zit: 22, sta: 8, vmax: 50, acc: 0.6, prijs: 120e3, km: 0.9, energie: 'benzine', pers: 1, leven: 12, wie: 'streekvervoerders, GADO, FRAM, BBA' },
+  { id: 'kromhout', naam: 'Kromhout stadsbus', modus: 'bus', van: 1935, tot: 1975, zit: 32, sta: 40, vmax: 60, acc: 0.7, prijs: 200e3, km: 0.95, energie: 'diesel', pers: 1, leven: 15, wie: 'GVB, RET, HTM, GVU, gemeentelijke bedrijven' },
+  { id: 'leylandverheul', naam: 'Leyland-Verheul streekbus', modus: 'bus', van: 1950, tot: 1978, zit: 42, sta: 25, vmax: 75, acc: 0.7, prijs: 230e3, km: 0.95, energie: 'diesel', pers: 1, leven: 15, wie: 'NZH, BBA, ZWN, GSM, FRAM, Maarse & Kroon' },
   { id: 'standaardstreek', naam: 'Den Oudsten standaard streekbus', modus: 'bus', van: 1966, tot: 2000, zit: 45, sta: 30, vmax: 80, acc: 0.8, prijs: 260e3, km: 0.95, energie: 'diesel', pers: 1, leven: 15, wie: 'streekvervoerders' },
   { id: 'csa1', naam: 'DAF/Hainje CSA-1 stadsbus', modus: 'bus', van: 1967, tot: 2000, zit: 30, sta: 60, vmax: 70, acc: 0.9, prijs: 250e3, km: 0.95, energie: 'diesel', pers: 1, leven: 15, wie: 'stadsvervoerders' },
   { id: 'citaro', naam: 'Mercedes-Benz Citaro', modus: 'bus', van: 1998, tot: 2040, zit: 36, sta: 60, vmax: 80, acc: 1.0, prijs: 300e3, km: 0.85, energie: 'diesel', pers: 1, leven: 14, wie: 'Arriva, Qbuzz, RET, HTM' },
@@ -84,6 +88,7 @@ export const VLOOT = [
   { id: 'watertaxie', naam: 'Elektrische watertaxi', modus: 'watertaxi', van: 2021, tot: 2060, zit: 12, sta: 0, vmax: 30, acc: 0.5, prijs: 500e3, km: 2.5, energie: 'elektrisch', pers: 1, leven: 15, wie: 'diverse' },
 
   // ---------------- luchtvaart (baan = minimale baanlengte in meters, gras = kan op een grasbaan) ----------------
+  { id: 'fokker7', naam: 'Fokker F.VII', modus: 'vlucht', van: 1924, tot: 1940, zit: 10, sta: 0, vmax: 185, acc: 1.2, prijs: 1.5e6, km: 6, energie: 'benzine', pers: 2, leven: 15, baan: 600, gras: true, wie: 'KLM' },
   { id: 'dc3', naam: 'Douglas DC-3 Dakota', modus: 'vlucht', van: 1936, tot: 1965, zit: 28, sta: 0, vmax: 290, acc: 1.5, prijs: 3e6, km: 9, energie: 'avgas', pers: 3, leven: 25, baan: 800, gras: true, wie: 'KLM' },
   { id: 'f27', naam: 'Fokker F27 Friendship', modus: 'vlucht', van: 1958, tot: 1996, zit: 48, sta: 0, vmax: 460, acc: 1.5, prijs: 8e6, km: 10, energie: 'kerosine', pers: 3, leven: 25, baan: 1100, gras: false, wie: 'NLM, KLM' },
   { id: 'f50', naam: 'Fokker 50', modus: 'vlucht', van: 1987, tot: 2018, zit: 50, sta: 0, vmax: 520, acc: 1.5, prijs: 12e6, km: 9, energie: 'kerosine', pers: 4, leven: 25, baan: 1100, gras: false, wie: 'KLM Cityhopper, Denim Air' },
@@ -105,7 +110,11 @@ export function beschikbaar(jaar, modus) {
 // Welk materieel een bestaande vervoerder waarschijnlijk inzet voor een modus
 export function standaardType(vervoerder, modus, jaar = 2026) {
   const lijst = beschikbaar(jaar, modus);
-  if (!lijst.length) return beschikbaar(jaar).find(v => v.modus === modus) || VLOOT[0];
+  if (!lijst.length) {
+    // geen type uit precies dit jaar: neem het type van deze modus dat er het dichtst bij zit
+    const zelfde = VLOOT.filter(v => v.modus === modus);
+    return zelfde.sort((a, b) => Math.max(a.van - jaar, jaar - a.tot, 0) - Math.max(b.van - jaar, jaar - b.tot, 0))[0] || VLOOT[0];
+  }
   const n = (vervoerder || '').toLowerCase();
   const pas = lijst.find(v => v.wie.toLowerCase().split(/[ ,()]+/).some(w => w.length > 2 && n.includes(w)));
   return pas || lijst[lijst.length - 1];
