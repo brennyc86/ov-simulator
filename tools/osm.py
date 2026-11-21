@@ -57,8 +57,9 @@ def overpass(query, pogingen=8):
                 return json.load(r)
         except Exception as e:  # noqa: BLE001
             laatste = e
-            print(f"  overpass {url} faalde ({e}), opnieuw over {30 * (i + 1)} s", flush=True)
-            time.sleep(30 * (i + 1))
+            wacht = min(90, 20 * (i + 1))
+            print(f"  overpass {url} faalde ({e}), opnieuw over {wacht} s", flush=True)
+            time.sleep(wacht)
     raise SystemExit(f"Overpass bleef falen: {laatste}")
 
 
@@ -336,12 +337,23 @@ def wissels(bbox, uit):
     schrijf(uit, "wissels.json", {"wissels": pts})
 
 
-def plaatsen(bbox, uit):
+def overig_ophalen(bbox):
+    """Plaatsen, veren en vliegvelden in één Overpass-verzoek (de servers remmen af na veel losse verzoeken)."""
     voor, g = gebied(bbox)
-    res = overpass(f'[out:json][timeout:600];{voor}node{g}["place"~"^(city|town|village)$"];out body;')
+    return overpass(f"""[out:json][timeout:900];{voor}
+node{g}["place"~"^(city|town|village)$"];out body;
+way{g}["route"="ferry"];out tags geom;
+nwr{g}["aeroway"~"^(aerodrome|airstrip|heliport)$"];out center tags;
+way{g}["aeroway"="runway"];out tags geom;""")
+
+
+def plaatsen(bbox, uit, res=None):
+    res = res or overig_ophalen(bbox)
     lijst = []
     for e in res["elements"]:
         t = e.get("tags", {})
+        if e["type"] != "node" or "place" not in t or t["place"] not in ("city", "town", "village"):
+            continue
         try:
             inw = int(re.sub(r"[^\d]", "", t.get("population", "")) or 0)
         except ValueError:
@@ -358,14 +370,13 @@ def plaatsen(bbox, uit):
     schrijf(uit, "plaatsen.json", {"uitleg": "[naam, x, y, inwoners, c/t/v, gebied NL/CN, lat, lon]", "plaatsen": lijst})
 
 
-def veren(bbox, uit):
-    voor, g = gebied(bbox)
-    res = overpass(f'[out:json][timeout:600];{voor}way{g}["route"="ferry"];out tags geom;')
+def veren(bbox, uit, res=None):
+    res = res or overig_ophalen(bbox)
     lijst = []
     for e in res["elements"]:
-        if not e.get("geometry"):
-            continue
         t = e.get("tags", {})
+        if not e.get("geometry") or t.get("route") != "ferry":
+            continue
         pts = vereenvoudig([rd_int(p["lat"], p["lon"]) for p in e["geometry"]], 10)
         plat = []
         for x, y in pts:
@@ -376,14 +387,9 @@ def veren(bbox, uit):
     schrijf(uit, "veren.json", {"veren": lijst})
 
 
-def vliegvelden(bbox, uit):
+def vliegvelden(bbox, uit, res=None):
     """Alle vliegvelden, ook kleine (grasbanen, zweefvliegvelden) en helihavens, met de langste baan."""
-    voor, g = gebied(bbox)
-    res = overpass(f"""[out:json][timeout:600];{voor}
-(nwr{g}["aeroway"~"^(aerodrome|airstrip|heliport)$"];);
-out center tags;
-way{g}["aeroway"="runway"];
-out tags geom;""")
+    res = res or overig_ophalen(bbox)
     velden, banen = [], []
     for e in res["elements"]:
         t = e.get("tags", {})
@@ -459,9 +465,12 @@ def main():
     takken = spoor(a.bbox, a.uit)
     stations(a.bbox, a.uit, takken)
     wissels(a.bbox, a.uit)
-    plaatsen(a.bbox, a.uit)
-    veren(a.bbox, a.uit)
-    vliegvelden(a.bbox, a.uit)
+    print("plaatsen, veren en vliegvelden ophalen (eerst even wachten, Overpass remt af na zware verzoeken)…", flush=True)
+    time.sleep(45)
+    rest = overig_ophalen(a.bbox)
+    plaatsen(a.bbox, a.uit, rest)
+    veren(a.bbox, a.uit, rest)
+    vliegvelden(a.bbox, a.uit, rest)
     historie(a.uit)
 
 
