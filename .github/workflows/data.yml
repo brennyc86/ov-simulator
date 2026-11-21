@@ -7,36 +7,83 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: data
   cancel-in-progress: false
 
 jobs:
-  data:
+  # De dienstregeling en OpenStreetMap lopen naast elkaar: als Overpass traag is of faalt,
+  # komt de dienstregeling toch online, en blijft de vorige kaartdata staan.
+  gtfs:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: OpenStreetMap (spoor, stations, wissels, plaatsen, veren)
-        run: python3 tools/osm.py --uit uit
       - name: GTFS downloaden
         run: curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/gtfs.zip https://gtfs.ovapi.nl/nl/gtfs-nl.zip
       - name: GTFS omzetten (lijnen, haltes, vertrektijden)
         run: python3 tools/gtfs.py --zip /tmp/gtfs.zip --uit uit
-      - name: Naar de data-tak (zonder geschiedenis, zodat de repo klein blijft)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gtfs
+          path: uit
+
+  osm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OpenStreetMap (spoor, stations, wissels, plaatsen, veren, vliegvelden)
+        run: python3 -u tools/osm.py --uit uit
+      - uses: actions/upload-artifact@v4
+        with:
+          name: osm
+          path: uit
+
+  samenvoegen:
+    needs: [gtfs, osm]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Vorige data ophalen
         run: |
-          du -sh uit; ls -la uit uit/lijnen | head -60
+          mkdir -p uit && cd uit
+          git init -q
+          if git fetch -q --depth 1 "https://github.com/${{ github.repository }}" data 2>/dev/null; then
+            git checkout -q FETCH_HEAD -- . && echo "vorige data opgehaald"
+          fi
+          rm -rf .git
+      - uses: actions/download-artifact@v4
+        if: needs.gtfs.result == 'success'
+        with:
+          name: gtfs
+          path: nieuw-gtfs
+      - uses: actions/download-artifact@v4
+        if: needs.osm.result == 'success'
+        with:
+          name: osm
+          path: nieuw-osm
+      - name: Samenvoegen en naar de data-tak (zonder geschiedenis)
+        run: |
+          if [ -d nieuw-gtfs ]; then rm -rf uit/lijnen; cp -r nieuw-gtfs/. uit/; echo "dienstregeling bijgewerkt"; fi
+          if [ -d nieuw-osm ]; then cp -r nieuw-osm/. uit/; echo "kaartdata bijgewerkt"; fi
+          echo "gtfs=${{ needs.gtfs.result }} osm=${{ needs.osm.result }}"
+          du -sh uit; ls -la uit | head -30
           cd uit
           date -u +"%Y-%m-%dT%H:%MZ" > bijgewerkt.txt
           git init -q -b data
           git config user.name "ov-simulator data"
           git config user.email "actions@users.noreply.github.com"
           git add -A
-          git commit -qm "Data $(date -u +%F)"
+          git commit -qm "Data $(date -u +%F) (gtfs ${{ needs.gtfs.result }}, osm ${{ needs.osm.result }})"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
       - name: Site opnieuw publiceren
         env:
