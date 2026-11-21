@@ -1,0 +1,46 @@
+name: Site publiceren
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publiceer:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Data-tak ophalen (als die er al is)
+        run: |
+          if git ls-remote --exit-code origin data >/dev/null 2>&1; then
+            git fetch -q --depth 1 origin data
+            mkdir -p data && git --work-tree=data checkout FETCH_HEAD -- .
+            git reset -q
+          else
+            echo "Nog geen data-tak; site gaat live zonder kaartdata"
+          fi
+          du -sh data || true
+      - name: Site samenstellen
+        run: |
+          mkdir -p _site
+          cp -r index.html css js data _site/ 2>/dev/null || true
+          cp -r vloot _site/ 2>/dev/null || true
+          touch _site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
