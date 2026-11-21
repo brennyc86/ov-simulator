@@ -1,6 +1,7 @@
 // Knooppunt — opstarten, kaartlagen, gereedschap, spellus en panelen.
 import { Kaart } from './kaart.js';
-import { ACHTERGRONDEN, zetKaartjaren, kaartjaarVoor } from './geo.js';
+import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
+import { netKleuren } from './stijl.js';
 import { Net, wegRoute } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar } from './vloot.js';
 import * as S from './spel.js';
@@ -35,74 +36,120 @@ async function laadData() {
   AI.vervoerders = D.vervoerders;
   if (hi?.jaren) zetKaartjaren(hi.jaren);
   if (!spoor) melding('De kaartdata wordt nog voor het eerst gegenereerd (GitHub Actions). Je kunt al rondkijken; spoor en stations verschijnen zodra die klaar is.', 9000);
-  kaart.vuil = true;
+  netwerkLagen();
 }
+
+const ACHTERGROND_KEUZE = {
+  eigen: { naam: 'Eigen kaartstijl (OpenStreetMap)', bron: '' },
+  pdok: { naam: 'Topografische kaart (PDOK)', bron: '© Kadaster / PDOK' },
+  luchtfoto: { naam: 'Luchtfoto (PDOK)', bron: '© Beeldmateriaal Nederland / PDOK' },
+  historisch: { naam: 'Historische kaart (Kadaster)', bron: '© Kadaster / Esri Nederland, Topotijdreis' },
+};
 
 // landingsgeld per landing (benadering) per soort vliegveld
 const LANDING = { international: 1500, regionaal: 500, public: 60, veld: 60, airstrip: 30, heliport: 150, private: 40, militair: 0 };
 
-// ---------------------------------------------------------------- kaartlagen
-let padCache = null;
-function netPaden(jaar) {
-  if (padCache?.jaar === jaar && padCache.n === net.eigen.length) return padCache;
-  const p = { jaar, n: net.eigen.length, h1: new Path2D(), h2: new Path2D(), h3: new Path2D(), zij: new Path2D(), tram: new Path2D(),
-    metro: new Path2D(), snel: new Path2D(), oud: new Path2D(), smal: new Path2D(), eigen: new Path2D(), veer: new Path2D() };
-  for (const t of net.takken) {
-    if (!net.bestaat(t, jaar)) continue;
-    let doel;
-    if (t.soort === 5 || t.soort === 6) doel = p.oud;
-    else if (t.soort === 3) doel = p.tram;
-    else if (t.soort === 2) doel = p.metro;
-    else if (t.soort === 1) doel = p.snel;
-    else if (t.soort === 4 || t.soort === 8) doel = p.smal;
-    else if (t.dienst) doel = p.zij;
-    else doel = t.sporen >= 3 ? p.h3 : t.sporen === 2 ? p.h2 : p.h1;
-    const q = t.pts;
-    doel.moveTo(q[0], q[1]);
-    for (let k = 2; k < q.length; k += 2) doel.lineTo(q[k], q[k + 1]);
-  }
-  for (const t of net.eigen) { p.eigen.moveTo(t.pts[0], t.pts[1]); for (let k = 2; k < t.pts.length; k += 2) p.eigen.lineTo(t.pts[k], t.pts[k + 1]); }
-  for (const v of D.veren) { p.veer.moveTo(v.c[0], v.c[1]); for (let k = 2; k < v.c.length; k += 2) p.veer.lineTo(v.c[k], v.c[k + 1]); }
-  return (padCache = p);
-}
+// ---------------------------------------------------------------- kaartlagen (MapLibre)
+const lonlat = (x, y) => { const [la, lo] = rdNaarWgs(x, y); return [Math.round(lo * 1e6) / 1e6, Math.round(la * 1e6) / 1e6]; };
+const lijnGeo = pts => { const c = []; for (let k = 0; k < pts.length; k += 2) c.push(lonlat(pts[k], pts[k + 1])); return c; };
+const DONKER = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light';
+const NK = netKleuren(DONKER);
 
-function tekenNet(ctx, k) {
-  const jaar = spel?.jaar ?? 2026, r = k.res, p = netPaden(jaar);
-  k.wereldTransform(ctx);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  const donker = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light';
-  const hist = k.achtergrond === 'historisch';
-  const lijn = (pad, kleur, px, streep) => { ctx.strokeStyle = kleur; ctx.lineWidth = px * r; ctx.setLineDash(streep ? streep.map(s => s * r) : []); ctx.stroke(pad); };
-  lijn(p.veer, '#1f8fb8', 1.6, [6, 5]);
-  if (hist || jaar < 2000) lijn(p.oud, '#8a5a2b', 1.4, [5, 3]);
-  if (r < 30) lijn(p.zij, donker ? '#5d6b66' : '#9aa39e', 0.8);
-  if (r < 60) lijn(p.tram, '#c2412d', r < 6 ? 1.2 : 1.5);
-  lijn(p.smal, '#6b5b45', 1.2);
-  lijn(p.snel, '#0f7c8a', 2);
-  lijn(p.metro, '#1f6fd1', 2.2);
-  const spoorKleur = donker ? '#cfd8d4' : '#2a3431';
-  const fijn = r < 4;
-  lijn(p.h1, spoorKleur, fijn ? 1.1 : 1.6);
-  lijn(p.h2, spoorKleur, fijn ? 1.1 : 2.4);
-  lijn(p.h3, spoorKleur, fijn ? 1.1 : 3.4);
-  if (!fijn && r < 400) { // dwarsliggers-effect op enkelspoor zodat het opvalt
-    lijn(p.h1, donker ? '#101716' : '#ffffff', 0.7, [2, 6]);
+function klasseVan(t) {
+  if (t.soort === 5 || t.soort === 6) return 'oud';
+  if (t.soort === 3) return 'tram';
+  if (t.soort === 2) return 'metro';
+  if (t.soort === 1) return 'snel';
+  if (t.soort === 4 || t.soort === 8) return 'smal';
+  if (t.dienst) return 'zij';
+  return t.sporen >= 3 ? 'h3' : t.sporen === 2 ? 'h2' : 'h1';
+}
+function jaarVan(t) {
+  // van/tot zodat de kaart per jaar kan filteren
+  const van = t.start || 0;
+  let tot = t.eind || 9999;
+  if ((t.soort === 5 || t.soort === 6) && !t.eind) tot = 1990;
+  if (t.soort === 7) tot = 0;
+  return { van, tot };
+}
+function jaarFilter(jaar) { return ['all', ['<=', ['get', 'van'], jaar], ['>', ['get', 'tot'], jaar]]; }
+
+let lagenGemaakt = false;
+function netwerkLagen() {
+  if (!kaart?.klaar) return;
+  const jaar = spel?.jaar ?? 2026;
+  const sporen = { type: 'FeatureCollection', features: net.takken.filter(t => !t.weg).map(t => ({ type: 'Feature', properties: { k: klasseVan(t), ...jaarVan(t), n: t.sporen }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } })) };
+  kaart.bron('spoor', sporen);
+  kaart.bron('veren', { type: 'FeatureCollection', features: D.veren.map(v => ({ type: 'Feature', properties: { n: v.n }, geometry: { type: 'LineString', coordinates: lijnGeo(v.c) } })) });
+  const w = D.wissels, wf = [];
+  for (let i = 0; i < w.length; i += 2) wf.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: lonlat(w[i], w[i + 1]) } });
+  kaart.bron('wissels', { type: 'FeatureCollection', features: wf });
+  kaart.bron('stations', { type: 'FeatureCollection', features: D.stations.map(st => ({ type: 'Feature', properties: { n: st.n + (st.e ? ' (opgeheven)' : ''), s: st.s, p: st.p || 0, van: st.b || 0, tot: st.e === 1 ? 1990 : (st.e || 9999) }, geometry: { type: 'Point', coordinates: lonlat(st.x, st.y) } })) });
+  kaart.bron('haltes', { type: 'FeatureCollection', features: D.haltes.filter(h => h[3] & (8 | 16 | 32)).map(h => ({ type: 'Feature', properties: { n: h[0], veer: h[3] & 16 ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(h[1], h[2]) } })) });
+  kaart.bron('vliegvelden', { type: 'FeatureCollection', features: D.vliegvelden.map(v => ({ type: 'Feature', properties: { n: v.n, l: `${v.n}${v.baan ? ` · ${v.baan} m${v.verhard ? '' : ' gras'}` : ''}`, groot: v.baan >= 1800 ? 1 : 0, van: v.b || 0, tot: 9999, mil: v.s === 'militair' ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(v.x, v.y) } })) });
+  eigenNetBijwerken();
+  if (!lagenGemaakt) {
+    lagenGemaakt = true;
+    const lijn = (id, bron, filter, kleur, breedte, extra = {}) => kaart.laag({ id, type: 'line', source: bron, filter, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': kleur, 'line-width': breedte, ...extra } });
+    const zoomB = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 6, a, 11, b, 16, c];
+    const k = c => ['==', ['get', 'k'], c];
+    lijn('net-veer', 'veren', null, NK.veer, zoomB(1, 1.6, 2.5), { 'line-dasharray': [3, 2.5] });
+    lijn('net-oud', 'spoor', ['all', k('oud'), jaarFilter(jaar)], NK.oud, zoomB(0.8, 1.4, 2), { 'line-dasharray': [3, 2] });
+    lijn('net-zij', 'spoor', ['all', k('zij'), jaarFilter(jaar)], NK.zij, zoomB(0, 0.6, 1.4), {});
+    lijn('net-tram', 'spoor', ['all', k('tram'), jaarFilter(jaar)], NK.tram, zoomB(0.4, 1.2, 2.2));
+    lijn('net-smal', 'spoor', ['all', k('smal'), jaarFilter(jaar)], NK.smal, zoomB(0.8, 1.2, 2));
+    lijn('net-snel', 'spoor', ['all', k('snel'), jaarFilter(jaar)], NK.snel, zoomB(1, 2, 3));
+    lijn('net-metro', 'spoor', ['all', k('metro'), jaarFilter(jaar)], NK.metro, zoomB(1, 2.2, 3.2));
+    // hoofdspoor: dikte naar aantal sporen; ver ingezoomd is elk spoor apart getekend in OSM, dan dun
+    const hoofd = ['all', ['match', ['get', 'k'], ['h1', 'h2', 'h3'], true, false], jaarFilter(jaar)];
+    lijn('net-hoofd-halo', 'spoor', hoofd, NK.halo, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 4.5, 'h2', 3.5, 2.6], 13, ['match', ['get', 'k'], 'h3', 6, 'h2', 5, 3.6], 16, 3]);
+    lijn('net-hoofd', 'spoor', hoofd, NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4]);
+    lijn('net-enkel', 'spoor', ['all', k('h1'), jaarFilter(jaar)], NK.halo, ['interpolate', ['linear'], ['zoom'], 6, 0.5, 13, 0.8, 16, 0], { 'line-dasharray': [1, 3] });
+    lijn('net-eigen-spoor', 'eigen-spoor', ['==', ['get', 'klaar'], 1], spel?.kleur || '#c2412d', zoomB(2, 3, 4));
+    lijn('net-eigen-bouw', 'eigen-spoor', ['==', ['get', 'klaar'], 0], spel?.kleur || '#c2412d', zoomB(2, 3, 4), { 'line-dasharray': [2, 2] });
+    lijn('net-lijnen-halo', 'eigen-lijnen', null, '#ffffff', zoomB(4, 6, 9), { 'line-opacity': 0.75 });
+    lijn('net-lijnen', 'eigen-lijnen', null, ['get', 'kl'], zoomB(2, 3.5, 6));
+    kaart.laag({ id: 'net-wissels', type: 'circle', source: 'wissels', minzoom: 15, paint: { 'circle-radius': 2.4, 'circle-color': '#e0a516' } });
+    kaart.laag({ id: 'net-haltes', type: 'circle', source: 'haltes', minzoom: 14, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 18, 5], 'circle-color': ['case', ['==', ['get', 'veer'], 1], NK.veer, '#3d8b3d'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
+    kaart.laag({ id: 'net-haltes-naam', type: 'symbol', source: 'haltes', minzoom: 16, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0.8, 0], 'text-anchor': 'left', 'text-optional': true }, paint: { 'text-color': DONKER ? '#c9d3cf' : '#2a3431', 'text-halo-color': NK.halo, 'text-halo-width': 1.2 } });
+    const stFilter = ['all', jaarFilter(jaar)];
+    kaart.laag({ id: 'net-stations', type: 'circle', source: 'stations', filter: ['all', jaarFilter(jaar), ['any', ['==', ['get', 's'], 'trein'], ['>=', ['zoom'], 12.5]]],
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, ['case', ['==', ['get', 's'], 'trein'], ['case', ['>=', ['get', 'p'], 6], 3.5, 2], 1.5], 12, ['case', ['==', ['get', 's'], 'trein'], ['case', ['>=', ['get', 'p'], 6], 7, 5], 3.5], 16, ['case', ['==', ['get', 's'], 'trein'], 9, 5]],
+        'circle-color': '#ffffff', 'circle-stroke-width': ['case', ['==', ['get', 's'], 'trein'], 2.2, 1.5],
+        'circle-stroke-color': ['match', ['get', 's'], 'trein', DONKER ? '#9fd3c7' : '#173b3a', 'metro', NK.metro, 'sneltram', NK.snel, 'tram', NK.tram, 'veer', NK.veer, 'busstation', '#3d8b3d', '#555'] } });
+    kaart.laag({ id: 'net-stations-naam', type: 'symbol', source: 'stations', filter: ['all', jaarFilter(jaar), ['any', ['all', ['==', ['get', 's'], 'trein'], ['any', ['>=', ['get', 'p'], 5], ['>=', ['zoom'], 9.5]]], ['>=', ['zoom'], 14]]],
+      layout: { 'text-field': ['get', 'n'], 'text-font': ['case', ['==', ['get', 's'], 'trein'], ['literal', ['Noto Sans Bold']], ['literal', ['Noto Sans Regular']]], 'text-size': ['case', ['==', ['get', 's'], 'trein'], 12.5, 11], 'text-offset': [0.9, 0], 'text-anchor': 'left', 'symbol-sort-key': ['-', 0, ['get', 'p']], 'text-padding': 3 },
+      paint: { 'text-color': DONKER ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
+    void stFilter;
+    kaart.laag({ id: 'net-vlieg', type: 'symbol', source: 'vliegvelden', filter: ['any', ['==', ['get', 'groot'], 1], ['>=', ['zoom'], 8]],
+      layout: { 'text-field': ['case', ['>=', ['zoom'], 9], ['concat', '✈ ', ['get', 'l']], '✈'], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [-0.4, 0] },
+      paint: { 'text-color': ['case', ['==', ['get', 'mil'], 1], '#7d7a8c', '#5b4bb7'], 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
+    kaart.laag({ id: 'net-eigen-haltes', type: 'circle', source: 'eigen-haltes', paint: { 'circle-radius': ['case', ['==', ['get', 'm'], 'trein'], 7, 5], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': spel?.kleur || '#c2412d', 'circle-opacity': ['case', ['==', ['get', 'klaar'], 1], 1, 0.6] } });
+    kaart.laag({ id: 'net-eigen-haltes-naam', type: 'symbol', source: 'eigen-haltes', minzoom: 10, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [1, 0], 'text-anchor': 'left' }, paint: { 'text-color': DONKER ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
   }
-  if (spel) lijn(p.eigen, spel.kleur, 3.2);
-  ctx.setLineDash([]);
-  // wissels
-  if (r < 2.5 && D.wissels.length) {
-    const [x0, y0, x1, y1] = k.zicht(10);
-    ctx.fillStyle = '#e0a516';
-    const w = D.wissels;
-    for (let i = 0; i < w.length; i += 2) if (w[i] > x0 && w[i] < x1 && w[i + 1] > y0 && w[i + 1] < y1) ctx.fillRect(w[i] - 1.2 * r, w[i + 1] - 1.2 * r, 2.4 * r, 2.4 * r);
-  }
-  // spoor in aanleg
-  if (spel) for (const s of spel.spoor) if (!s.klaar) {
-    ctx.beginPath(); s.punten.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
-    ctx.strokeStyle = spel.kleur; ctx.lineWidth = 3 * r; ctx.setLineDash([4 * r, 4 * r]); ctx.stroke(); ctx.setLineDash([]);
-  }
-  tekenStations(ctx, k);
+  jaarBijwerken();
+}
+function jaarBijwerken() {
+  if (!lagenGemaakt) return;
+  const jaar = spel?.jaar ?? 2026, f = jaarFilter(jaar), m = kaart.map;
+  const k = c => ['==', ['get', 'k'], c];
+  for (const [id, c] of [['net-oud', 'oud'], ['net-zij', 'zij'], ['net-tram', 'tram'], ['net-smal', 'smal'], ['net-snel', 'snel'], ['net-metro', 'metro'], ['net-enkel', 'h1']]) m.setFilter(id, ['all', k(c), f]);
+  const hoofd = ['all', ['match', ['get', 'k'], ['h1', 'h2', 'h3'], true, false], f];
+  m.setFilter('net-hoofd', hoofd); m.setFilter('net-hoofd-halo', hoofd);
+  m.setFilter('net-stations', ['all', f, ['any', ['==', ['get', 's'], 'trein'], ['>=', ['zoom'], 12.5]]]);
+  m.setFilter('net-stations-naam', ['all', f, ['any', ['all', ['==', ['get', 's'], 'trein'], ['any', ['>=', ['get', 'p'], 5], ['>=', ['zoom'], 9.5]]], ['>=', ['zoom'], 14]]]);
+  m.setLayoutProperty('net-oud', 'visibility', jaar < 2000 || kaart.achtergrond === 'historisch' ? 'visible' : 'none');
+  if (spel) for (const id of ['net-eigen-spoor', 'net-eigen-bouw']) m.setPaintProperty(id, 'line-color', spel.kleur);
+  if (spel) m.setPaintProperty('net-eigen-haltes', 'circle-stroke-color', spel.kleur);
+  kaart.jaar = jaar;
+}
+function eigenNetBijwerken() {
+  if (!kaart?.klaar) return;
+  const leeg = { type: 'FeatureCollection', features: [] };
+  if (!spel) { kaart.bron('eigen-spoor', leeg); kaart.bron('eigen-lijnen', leeg); kaart.bron('eigen-haltes', leeg); return; }
+  kaart.bron('eigen-spoor', { type: 'FeatureCollection', features: spel.spoor.map(sp => ({ type: 'Feature', properties: { klaar: sp.klaar ? 1 : 0 }, geometry: { type: 'LineString', coordinates: sp.punten.map(p => lonlat(p[0], p[1])) } })) });
+  kaart.bron('eigen-lijnen', { type: 'FeatureCollection', features: spel.lijnen.filter(l => l.route?.pts?.length >= 4).map(l => ({ type: 'Feature', properties: { id: l.id, kl: !l.actief ? '#8a8f8c' : selectie?.lijn === l ? '#f2c14e' : spel.kleur }, geometry: { type: 'LineString', coordinates: lijnGeo(l.route.pts) } })) });
+  kaart.bron('eigen-haltes', { type: 'FeatureCollection', features: spel.haltes.map(h => ({ type: 'Feature', properties: { n: h.naam + (h.gereedDag > spel.dag ? ' (in aanbouw)' : ''), m: h.modus, klaar: h.gereedDag > spel.dag ? 0 : 1 }, geometry: { type: 'Point', coordinates: lonlat(h.x, h.y) } })) });
 }
 
 function stationZichtbaar(s, jaar) {
@@ -111,84 +158,14 @@ function stationZichtbaar(s, jaar) {
   if (s.e && s.e <= jaar) return false;
   return true;
 }
-function tekenStations(ctx, k) {
-  const r = k.res, jaar = spel?.jaar ?? 2026;
-  const [x0, y0, x1, y1] = k.zicht(40);
-  k.schermTransform(ctx);
-  ctx.textBaseline = 'middle';
-  const labels = [];
-  for (const s of D.stations) {
-    if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1 || !stationZichtbaar(s, jaar)) continue;
-    const trein = s.s === 'trein';
-    if (!trein && r > (s.s === 'tram' ? 6 : 25)) continue;
-    if (trein && r > 300 && !(s.p >= 4)) continue;
-    const px = k.sx(s.x), py = k.sy(s.y);
-    const groot = trein ? (s.p >= 6 ? 5.5 : s.p >= 3 ? 4.5 : 3.5) : 2.6;
-    ctx.beginPath(); ctx.arc(px, py, groot, 0, 7);
-    ctx.fillStyle = s.e ? '#e7d9c4' : '#fff'; ctx.fill();
-    ctx.lineWidth = trein ? 2 : 1.4;
-    ctx.strokeStyle = { trein: '#173b3a', metro: '#1f6fd1', sneltram: '#0f7c8a', tram: '#c2412d', veer: '#1f8fb8', busstation: '#3d8b3d' }[s.s] || '#333';
-    ctx.stroke();
-    if ((trein && (r < 40 || (r < 120 && s.p >= 4) || s.p >= 8)) || (!trein && r < 3)) labels.push([s.n + (s.e ? ' (opgeheven)' : ''), px + groot + 4, py, trein]);
-  }
-  // vliegvelden: groot altijd, klein bij inzoomen
-  for (const v of D.vliegvelden) {
-    if (v.x < x0 || v.x > x1 || v.y < y0 || v.y > y1 || (v.b && v.b > jaar)) continue;
-    const groot = v.baan >= 1800;
-    if (!groot && r > 250) continue;
-    const px = k.sx(v.x), py = k.sy(v.y);
-    ctx.beginPath(); ctx.arc(px, py, groot ? 9 : 7, 0, 7);
-    ctx.fillStyle = v.s === 'militair' ? '#d9d9d9' : '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#5b4bb7'; ctx.stroke();
-    ctx.fillStyle = '#5b4bb7'; ctx.font = `${groot ? 12 : 10}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.fillText('✈', px, py + 0.5); ctx.textAlign = 'left';
-    if ((groot && r < 400) || r < 60) labels.push([`${v.n}${v.baan ? ` (${v.baan} m${v.verhard ? '' : ', gras'})` : ''}`, px + 12, py, groot]);
-  }
-  // GTFS-haltes (bus) bij inzoomen
-  if (r < 6) {
-    for (const h of D.haltes) {
-      if (h[1] < x0 || h[1] > x1 || h[2] < y0 || h[2] > y1 || !(h[3] & (8 | 32 | 16))) continue;
-      const px = k.sx(h[1]), py = k.sy(h[2]);
-      ctx.fillStyle = h[3] & 16 ? '#1f8fb8' : '#3d8b3d';
-      ctx.fillRect(px - 2.5, py - 2.5, 5, 5);
-      if (r < 1.5) labels.push([h[0], px + 5, py, false]);
-    }
-  }
-  // eigen haltes en stations
-  if (spel) for (const h of spel.haltes) {
-    if (h.x < x0 || h.x > x1 || h.y < y0 || h.y > y1) continue;
-    const px = k.sx(h.x), py = k.sy(h.y);
-    ctx.beginPath(); ctx.arc(px, py, h.modus === 'trein' ? 6 : 4.5, 0, 7);
-    ctx.fillStyle = h.gereedDag > spel.dag ? '#ffffffaa' : '#fff'; ctx.fill();
-    ctx.lineWidth = 2.5; ctx.strokeStyle = spel.kleur; ctx.setLineDash(h.gereedDag > spel.dag ? [3, 3] : []); ctx.stroke(); ctx.setLineDash([]);
-    if (r < 60) labels.push([h.naam + (h.gereedDag > spel.dag ? ' (in aanbouw)' : ''), px + 8, py, true]);
-  }
-  ctx.lineJoin = 'round';
-  for (const [t, x, y, vet] of labels) {
-    ctx.font = `${vet ? 600 : 500} ${vet ? 12.5 : 11}px "Source Sans 3", system-ui, sans-serif`;
-    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.strokeText(t, x, y);
-    ctx.fillStyle = '#1d2724'; ctx.fillText(t, x, y);
-  }
-}
 
-// bewegende laag: eigen lijnen, AI-voertuigen, bouwgereedschap
+// bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
 function tekenBoven(ctx, k) {
   if (!spel) return;
   const [x0, y0, x1, y1] = k.zicht(30);
   const r = k.res;
   const inZicht = l => !(l.bbox[0] > x1 || l.bbox[2] < x0 || l.bbox[1] > y1 || l.bbox[3] < y0);
-  // eigen lijnen
-  k.wereldTransform(ctx);
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  for (const l of spel.lijnen) {
-    if (!inZicht(l)) continue;
-    const pts = l.route.pts;
-    ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
-    for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 6 * r; ctx.globalAlpha = 0.7; ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.strokeStyle = l.actief ? spel.kleur : '#888'; ctx.lineWidth = (selectie?.lijn === l ? 4.5 : 3) * r;
-    ctx.setLineDash(l.actief ? [] : [6 * r, 5 * r]); ctx.stroke(); ctx.setLineDash([]);
-  }
-  // voertuigen
   zichtLijnen.length = 0;
   const vt = [];
   const tm = spel.tijd;
@@ -200,11 +177,11 @@ function tekenBoven(ctx, k) {
     if (r > 40 && (l.modus === 'bus' || l.modus === 'belbus')) continue;
     S.voertuigenOp(l, tm, vt);
   }
-  k.schermTransform(ctx);
   const maat = r < 3 ? 1.6 : r < 15 ? 1.25 : r < 60 ? 1 : 0.75;
+  // hoek op het scherm: RD-noord valt vrijwel samen met kaart-noord in Nederland
   for (let i = vt.length - 1; i >= 0; i--) {
     const v = vt[i], eigen = i < eigenN;
-    const px = k.sx(v.x), py = k.sy(v.y);
+    const [px, py] = k.scherm(v.x, v.y);
     if (px < -20 || py < -20 || px > k.W + 20 || py > k.H + 20) continue;
     const m = v.lijn.modus, lang = (m === 'trein' ? 14 : m === 'metro' || m === 'tram' || m === 'sneltram' ? 11 : m === 'veer' ? 10 : 8) * maat;
     const breed = (m === 'trein' ? 4.5 : 4) * maat;
@@ -217,20 +194,22 @@ function tekenBoven(ctx, k) {
     ctx.fill(); ctx.stroke();
     ctx.restore();
     if (r < 2.5 && v.lijn.nr) {
-      ctx.font = '600 10px "Barlow Semi Condensed", sans-serif'; ctx.fillStyle = '#1d2724';
+      ctx.font = '600 10px "Barlow Semi Condensed", sans-serif'; ctx.fillStyle = DONKER ? '#e6ece9' : '#1d2724';
       ctx.fillText(v.lijn.nr, px + 8, py - 7);
     }
+    v.px = px; v.py = py;
     zichtLijnen.push(v);
   }
   // bouwgereedschap: lijn of spoor in wording
   if (bouw?.punten?.length) {
+    const sp = bouw.punten.map(p => k.scherm(p.x, p.y));
     ctx.strokeStyle = spel.kleur; ctx.lineWidth = 3; ctx.setLineDash([7, 5]);
-    ctx.beginPath(); bouw.punten.forEach((p, i) => { const x = k.sx(p.x), y = k.sy(p.y); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.beginPath(); sp.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
     if (bouw.muis) ctx.lineTo(bouw.muis[0], bouw.muis[1]);
     ctx.stroke(); ctx.setLineDash([]);
-    bouw.punten.forEach((p, i) => {
-      ctx.beginPath(); ctx.arc(k.sx(p.x), k.sy(p.y), 6, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = spel.kleur; ctx.stroke();
-      ctx.fillStyle = '#1d2724'; ctx.font = '700 11px "JetBrains Mono", monospace'; ctx.textAlign = 'center'; ctx.fillText(String(i + 1), k.sx(p.x), k.sy(p.y) - 13); ctx.textAlign = 'left';
+    sp.forEach(([x, y], i) => {
+      ctx.beginPath(); ctx.arc(x, y, 6, 0, 7); ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = spel.kleur; ctx.stroke();
+      ctx.fillStyle = '#1d2724'; ctx.font = '700 11px "JetBrains Mono", monospace'; ctx.textAlign = 'center'; ctx.fillText(String(i + 1), x, y - 13); ctx.textAlign = 'left';
     });
   }
 }
@@ -266,7 +245,7 @@ function dagVoorbij() {
   spel.tijd -= 21 * 60; // naar 05:00 volgende dag
   spel.dag++;
   // bouwprojecten opleveren
-  for (const s of spel.spoor) if (!s.klaar && s.gereedDag <= spel.dag) { s.klaar = true; const t = net.voegEigenSpoorToe(s.punten.map(p => [p[0], p[1]]), s.eigenaar, s.sporen, spel.jaar); s.takId = t.i; melding(`Spoor opgeleverd: ${(t.lengte / 1000).toFixed(1).replace('.', ',')} km ${s.sporen === 2 ? 'dubbel' : 'enkel'}spoor (${s.eigenaar === 'speler' ? 'van jou' : 'ProRail'}).`); kaart.vuil = true; }
+  for (const s of spel.spoor) if (!s.klaar && s.gereedDag <= spel.dag) { s.klaar = true; const t = net.voegEigenSpoorToe(s.punten.map(p => [p[0], p[1]]), s.eigenaar, s.sporen, spel.jaar); s.takId = t.i; melding(`Spoor opgeleverd: ${(t.lengte / 1000).toFixed(1).replace('.', ',')} km ${s.sporen === 2 ? 'dubbel' : 'enkel'}spoor (${s.eigenaar === 'speler' ? 'van jou' : 'ProRail'}).`); netwerkLagen(); }
   for (const h of spel.haltes) if (h.gereedDag === spel.dag) melding(`${h.naam} is klaar en kan gebruikt worden.`);
   // AI-vervoerders vragen soms iets
   if (spel.dag >= spel.volgendeAI / 1440) {
@@ -280,7 +259,7 @@ function dagVoorbij() {
     S.maandAfsluiten(spel);
     const m = spel.historie[spel.historie.length - 1];
     melding(`Maand afgesloten: resultaat ${S.euro(m.resultaat)}, ${Math.round(m.reizigers).toLocaleString('nl-NL')} reizigers.`, 6000);
-    if (spel.dag % 360 === 0) { spel.jaar++; kaart.jaar = spel.jaar; padCache = null; kaart.vuil = true; melding(`Gelukkig nieuwjaar: het is nu ${spel.jaar}.`); }
+    if (spel.dag % 360 === 0) { spel.jaar++; jaarBijwerken(); melding(`Gelukkig nieuwjaar: het is nu ${spel.jaar}.`); }
   }
   // reputatie volgt uitval en bezetting
   const uitval = spel.lijnen.filter(l => l.actief && S.beschikbaarVoor(spel, l) < l.nodig).length;
@@ -328,6 +307,7 @@ function hint(html, knoppen = []) {
 // ---------------------------------------------------------------- panelen
 function openPaneel(soort, data) {
   paneelSoort = soort; selectie = data?.selectie ?? (soort === 'lijn' ? selectie : null);
+  setTimeout(eigenNetBijwerken, 0);
   $('paneel').hidden = false;
   document.querySelectorAll('[data-paneel]').forEach(b => b.classList.toggle('aan', b.dataset.paneel === soort));
   ververs(data);
@@ -457,7 +437,7 @@ const PANELEN = {
   },
   kaart() {
     return `<h2>Kaart</h2><h3>Achtergrond</h3>
-      ${Object.entries(ACHTERGRONDEN).map(([id, a]) => `<label class="rij"><input type="radio" name="achtergrond" value="${id}" data-wijzig="achtergrond" ${kaart.achtergrond === id ? 'checked' : ''}> ${a.naam}${id === 'historisch' ? ` (${kaartjaarVoor(spel.jaar)})` : ''}</label>`).join('')}
+      ${Object.entries(ACHTERGROND_KEUZE).map(([id, a]) => `<label class="rij"><input type="radio" name="achtergrond" value="${id}" data-wijzig="achtergrond" ${kaart.achtergrond === id ? 'checked' : ''}> ${a.naam}${id === 'historisch' ? ` (${kaartjaarVoor(spel.jaar)})` : ''}</label>`).join('')}
       <p class="klein">De historische kaart is de Kadaster-tijdreiskaart van het jaar dat het dichtst vóór je speljaar ligt.</p>
       <h3>Legenda</h3><table class="tabel">
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="1.6"/><line x1="0" y1="5" x2="40" y2="5" stroke="#fff" stroke-width=".7" stroke-dasharray="2 6"/></svg></td><td>Enkelspoor</td></tr>
@@ -531,6 +511,10 @@ function betaal(bedrag, wat) {
   spel.geld -= bedrag; spel.maand.overig += 0; return true;
 }
 function actie(a, d) {
+  actieUit(a, d);
+  eigenNetBijwerken();
+}
+function actieUit(a, d) {
   const l = d.id ? lijnVan(d.id) : null;
   switch (a) {
     case 'toon-lijn': selectie = { lijn: l }; openPaneel('lijn', l); kaart.vliegNaar((l.bbox[0] + l.bbox[2]) / 2, (l.bbox[1] + l.bbox[3]) / 2, Math.max(2, Math.max(l.bbox[2] - l.bbox[0], l.bbox[3] - l.bbox[1]) / Math.min(kaart.W, kaart.H) * 1.4)); break;
@@ -575,7 +559,7 @@ function actie(a, d) {
       if (a === 'station-zelf') {
         if (!betaal(6e6, 'een station')) break;
         spel.haltes.push({ id: S.nieuwId('h'), naam, modus: 'trein', x: p.x, y: p.y, eigen: true, gereedDag: spel.dag + 30 });
-        melding(`Bouw van station ${naam} gestart. Klaar over 30 speldagen.`); kaart.vuil = true; sluitPaneel();
+        melding(`Bouw van station ${naam} gestart. Klaar over 30 speldagen.`); eigenNetBijwerken(); sluitPaneel();
       } else {
         nieuwVerzoek(spel, { aan: 'prorail', aanNaam: 'ProRail', soort: 'station', x: p.x, y: p.y, naam, tekst: `Verzoek aan ProRail om station ${naam} te bouwen.` });
         melding('Verzoek naar ProRail gestuurd.'); openPaneel('verzoeken');
@@ -588,7 +572,7 @@ function actie(a, d) {
         const km = +d.km, kosten = km * (sporen === 2 ? 15e6 : 8e6);
         if (!betaal(kosten, 'het spoor')) break;
         spel.spoor.push({ punten: p.punten, sporen, eigenaar: 'speler', gereedDag: spel.dag + Math.round(60 + km * 8), klaar: false });
-        melding(`Aanleg gestart (${S.euroKort(kosten)}).`); kaart.vuil = true; sluitPaneel();
+        melding(`Aanleg gestart (${S.euroKort(kosten)}).`); eigenNetBijwerken(); sluitPaneel();
       } else {
         nieuwVerzoek(spel, { aan: 'prorail', aanNaam: 'ProRail', soort: 'spoor', punten: p.punten, sporen, tekst: `Verzoek aan ProRail om ${sporen === 2 ? 'dubbel' : 'enkel'}spoor aan te leggen.` });
         melding('Verzoek naar ProRail gestuurd.'); openPaneel('verzoeken');
@@ -621,9 +605,9 @@ function wijzig(w, i) {
     case 'ploeg-van': spel.controle.ploegen[+i.dataset.i].van = tijd(i.value); break;
     case 'ploeg-tot': spel.controle.ploegen[+i.dataset.i].tot = tijd(i.value); break;
     case 'ploeg-lijn': { const p = spel.controle.ploegen[+i.dataset.i]; p.lijnen = i.checked ? [...new Set([...p.lijnen, i.dataset.id])] : p.lijnen.filter(x => x !== i.dataset.id); break; }
-    case 'achtergrond': kaart.achtergrond = i.value; kaart.vuil = true; $('bron').textContent = ACHTERGRONDEN[i.value].bron || ''; break;
+    case 'achtergrond': kaart.zetAchtergrond(i.value); jaarBijwerken(); $('bron').textContent = ACHTERGROND_KEUZE[i.value]?.bron || ''; break;
   }
-  i.blur(); ververs();
+  i.blur(); ververs(); eigenNetBijwerken();
 }
 function padOpnieuwNodig(l) {
   if (l.modus !== 'trein' || l.eigenSpoor) return;
@@ -677,7 +661,7 @@ function voerUit(vz, waarde) {
     if (waarde.modus === 'belbus') { l.modus = 'belbus'; l.typeId = 'taxibus'; S.herbereken(l); }
     l.concessie = true;
   }
-  kaart.vuil = true;
+  eigenNetBijwerken();
 }
 function reageerOpVerzoek(a, vz) {
   if (!vz) return;
@@ -728,7 +712,7 @@ function nieuweHalte(x, y, modus, stil) {
   const h = { id: S.nieuwId('h'), naam: `${pl}, ${modus === 'veer' || modus === 'watertaxi' ? 'Steiger' : 'Halte'} ${n}`, modus, x, y, eigen: true, gereedDag: spel.dag };
   spel.haltes.push(h);
   if (!stil) melding(`${h.naam} geplaatst (${S.euro(kosten)}).`);
-  kaart.vuil = true;
+  eigenNetBijwerken();
   return h;
 }
 
@@ -745,7 +729,11 @@ function kandidaten(modus) {
 }
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
   let beste = null, bd = maxPx;
-  for (const c of kandidaten(modus)) { const d = Math.hypot(kaart.sx(c.x) - px, kaart.sy(c.y) - py); if (d < bd) { bd = d; beste = c; } }
+  const [wx, wy] = kaart.wereld(px, py), bereik = maxPx * kaart.res * 1.6;
+  for (const c of kandidaten(modus)) {
+    if (Math.abs(c.x - wx) > bereik || Math.abs(c.y - wy) > bereik) continue;
+    const [sx, sy] = kaart.scherm(c.x, c.y); const d = Math.hypot(sx - px, sy - py); if (d < bd) { bd = d; beste = c; }
+  }
   return beste;
 }
 
@@ -824,12 +812,14 @@ function klik(px, py) {
   if (tool === 'spoor' && bouw) { bouw.punten.push({ x, y }); return; }
   // kijken: voertuig, eigen lijn of station selecteren
   let beste = null, bd = 12;
-  for (const v of zichtLijnen) { const d = Math.hypot(kaart.sx(v.x) - px, kaart.sy(v.y) - py); if (d < bd) { bd = d; beste = v; } }
+  for (const v of zichtLijnen) { const d = Math.hypot(v.px - px, v.py - py); if (d < bd) { bd = d; beste = v; } }
   if (beste) { if (beste.lijn.ai) openPaneel('aiLijn', beste.lijn); else { selectie = { lijn: beste.lijn }; openPaneel('lijn', beste.lijn); } return; }
   for (const l of spel.lijnen) {
     const pts = l.route.pts;
     for (let i = 2; i < pts.length; i += 2) {
-      if (afstandTotLijnstuk(px, py, kaart.sx(pts[i - 2]), kaart.sy(pts[i - 1]), kaart.sx(pts[i]), kaart.sy(pts[i + 1])) < 6) { selectie = { lijn: l }; openPaneel('lijn', l); return; }
+      if (Math.abs(pts[i] - x) > 3000 && Math.abs(pts[i - 2] - x) > 3000) continue;
+      const [ax, ay] = kaart.scherm(pts[i - 2], pts[i - 1]), [bx, by] = kaart.scherm(pts[i], pts[i + 1]);
+      if (afstandTotLijnstuk(px, py, ax, ay, bx, by) < 6) { selectie = { lijn: l }; openPaneel('lijn', l); return; }
     }
   }
   const st = dichtsteKandidaat('trein', px, py, 10);
@@ -940,10 +930,10 @@ async function nieuwSpelStarten() {
 }
 function begin() {
   $('start').close();
-  kaart.jaar = spel.jaar; padCache = null;
-  if (spel.jaar < 1995 && kaart.achtergrond !== 'historisch') { kaart.achtergrond = 'historisch'; $('bron').textContent = ACHTERGRONDEN.historisch.bron; }
+  kaart.jaar = spel.jaar;
+  if (spel.jaar < 1995 && kaart.achtergrond !== 'historisch' && kaart.klaar) { kaart.zetAchtergrond('historisch'); $('bron').textContent = ACHTERGROND_KEUZE.historisch.bron; }
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
-  kaart.vuil = true; hud(); laadAIinBeeld();
+  netwerkLagen(); hud(); laadAIinBeeld();
   if (!spel.lijnen.length) setTimeout(() => melding('Tip: kies ＋ Lijn, dan Bus, en klik een paar plekken in een stad aan. Haltes komen er vanzelf bij.', 8000), 1200);
 }
 
@@ -986,9 +976,8 @@ async function toonAccount() {
 
 // ---------------------------------------------------------------- opstarten
 function init() {
-  kaart = new Kaart($('kaart'));
-  kaart.vliegNaar(150000, 460000, 420);
-  kaart.lagenOnder.push(tekenNet);
+  kaart = new Kaart($('kaart'), { donker: DONKER });
+  kaart.bijKlaar = () => netwerkLagen();
   kaart.lagenBoven.push(tekenBoven);
   kaart.bijKlik = klik;
   kaart.bijBeweeg = (px, py) => { if (bouw?.punten?.length) bouw.muis = [px, py]; };
@@ -996,7 +985,7 @@ function init() {
   void oudVuil;
   let vorigeZicht = '';
   setInterval(() => { const z = kaart.zicht().map(v => Math.round(v / 2000)).join(',') + kaart.res.toFixed(0); if (z !== vorigeZicht) { vorigeZicht = z; laadAIinBeeld(); } }, 700);
-  $('bron').textContent = ACHTERGRONDEN.grijs.bron;
+  $('bron').textContent = '';
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));
   document.querySelectorAll('[data-paneel]').forEach(b => b.addEventListener('click', () => paneelSoort === b.dataset.paneel ? sluitPaneel() : openPaneel(b.dataset.paneel)));
   $('paneel-sluit').onclick = sluitPaneel;

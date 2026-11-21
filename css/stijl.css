@@ -22,7 +22,10 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--sein); outline-offset: 2px; }
 
 #kaart { position: fixed; inset: 0; }
-.kaartlaag { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.kaartlaag { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bovenlaag { pointer-events: none; }
+.maplibregl-ctrl-attrib { font-size: 11px; }
+.maplibregl-ctrl-bottom-right { bottom: env(safe-area-inset-bottom, 0px); }
 
 .balk { position: fixed; top: 0; left: 0; right: 0; z-index: 5; display: flex; align-items: center; gap: 14px;
   padding: calc(env(safe-area-inset-top, 0px) + 8px) max(14px, env(safe-area-inset-right, 0px)) 8px max(14px, env(safe-area-inset-left, 0px));
@@ -93,7 +96,7 @@ button { cursor: pointer; }
 .melding { position: fixed; z-index: 7; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); display: grid; gap: 6px; justify-items: center; pointer-events: none; }
 .melding div { background: var(--tekst); color: var(--grond); padding: 8px 14px; border-radius: 10px; box-shadow: var(--schaduw); max-width: min(520px, calc(100vw - 32px)); animation: in .25s ease-out; }
 @keyframes in { from { transform: translateY(8px); opacity: 0; } }
-.bron { position: fixed; z-index: 3; right: 6px; bottom: calc(env(safe-area-inset-bottom, 0px) + 4px); font-size: 11px; color: #333; background: rgba(255,255,255,.75); padding: 1px 6px; border-radius: 4px; pointer-events: none; }
+.bron { position: fixed; z-index: 3; left: 6px; bottom: calc(env(safe-area-inset-bottom, 0px) + 4px); font-size: 11px; color: #333; background: rgba(255,255,255,.75); padding: 1px 6px; border-radius: 4px; pointer-events: none; }
 
 dialog#start { border: 0; border-radius: 16px; padding: 0; width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); background: var(--vlak); color: var(--tekst); box-shadow: var(--schaduw); }
 dialog#start::backdrop { background: rgba(10, 25, 24, .55); backdrop-filter: blur(2px); }
