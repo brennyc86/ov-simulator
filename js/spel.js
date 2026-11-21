@@ -154,7 +154,7 @@ export function voertuigenOp(lijn, tm, uit) {
       const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
       const ka = lijn.km[ri], kb = lijn.km[rj];
       const [x, y, hoek] = puntOp(lijn, ka + (kb - ka) * f);
-      uit.push({ x, y, hoek: r ? hoek + Math.PI : hoek, lijn, r, vertrek: v, f, staat: f >= 1 });
+      uit.push({ x, y, hoek: r ? hoek + Math.PI : hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f });
     }
     void duurMin;
   }

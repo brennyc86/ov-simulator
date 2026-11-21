@@ -1,10 +1,12 @@
 // OV-manager — opstarten, kaartlagen, gereedschap, spellus en panelen.
 import { Kaart } from './kaart.js';
 import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
-import { netKleuren, spoorLagen, SPOOR_UIT } from './stijl.js';
+import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
+import { Perrons, ontwerpPerron, binnen } from './perron.js';
+import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute } from './net.js';
-import { MODI, VLOOT, TYPE, beschikbaar } from './vloot.js';
+import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
 import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelPad, beoordeelBouw, beoordeelConcessie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
@@ -24,13 +26,23 @@ async function json(pad) {
   catch { D.ok[pad] = false; return null; }
 }
 async function laadData() {
-  const [spoor, st, w, pl, ve, ha, vv, hi, vl] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
-    'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json'].map(json));
-  D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, landing: LANDING[v.s] ?? 60 }));
+  const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
+    'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(json));
+  const [po, hs] = await Promise.all(['data/polders.json', 'data/historisch.json'].map(json));
+  D.polders = (po?.p || []).map(p => ({ ...p, ringen: p.r.map(ontpak) }));
+  D.historisch = hs || { l: [], s: [], n: [] };
+  D.perrons = new Perrons(pr);
+  for (const v of spel?.perronVormen || []) D.perrons.voeg({ vlak: true, pts: v.pts, eigen: true });
+  D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, b: Math.max(v.b || 0, landSinds(v.x, v.y)), landing: LANDING[v.s] ?? 60 }));
   net = new Net(spoor);
+  // spoor en stations in polders bestonden pas na de drooglegging
+  for (const t of net.takken) { const m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]); if (land > (t.start || 0)) t.start = land; }
   D.stations = st?.stations || [];
+  for (const st of D.stations) { const land = landSinds(st.x, st.y); if (land > (st.b || 0)) st.b = land; }
   D.wissels = w?.wissels || [];
-  D.plaatsen = (pl?.plaatsen || []).filter(p => (p[5] || 'NL') === 'NL'); // Caribisch Nederland volgt met de wereldkaart
+  D.plaatsenAlle = (pl?.plaatsen || []).filter(p => (p[5] || 'NL') === 'NL'); // Caribisch Nederland volgt met de wereldkaart
+  for (const p of D.plaatsenAlle) p.land = landSinds(p[1], p[2]);
+  D.plaatsen = D.plaatsenAlle;
   D.veren = ve?.veren || [];
   D.haltes = ha?.haltes || [];
   AI.haltes = D.haltes;
@@ -54,6 +66,12 @@ const LANDING = { international: 1500, regionaal: 500, public: 60, veld: 60, air
 
 // ---------------------------------------------------------------- kaartlagen (MapLibre)
 const lonlat = (x, y) => { const [la, lo] = rdNaarWgs(x, y); return [Math.round(lo * 1e6) / 1e6, Math.round(la * 1e6) / 1e6]; };
+const ontpak = r => { const pts = []; let x = 0, y = 0; for (let i = 0; i < r.length; i += 2) { x += r[i]; y += r[i + 1]; pts.push(x, y); } return pts; };
+// jaar waarin dit punt land werd (0 = altijd al land)
+function landSinds(x, y) {
+  for (const p of D.polders || []) for (const r of p.ringen) if (binnen(r, x, y)) return p.j;
+  return 0;
+}
 const lijnGeo = pts => { const c = []; for (let k = 0; k < pts.length; k += 2) c.push(lonlat(pts[k], pts[k + 1])); return c; };
 const NK = netKleuren();
 const KD = false; // de kaart heeft één thema, ook in donkere modus
@@ -82,18 +100,43 @@ let lagenGemaakt = false;
 function netwerkLagen() {
   if (!kaart?.klaar) return;
   const jaar = spel?.jaar ?? 2026;
-  const sporen = { type: 'FeatureCollection', features: net.takken.filter(t => !t.weg).map(t => ({ type: 'Feature', properties: { k: klasseVan(t), ...jaarVan(t), n: t.sporen }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } })) };
+  const sporen = { type: 'FeatureCollection', features: net.takken.filter(t => !t.weg).map(t => {
+    const j = jaarVan(t), m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
+    if (land > j.van) j.van = land; // in een polder: pas na de drooglegging
+    return { type: 'Feature', properties: { k: klasseVan(t), ...j, n: t.sporen }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } };
+  }) };
+  // verdwenen lijnen uit OpenHistoricalMap (vooral de vele tramlijnen van vroeger)
+  const HK = { tram: 'tram', rail: 'h1', smal: 'smal', light_rail: 'snel', subway: 'metro' };
+  for (const r of D.historisch.l) {
+    const pts = ontpak(r.slice(4));
+    sporen.features.push({ type: 'Feature', properties: { k: HK[r[0]] || 'h1', van: r[1] || 1800, tot: r[2], n: 1, hist: 1 }, geometry: { type: 'LineString', coordinates: lijnGeo(pts) } });
+  }
   kaart.bron('spoor', sporen);
   kaart.bron('veren', { type: 'FeatureCollection', features: D.veren.map(v => ({ type: 'Feature', properties: { n: v.n }, geometry: { type: 'LineString', coordinates: lijnGeo(v.c) } })) });
   const w = D.wissels, wf = [];
   for (let i = 0; i < w.length; i += 2) wf.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: lonlat(w[i], w[i + 1]) } });
   kaart.bron('wissels', { type: 'FeatureCollection', features: wf });
-  kaart.bron('stations', { type: 'FeatureCollection', features: D.stations.map(st => ({ type: 'Feature', properties: { n: st.n + (st.e ? ' (opgeheven)' : ''), s: st.s, p: st.p || 0, van: st.b || 0, tot: st.e === 1 ? 1990 : (st.e || 9999) }, geometry: { type: 'Point', coordinates: lonlat(st.x, st.y) } })) });
+  const stf = D.stations.map(st => ({ type: 'Feature', properties: { n: st.n + (st.e ? ' (opgeheven)' : ''), s: st.s, p: st.p || 0, van: Math.max(st.b || 0, landSinds(st.x, st.y)), tot: st.e === 1 ? 1990 : (st.e || 9999) }, geometry: { type: 'Point', coordinates: lonlat(st.x, st.y) } }));
+  for (const [ni, x, y, van, tot, soort] of D.historisch.s) stf.push({ type: 'Feature', properties: { n: D.historisch.n[ni] || '', s: soort, p: 0, van: van || 1800, tot }, geometry: { type: 'Point', coordinates: lonlat(x, y) } });
+  kaart.bron('stations', { type: 'FeatureCollection', features: stf });
+  // polders die nog niet drooggelegd waren: water
+  kaart.bron('polders', { type: 'FeatureCollection', features: (D.polders || []).map(p => ({ type: 'Feature', properties: { j: p.j, n: p.n }, geometry: { type: 'Polygon', coordinates: p.ringen.map(lijnGeo) } })) });
   kaart.bron('haltes', { type: 'FeatureCollection', features: D.haltes.filter(h => h[3] & (8 | 16 | 32)).map(h => ({ type: 'Feature', properties: { n: h[0], veer: h[3] & 16 ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(h[1], h[2]) } })) });
   kaart.bron('vliegvelden', { type: 'FeatureCollection', features: D.vliegvelden.map(v => ({ type: 'Feature', properties: { n: v.n, l: `${v.n}${v.baan ? ` · ${v.baan} m${v.verhard ? '' : ' gras'}` : ''}`, groot: v.baan >= 1800 ? 1 : 0, van: v.b || 0, tot: 9999, mil: v.s === 'militair' ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(v.x, v.y) } })) });
+  kaart.bron('perrons', D.perrons.geojson(lonlat));
   eigenNetBijwerken();
   if (!lagenGemaakt) {
     lagenGemaakt = true;
+    // perrons in lichtgrijs (stoeptegels), met een witte perronrand
+    const PERRON = '#e2ded6', PERRONRAND = '#8f8a80';
+    kaart.laag({ id: 'perron-vlak', type: 'fill', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 1], paint: { 'fill-color': PERRON } });
+    kaart.laag({ id: 'perron-rand', type: 'line', source: 'perrons', minzoom: 14, filter: ['==', ['get', 'v'], 1], paint: { 'line-color': PERRONRAND, 'line-width': meters(0.4, 0.6) } });
+    kaart.laag({ id: 'perron-lijn', type: 'line', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 0], layout: { 'line-cap': 'butt' }, paint: { 'line-color': PERRON, 'line-width': meters(4.5, 1.2) } });
+    kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': spel?.kleur || '#c2412d' } });
+    kaart.laag({ id: 'perron-voorstel', type: 'fill', source: 'perron-voorstel', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': 'rgba(255,255,255,.75)', 'fill-outline-color': '#111' } });
+    kaart.laag({ id: 'perron-voorstel-spoor', type: 'line', source: 'perron-voorstel', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#111', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
+    kaart.laag({ id: 'hist-water', type: 'fill', source: 'polders', filter: ['>', ['get', 'j'], jaar], paint: { 'fill-color': THEMA.water } });
+    kaart.laag({ id: 'hist-water-naam', type: 'symbol', source: 'polders', minzoom: 8, filter: ['>', ['get', 'j'], jaar], layout: { 'text-field': ['concat', ['get', 'n'], '\n(droog in ', ['to-string', ['get', 'j']], ')'], 'text-font': ['Noto Sans Italic'], 'text-size': 11 }, paint: { 'text-color': THEMA.waterTekst, 'text-halo-color': '#fff', 'text-halo-width': 1 } });
     // echte spoortjes (ver ingezoomd) onder alle netwerklagen
     for (const l of spoorLagen()) kaart.laag({ ...l, filter: ['all', l.filter, jaarFilter(jaar)] });
     const lijn = (id, bron, filter, kleur, breedte, extra = {}) => kaart.laag({ id, type: 'line', source: bron, filter, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': kleur, 'line-width': breedte, ...(bron === 'spoor' ? { 'line-opacity': SPOOR_UIT } : {}), ...extra } });
@@ -139,6 +182,7 @@ function netwerkLagen() {
 function jaarBijwerken() {
   if (!lagenGemaakt) return;
   for (const l of spoorLagen()) kaart.map.setFilter(l.id, ['all', l.filter, jaarFilter(spel?.jaar ?? 2026)]);
+  for (const id of ['hist-water', 'hist-water-naam']) kaart.map.setFilter(id, ['>', ['get', 'j'], spel?.jaar ?? 2026]);
   const jaar = spel?.jaar ?? 2026, f = jaarFilter(jaar), m = kaart.map;
   const k = c => ['==', ['get', 'k'], c];
   for (const [id, c] of [['net-oud', 'oud'], ['net-zij', 'zij'], ['net-tram', 'tram'], ['net-smal', 'smal'], ['net-snel', 'snel'], ['net-metro', 'metro'], ['net-enkel', 'h1']]) m.setFilter(id, ['all', k(c), f]);
@@ -154,7 +198,12 @@ function jaarBijwerken() {
 function eigenNetBijwerken() {
   if (!kaart?.klaar) return;
   const leeg = { type: 'FeatureCollection', features: [] };
-  if (!spel) { kaart.bron('eigen-spoor', leeg); kaart.bron('eigen-lijnen', leeg); kaart.bron('eigen-haltes', leeg); return; }
+  if (!kaart.map.getSource('perron-voorstel')) kaart.bron('perron-voorstel', leeg);
+  if (!spel) { kaart.bron('eigen-spoor', leeg); kaart.bron('eigen-lijnen', leeg); kaart.bron('eigen-haltes', leeg); kaart.bron('eigen-perrons', leeg); return; }
+  kaart.bron('eigen-perrons', { type: 'FeatureCollection', features: (spel.perronVormen || []).map(v => {
+    const c = []; for (let i = 0; i < v.pts.length; i += 2) c.push(lonlat(v.pts[i], v.pts[i + 1]));
+    return { type: 'Feature', properties: { klaar: v.gereedDag <= spel.dag ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
+  }) });
   kaart.bron('eigen-spoor', { type: 'FeatureCollection', features: spel.spoor.map(sp => ({ type: 'Feature', properties: { klaar: sp.klaar ? 1 : 0 }, geometry: { type: 'LineString', coordinates: sp.punten.map(p => lonlat(p[0], p[1])) } })) });
   kaart.bron('eigen-lijnen', { type: 'FeatureCollection', features: spel.lijnen.filter(l => l.route?.pts?.length >= 4).map(l => ({ type: 'Feature', properties: { id: l.id, kl: !l.actief ? '#8a8f8c' : selectie?.lijn === l ? '#f2c14e' : spel.kleur }, geometry: { type: 'LineString', coordinates: lijnGeo(l.route.pts) } })) });
   kaart.bron('eigen-haltes', { type: 'FeatureCollection', features: spel.haltes.map(h => ({ type: 'Feature', properties: { n: h.naam + (h.gereedDag > spel.dag ? ' (in aanbouw)' : ''), m: h.modus, klaar: h.gereedDag > spel.dag ? 0 : 1 }, geometry: { type: 'Point', coordinates: lonlat(h.x, h.y) } })) });
@@ -191,16 +240,24 @@ function tekenBoven(ctx, k) {
     const v = vt[i], eigen = i < eigenN;
     const [px, py] = k.scherm(v.x, v.y);
     if (px < -20 || py < -20 || px > k.W + 20 || py > k.H + 20) continue;
-    const m = v.lijn.modus, lang = (m === 'trein' ? 14 : m === 'metro' || m === 'tram' || m === 'sneltram' ? 11 : m === 'veer' ? 10 : 8) * maat;
-    const breed = (m === 'trein' ? 4.5 : 4) * maat;
-    ctx.save(); ctx.translate(px, py); ctx.rotate(-v.hoek);
-    ctx.fillStyle = eigen ? spel.kleur : (v.lijn.kleur && v.lijn.kleur.length === 7 ? v.lijn.kleur : MODI[m]?.kleur || '#555');
-    ctx.strokeStyle = eigen ? '#fff' : 'rgba(0,0,0,.55)'; ctx.lineWidth = eigen ? 1.5 : 0.8;
-    if (m === 'vlucht') { ctx.beginPath(); ctx.moveTo(9 * maat, 0); ctx.lineTo(-6 * maat, 7 * maat); ctx.lineTo(-3 * maat, 0); ctx.lineTo(-6 * maat, -7 * maat); ctx.closePath(); }
-    else if (m === 'veer' || m === 'watertaxi') { ctx.beginPath(); ctx.moveTo(lang / 2, 0); ctx.lineTo(-lang / 2, breed); ctx.lineTo(-lang / 2, -breed); ctx.closePath(); }
-    else { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-lang / 2, -breed / 2, lang, breed, 1.5) : ctx.rect(-lang / 2, -breed / 2, lang, breed); }
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
+    const m = v.lijn.modus;
+    const u = uiterlijk(typeVoor(v.lijn, spel.jaar, standaardType), m);
+    const kleur = eigen ? spel.kleur : huiskleur(v.lijn, u);
+    const lang = schemaLengte(u._l) * Math.min(maat, 1.25);
+    if (u._l / r >= lang && m !== 'vlucht') {
+      // ingezoomd: ware lengte en bovenaanzicht
+      tekenEcht(ctx, k, v, u, kleur, eigen);
+    } else {
+      const breed = (m === 'trein' ? 4.5 : 4) * maat;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(-v.hoek);
+      ctx.fillStyle = kleur;
+      ctx.strokeStyle = eigen ? '#fff' : 'rgba(0,0,0,.55)'; ctx.lineWidth = eigen ? 1.5 : 0.8;
+      if (m === 'vlucht') { ctx.beginPath(); ctx.moveTo(9 * maat, 0); ctx.lineTo(-6 * maat, 7 * maat); ctx.lineTo(-3 * maat, 0); ctx.lineTo(-6 * maat, -7 * maat); ctx.closePath(); }
+      else if (m === 'veer' || m === 'watertaxi') { ctx.beginPath(); ctx.moveTo(lang / 2, 0); ctx.lineTo(-lang / 2, breed); ctx.lineTo(-lang / 2, -breed); ctx.closePath(); }
+      else { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-lang + 2, -breed / 2, lang, breed, 1.5) : ctx.rect(-lang + 2, -breed / 2, lang, breed); }
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
     if (r < 2.5 && v.lijn.nr) {
       ctx.font = '600 10px "Barlow Semi Condensed", sans-serif'; ctx.fillStyle = KD ? '#e6ece9' : '#1d2724';
       ctx.fillText(v.lijn.nr, px + 8, py - 7);
@@ -462,7 +519,16 @@ const PANELEN = {
   },
   station(s) {
     return `<h2>${esc(s.naam)}</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''}${spel.perrons?.[s.naam] ? ` · ${spel.perrons[s.naam]} extra perron(s) van jou` : ''}</p>
-      <button class="knop hoofd" data-actie="perron-bouw" data-naam="${esc(s.naam)}">＋ Perron bouwen (€ 2,5 mln)</button>`;
+      <button class="knop hoofd" data-actie="perron-ontwerp" data-naam="${esc(s.naam)}" data-x="${s.x}" data-y="${s.y}">＋ Spoor met perron ontwerpen</button>`;
+  },
+  perronVoorstel(o) {
+    const kosten = perronKosten(o);
+    return `<h2>Nieuw perronspoor · ${esc(o.naam)}</h2>
+      <p>Een extra spoor van ${(o.punten.length * 8 / 1000).toFixed(1).replace('.', ',')} km met wisselbogen, en een perron van 250 × 5 m ${o.naast === 'perron' ? 'langs het bestaande perron' : 'aan de buitenkant van het emplacement'}, op ${o.afstand.toFixed(0)} m van het spoor waar je klikte.</p>
+      <p>Kosten <b>${S.euroKort(kosten)}</b>, bouwtijd 30 dagen. Daarna hoort het spoor bij het net (van jou): treinen kunnen er halteren of keren zonder het doorgaande spoor te bezetten.</p>
+      <div class="rij"><button class="knop hoofd" data-actie="perron-bouw">Bouwen</button>
+      <button class="knop" data-actie="perron-kant">Andere kant</button>
+      <button class="knop" data-actie="perron-stop">Annuleren</button></div>`;
   },
   nieuwStation(d) {
     return `<h2>Nieuw station</h2><p class="klein">Op het spoor bij ${esc(d.plaats || 'deze plek')}.</p>
@@ -561,7 +627,22 @@ function actieUit(a, d) {
     case 'ploeg-weg': spel.controle.ploegen.splice(+d.i, 1); ververs(); break;
     case 'bewaar': bewaar(true); break;
     case 'nieuw': toonStart(); break;
-    case 'perron-bouw': if (betaal(2.5e6, 'een perron')) { spel.perrons = spel.perrons || {}; spel.perrons[d.naam] = (spel.perrons[d.naam] || 0) + 1; melding(`Extra perron bij ${d.naam} gebouwd.`); ververs(); } break;
+    case 'perron-ontwerp': perronOntwerpen(d.naam, +d.x, +d.y); break;
+    case 'perron-kant': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); break;
+    case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
+    case 'perron-bouw': {
+      const o = perronOntwerp; if (!o) break;
+      if (!betaal(perronKosten(o), 'het perronspoor')) break;
+      const klaar = spel.dag + 30;
+      spel.spoor.push({ punten: o.punten, sporen: 1, eigenaar: 'speler', gereedDag: klaar, klaar: false, perron: o.naam });
+      spel.perronVormen = spel.perronVormen || [];
+      spel.perronVormen.push({ station: o.naam, pts: o.perron, gereedDag: klaar });
+      D.perrons.voeg({ vlak: true, pts: o.perron, eigen: true });
+      spel.perrons = spel.perrons || {}; spel.perrons[o.naam] = (spel.perrons[o.naam] || 0) + 1;
+      melding(`Bouw van een extra spoor met perron bij ${o.naam} gestart. Klaar over 30 dagen.`);
+      perronVoorstelWissen(); eigenNetBijwerken(); sluitPaneel();
+      break;
+    }
     case 'station-zelf': case 'station-prorail': {
       const p = paneelData; const naam = $('ns-naam').value.trim() || p.naam;
       if (a === 'station-zelf') {
@@ -691,7 +772,7 @@ function zetTool(t) {
   if (t === 'lijn') kiesModus();
   if (t === 'halte') hint('Wat voor halte?', [['Bushalte', () => halteModus('bus')], ['Tramhalte', () => halteModus('tram')], ['Steiger (veer)', () => halteModus('veer')], ['Watertaxi', () => halteModus('watertaxi')], ['Stoppen', () => zetTool('kijk')]]);
   if (t === 'station') hint('Klik op het spoor waar het station moet komen.', [['Stoppen', () => zetTool('kijk')]]);
-  if (t === 'perron') hint('Klik op een station om een perron toe te voegen.', [['Stoppen', () => zetTool('kijk')]]);
+  if (t === 'perron') hint('Klik bij een treinstation: er komt een voorstel voor een extra spoor met perron.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'spoor') { bouw = { punten: [] }; hint('Klik punten voor het nieuwe spoor. Begin en eind sluiten aan op bestaand spoor.', [['Klaar', spoorKlaar], ['Laatste punt weg', () => { bouw.punten.pop(); }], ['Stoppen', () => zetTool('kijk')]]); }
 }
 function kiesModus() {
@@ -735,6 +816,21 @@ function kandidaten(modus) {
   for (const h of spel.haltes) if (h.gereedDag <= spel.dag && (h.modus === modus || (['bus', 'hov', 'belbus'].includes(modus) && ['bus', 'hov', 'belbus'].includes(h.modus)) || (modus === 'watertaxi' && h.modus === 'veer'))) uit.push({ naam: h.naam, x: h.x, y: h.y, eigen: h.id });
   return uit;
 }
+let perronOntwerp = null;
+function perronKosten(o) { return 2.5e6 + o.punten.length * 8 * 2500; }
+function perronOntwerpen(naam, x, y, kant = 0) {
+  const o = ontwerpPerron(net, D.perrons, x, y, spel.jaar, { kant });
+  if (!o) { melding(`Bij ${naam} ligt geen spoor in de buurt.`); return; }
+  perronOntwerp = { ...o, naam, x, y };
+  kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: o.punten.map(p => lonlat(p[0], p[1])) } },
+    { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [(() => { const c = []; for (let i = 0; i < o.perron.length; i += 2) c.push(lonlat(o.perron[i], o.perron[i + 1])); return c; })()] } },
+  ] });
+  const m = o.punten[Math.floor(o.punten.length / 2)];
+  if (kaart.res > 3) kaart.vliegNaar(m[0], m[1], 1.6);
+  openPaneel('perronVoorstel', perronOntwerp);
+}
+function perronVoorstelWissen() { perronOntwerp = null; kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [] }); }
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
   let beste = null, bd = maxPx;
   const [wx, wy] = kaart.wereld(px, py), bereik = maxPx * kaart.res * 1.6;
@@ -812,9 +908,11 @@ function klik(px, py) {
     return;
   }
   if (tool === 'perron') {
-    const c = dichtsteKandidaat('trein', px, py, 20);
-    if (!c) { melding('Klik op een treinstation.'); return; }
-    openPaneel('station', { naam: c.naam, p: c.p, eigen: !!c.eigen });
+    // het dichtstbijzijnde treinstation binnen 600 m (of 40 pixels als je ver uitgezoomd bent)
+    let c = null, bd = Math.max(600, 40 * kaart.res);
+    for (const k of kandidaten('trein')) { const d = Math.hypot(k.x - x, k.y - y); if (d < bd) { bd = d; c = k; } }
+    if (!c) { melding('Klik bij een treinstation.'); return; }
+    perronOntwerpen(c.naam, c.x, c.y);
     return;
   }
   if (tool === 'spoor' && bouw) { bouw.punten.push({ x, y }); return; }
@@ -831,7 +929,7 @@ function klik(px, py) {
     }
   }
   const st = dichtsteKandidaat('trein', px, py, 10);
-  if (st) openPaneel('station', { naam: st.naam, p: st.p, eigen: !!st.eigen });
+  if (st) openPaneel('station', { naam: st.naam, p: st.p, eigen: !!st.eigen, x: st.x, y: st.y });
 }
 function afstandTotLijnstuk(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
@@ -847,6 +945,7 @@ async function historischeAI() {
   const jaar = spel.jaar;
   for (const v of vervoerdersIn(jaar)) {
     if (v.id === spel.vervoerder?.id || !spel || spel.jaar !== jaar) continue;
+    zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(v, jaar, D, net, D.plaatsen);
     for (const l of lijnen) AI.lijnen.push(Object.assign(l, { ai: true, vervoerder: v.id, vervoerderNaam: v.naam, sleutel: `${v.id}:${l.id}:0`, lijnId: l.id, kleur: v.kleur }));
   }
@@ -949,7 +1048,7 @@ async function nieuwSpelStarten() {
   let vervoerder = null, hist = null;
   if (soort === 'bestaand') {
     const keuze = document.querySelector('input[name="vervoerder"]:checked')?.value || '';
-    const [bron, id] = keuze.split(':');
+    const i = keuze.indexOf(':'), bron = keuze.slice(0, i), id = keuze.slice(i + 1); // id kan zelf ':' bevatten (IFF:NS)
     if (bron === 'gtfs') vervoerder = D.vervoerders.find(v => v.id === id);
     if (bron === 'hist') hist = vervoerdersIn(jaar).find(v => v.id === id);
     if (!vervoerder && !hist) { melding('Kies eerst een vervoerder.'); return; }
@@ -957,6 +1056,7 @@ async function nieuwSpelStarten() {
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
   spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: 25e6 });
   if (hist) {
+    zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });
     for (const l of lijnen) { l.gen = true; spel.lijnen.push(l); spel.voertuigen[l.typeId] = (spel.voertuigen[l.typeId] || 0) + Math.ceil(l.nodig * 1.1); }
     spel.geld = 25e6 + lijnen.length * 0.3e6;
@@ -988,10 +1088,12 @@ async function nieuwSpelStarten() {
   else kaart.vliegNaar(140700, 470500, 18); // 't Gooi
   $('s-start').disabled = false; $('s-start').textContent = 'Spel starten';
 }
+// plaatsen in een polder ontstonden een paar jaar na de drooglegging (Emmeloord 1943, Lelystad 1967, Almere 1976)
+function zetPlaatsen(jaar) { D.plaatsen = (D.plaatsenAlle || []).filter(p => !p.land || p.land + 6 <= jaar); }
 function begin() {
   $('start').close();
   kaart.jaar = spel.jaar;
-  if (spel.jaar < 1995 && kaart.achtergrond !== 'historisch' && kaart.klaar) { kaart.zetAchtergrond('historisch'); $('bron').textContent = ACHTERGROND_KEUZE.historisch.bron; }
+  zetPlaatsen(spel.jaar);
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
   netwerkLagen(); hud(); laadAIinBeeld();
   if (spel.jaar < 2020) historischeAI();

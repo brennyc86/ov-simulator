@@ -42,7 +42,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: OpenStreetMap (spoor, stations, wissels, plaatsen, veren, vliegvelden)
-        run: python3 -u tools/osm.py --uit uit
+        run: |
+          python3 -u tools/osm.py --uit uit
+          python3 -u tools/ohm.py --uit uit || echo "OpenHistoricalMap mislukt, vorige versie blijft"
+          python3 -u tools/polders.py --uit uit || echo "polders mislukt, vorige versie blijft"
       - uses: actions/upload-artifact@v4
         with:
           name: osm

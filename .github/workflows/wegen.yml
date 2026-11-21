@@ -7,6 +7,10 @@ on:
       gebied:
         description: "gooi, regio of nl"
         default: "nl"
+      opnieuw:
+        description: "ook al opgehaalde vakken opnieuw ophalen"
+        type: boolean
+        default: false
   schedule:
     - cron: "17 3 * * 0"
 concurrency:
@@ -28,8 +32,9 @@ jobs:
           git fetch -q --depth 1 "https://github.com/${{ github.repository }}" data && git checkout -q FETCH_HEAD -- .
           rm -rf .git
       - name: Wegen ophalen
-        run: python3 tools/wegen.py --gebied "${{ inputs.gebied || 'nl' }}" --uit uit/wegen --pauze 2 --max-minuten 300
+        run: python3 tools/wegen.py --gebied "${{ inputs.gebied || 'nl' }}" --uit uit/wegen --pauze 2 --max-minuten 300 ${{ inputs.opnieuw && '--opnieuw' || '' }}
       - name: Naar de data-tak
+        if: always()
         run: |
           cd uit
           git init -q -b data
@@ -39,6 +44,7 @@ jobs:
           git commit -qm "Wegen $(date -u +%F)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
       - name: Site opnieuw publiceren
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

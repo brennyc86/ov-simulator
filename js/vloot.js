@@ -24,6 +24,7 @@ export const VLOOT = [
   { id: 'planv', naam: 'Mat \'64 "Plan V" (2-delig)', modus: 'trein', van: 1966, tot: 2016, zit: 152, sta: 100, vmax: 140, acc: 0.6, prijs: 5e6, km: 2.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'sgm', naam: 'SGM "Sprinter" (3-delig)', modus: 'trein', van: 1975, tot: 2021, zit: 180, sta: 190, vmax: 125, acc: 0.9, prijs: 6e6, km: 2.1, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'icm', naam: 'ICM "Koploper" (4-delig)', modus: 'trein', van: 1983, tot: 2027, zit: 240, sta: 120, vmax: 160, acc: 0.6, prijs: 9e6, km: 2.9, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'ddr', naam: 'DDM-1 dubbeldekker met loc 1700 ("DDR")', modus: 'trein', van: 1985, tot: 2019, zit: 470, sta: 200, vmax: 140, acc: 0.45, prijs: 13e6, km: 4.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'ddz', naam: 'DDZ dubbeldekker (6-delig)', modus: 'trein', van: 2011, tot: 2030, zit: 550, sta: 250, vmax: 140, acc: 0.6, prijs: 14e6, km: 4.2, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
   { id: 'virm6', naam: 'VIRM dubbeldekker (6-delig)', modus: 'trein', van: 1994, tot: 2035, zit: 570, sta: 300, vmax: 160, acc: 0.6, prijs: 16e6, km: 4.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'icng5', naam: 'ICNG (5-delig)', modus: 'trein', van: 2023, tot: 2065, zit: 286, sta: 240, vmax: 200, acc: 0.7, prijs: 15e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },

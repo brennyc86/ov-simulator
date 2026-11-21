@@ -126,17 +126,41 @@ def snelheid(t):
         return 0
 
 
-def cel_ophalen(i, j, marge=150):
-    x0, y0 = i * CEL - marge, j * CEL - marge
-    x1, y1 = x0 + CEL + 2 * marge, y0 + CEL + 2 * marge
+def bbox_wgs(x0, y0, x1, y1):
     hoeken = [naar_wgs(x0, y0), naar_wgs(x1, y0), naar_wgs(x0, y1), naar_wgs(x1, y1)]
     z, w = min(h[0] for h in hoeken), min(h[1] for h in hoeken)
     n, o = max(h[0] for h in hoeken), max(h[1] for h in hoeken)
-    bb = f"{z:.5f},{w:.5f},{n:.5f},{o:.5f}"
+    return f"{z:.5f},{w:.5f},{n:.5f},{o:.5f}"
+
+
+def vraag(bb, pogingen):
     q = (f'[out:json][timeout:240];(way["highway"~"^({WEGEN})$"]({bb});'
          f'way["highway"="cycleway"]({bb});way["highway"="footway"]["footway"="sidewalk"]({bb});'
          f'way["highway"~"^(footway|path)$"]["bicycle"="designated"]({bb}););out tags geom;')
-    return overpass(q)
+    return overpass(q, pogingen)
+
+
+def cel_ophalen(i, j, marge=150):
+    """Eén vak ophalen; lukt dat niet (druk gebied, time-outs), dan in vier kwarten. None = mislukt."""
+    x0, y0 = i * CEL - marge, j * CEL - marge
+    x1, y1 = x0 + CEL + 2 * marge, y0 + CEL + 2 * marge
+    try:
+        return vraag(bbox_wgs(x0, y0, x1, y1), 3)
+    except SystemExit:
+        print(f"  vak {i}_{j} te zwaar, nu in vier delen", flush=True)
+    mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+    elementen, gezien = [], set()
+    for a, b, c, d in ((x0, y0, mx, my), (mx, y0, x1, my), (x0, my, mx, y1), (mx, my, x1, y1)):
+        try:
+            res = vraag(bbox_wgs(a, b, c, d), 4)
+        except SystemExit:
+            return None
+        for el in res.get("elements", []):
+            if el["id"] not in gezien:
+                gezien.add(el["id"])
+                elementen.append(el)
+        time.sleep(3)
+    return {"elements": elementen}
 
 
 def verwerk(i, j, res):
@@ -253,6 +277,7 @@ def main():
     ap.add_argument("--rd", default="", help="x0,y0,x1,y1 in RD-meters")
     ap.add_argument("--uit", default="data/wegen")
     ap.add_argument("--pauze", type=float, default=2)
+    ap.add_argument("--opnieuw", action="store_true", help="ook al opgehaalde vakken opnieuw doen")
     ap.add_argument("--max-minuten", type=float, default=0, help="stop netjes na zoveel minuten (CI)")
     a = ap.parse_args()
     x0, y0, x1, y1 = [int(v) for v in a.rd.split(",")] if a.rd else GEBIEDEN[a.gebied]
@@ -266,14 +291,19 @@ def main():
     # vanaf 't Gooi naar buiten werken
     vakken.sort(key=lambda v: math.hypot(v[0] * CEL + 5000 - 140000, v[1] * CEL + 5000 - 472000))
     begin = time.time()
+    mislukt = 0
     for nr, (i, j) in enumerate(vakken, 1):
         if a.max_minuten and time.time() - begin > a.max_minuten * 60:
             print("  tijd op, de rest volgt bij de volgende run", flush=True)
             break
         pad = os.path.join(a.uit, f"{i}_{j}.json")
-        if (i, j) in index and os.path.exists(pad):
+        if not a.opnieuw and (i, j) in index and (index[(i, j)] == 0 or os.path.exists(pad)):
             continue
         res = cel_ophalen(i, j)
+        if res is None:
+            print(f"  vak {i}_{j} overgeslagen (Overpass bleef falen), volgende run opnieuw", flush=True)
+            mislukt += 1
+            continue
         rijen = verwerk(i, j, res)
         del res
         if rijen:
@@ -286,6 +316,7 @@ def main():
         with open(idx_pad, "w") as f:
             json.dump({"cel": CEL, "vakken": [[i, j, n] for (i, j), n in sorted(index.items())]}, f, separators=(",", ":"))
         time.sleep(a.pauze)
+    print(f"klaar: {sum(1 for n in index.values() if n)} vakken met wegen, {mislukt} mislukt", flush=True)
 
 
 if __name__ == "__main__":

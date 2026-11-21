@@ -8,6 +8,7 @@ Uitvoer:
   spoor.json     spoorgraaf: knopen + takken (trein, sneltram, metro, tram, historisch)
   stations.json  stations, haltes, busstations, veerterminals
   wissels.json   wisselposities
+  perrons.json   perrons (vlakken en lijnen)
   plaatsen.json  steden/dorpen met inwonertal (voor de vraag naar vervoer)
   veren.json     veerverbindingen (geometrie)
   historie.json  beschikbare jaren van de Kadaster-tijdreiskaart
@@ -82,11 +83,12 @@ def vereenvoudig(punten, tol):
         ax, ay = punten[a]
         bx, by = punten[b]
         dx, dy = bx - ax, by - ay
-        lengte = math.hypot(dx, dy) or 1e-9
+        lengte = math.hypot(dx, dy)
         verst, idx = 0.0, -1
+        gesloten = lengte < 1e-6  # begin = eind (rotonde, perronvlak): afstand tot het beginpunt
         for i in range(a + 1, b):
             px, py = punten[i]
-            d = abs(dy * px - dx * py + bx * ay - by * ax) / lengte
+            d = math.hypot(px - ax, py - ay) if gesloten else abs(dy * px - dx * py + bx * ay - by * ax) / lengte
             if d > verst:
                 verst, idx = d, i
         if verst > tol and idx > 0:
@@ -104,6 +106,44 @@ def in_nl(x, y):
 def rd_int(lat, lon):
     x, y = naar_rd(lat, lon)
     return int(round(x)), int(round(y))
+
+
+# --------------------------------------------------------------------------- perrons
+def perrons(bbox, uit):
+    """Perrons (railway=platform) als vlak of als lijn, in hele RD-meters, delta-gecodeerd."""
+    voor, g = gebied(bbox)
+    q = (f'[out:json][timeout:900];{voor}(way["railway"="platform"]{g};relation["railway"="platform"]{g};'
+         f'way["public_transport"="platform"]["train"="yes"]{g};way["public_transport"="platform"]["tram"="yes"]{g};);out tags geom;')
+    res = overpass(q)
+    gezien, lijst = set(), []
+
+    def voeg(geom, vlak):
+        pts = [rd_int(p["lat"], p["lon"]) for p in geom if p]
+        if len(pts) < 2 or not in_nl(*pts[0]):
+            return
+        if not vlak:  # gesloten vormen niet vereenvoudigen (begin = eind laat Douglas-Peucker instorten)
+            pts = vereenvoudig(pts, 0.5)
+        rij, vx, vy = [1 if vlak else 0], 0, 0
+        for x, y in pts:
+            rij += [x - vx, y - vy]
+            vx, vy = x, y
+        lijst.append(rij)
+
+    for el in res.get("elements", []):
+        if el["id"] in gezien:
+            continue
+        gezien.add(el["id"])
+        t = el.get("tags", {})
+        if el["type"] == "way" and "geometry" in el:
+            g0 = el["geometry"]
+            vlak = (g0[0] == g0[-1] and len(g0) > 3) or t.get("area") == "yes"
+            voeg(g0, vlak)
+        elif el["type"] == "relation":
+            for m in el.get("members", []):
+                if m.get("role") == "outer" and "geometry" in m:
+                    voeg(m["geometry"], True)
+    print(f"  {len(lijst)} perrons", flush=True)
+    schrijf(uit, "perrons.json", {"uitleg": "[1=vlak/0=lijn, x0, y0, dx, dy, ...] RD-meters", "p": lijst})
 
 
 # --------------------------------------------------------------------------- spoor
@@ -460,11 +500,17 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", default="", help="zuid,west,noord,oost (voor testen)")
     ap.add_argument("--uit", default="data")
+    ap.add_argument("--alleen", default="", help="bijv. perrons: alleen dat onderdeel")
     a = ap.parse_args()
     os.makedirs(a.uit, exist_ok=True)
+    if a.alleen == "perrons":
+        os.makedirs(a.uit, exist_ok=True)
+        perrons(a.bbox, a.uit)
+        return
     takken = spoor(a.bbox, a.uit)
     stations(a.bbox, a.uit, takken)
     wissels(a.bbox, a.uit)
+    perrons(a.bbox, a.uit)
     print("plaatsen, veren en vliegvelden ophalen (eerst even wachten, Overpass remt af na zware verzoeken)…", flush=True)
     time.sleep(45)
     rest = overig_ophalen(a.bbox)
