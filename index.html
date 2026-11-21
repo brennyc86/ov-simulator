@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Knooppunt</title>
+<title>OV-manager</title>
 <meta name="description" content="OV-simulator van Nederland: bouw lijnen, maak een dienstregeling en onderhandel met andere vervoerders.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23173b3a'/%3E%3Cpath d='M6 22 L16 10 L26 22' stroke='%23f2c14e' stroke-width='3' fill='none'/%3E%3Ccircle cx='16' cy='10' r='4' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,15 +15,16 @@
 <div id="kaart" aria-label="Kaart van Nederland met het OV-netwerk"></div>
 
 <header class="balk">
-  <div class="merk"><span class="logo" aria-hidden="true"></span><b>Knooppunt</b></div>
+  <div class="merk"><span class="logo" aria-hidden="true"></span><b>OV-manager</b></div>
   <div class="bedrijf" id="b-bedrijf" hidden><i id="b-kleur"></i><span id="b-naam"></span></div>
   <div class="stat"><small>Kas</small><b id="b-geld">—</b></div>
   <div class="stat"><small id="b-dag">Dag 1</small><b id="b-klok">06:00</b></div>
   <div class="snelheid" role="group" aria-label="Spelsnelheid">
     <button data-s="0" title="Pauze (spatie)">❚❚</button>
-    <button data-s="1" title="1 speelminuut per seconde">1×</button>
-    <button data-s="10" title="10 speelminuten per seconde">10×</button>
-    <button data-s="60" title="1 speeluur per seconde">60×</button>
+    <button data-s="1" title="Echte tijd: treinen rijden op ware snelheid">1×</button>
+    <button data-s="10" title="10× zo snel: een uur duurt 6 minuten">10×</button>
+    <button data-s="60" title="60× zo snel: een uur duurt 1 minuut">60×</button>
+    <button data-s="600" title="600× zo snel: een dag duurt ruim 2 minuten">600×</button>
   </div>
   <button class="account" id="b-account" type="button">Inloggen</button>
 </header>
@@ -62,7 +63,7 @@
     <fieldset>
       <legend>Nieuw spel</legend>
       <label for="s-naam">Naam van je bedrijf</label>
-      <input id="s-naam" value="Knooppunt Vervoer" maxlength="40" required>
+      <input id="s-naam" value="Mijn OV-bedrijf" maxlength="40" required>
       <label for="s-jaar">Startjaar <output id="s-jaar-uit">2026</output></label>
       <input id="s-jaar" type="range" min="1850" max="2026" value="2026">
       <p class="klein" id="s-jaar-uitleg">Huidige situatie: echte dienstregeling van alle vervoerders.</p>

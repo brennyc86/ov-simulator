@@ -1,4 +1,4 @@
-# Knooppunt — OV-simulator van Nederland
+# OV-manager — OV-simulator van Nederland
 
 Speel: **https://brennyc86.github.io/ov-simulator/**
 

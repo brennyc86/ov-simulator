@@ -1,7 +1,8 @@
-// Knooppunt — opstarten, kaartlagen, gereedschap, spellus en panelen.
+// OV-manager — opstarten, kaartlagen, gereedschap, spellus en panelen.
 import { Kaart } from './kaart.js';
 import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
-import { netKleuren } from './stijl.js';
+import { netKleuren, spoorLagen, SPOOR_UIT } from './stijl.js';
+import { Wegen } from './wegen.js';
 import { Net, wegRoute } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar } from './vloot.js';
 import * as S from './spel.js';
@@ -14,7 +15,7 @@ import { genereerVervoerder } from './genereer.js';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const D = { stations: [], wissels: [], plaatsen: [], veren: [], haltes: [], vervoerders: [], vliegvelden: [], dag: '', ok: {} };
-let net = new Net(null), kaart, spel = null, snelheid = 1, tool = 'kijk', slot = null, paneelSoort = null;
+let net = new Net(null), kaart, spel = null, snelheid = 10, tool = 'kijk', slot = null, paneelSoort = null;
 let bouw = null, selectie = null;
 
 // ---------------------------------------------------------------- data laden
@@ -54,8 +55,9 @@ const LANDING = { international: 1500, regionaal: 500, public: 60, veld: 60, air
 // ---------------------------------------------------------------- kaartlagen (MapLibre)
 const lonlat = (x, y) => { const [la, lo] = rdNaarWgs(x, y); return [Math.round(lo * 1e6) / 1e6, Math.round(la * 1e6) / 1e6]; };
 const lijnGeo = pts => { const c = []; for (let k = 0; k < pts.length; k += 2) c.push(lonlat(pts[k], pts[k + 1])); return c; };
-const DONKER = matchMedia('(prefers-color-scheme: dark)').matches && document.documentElement.dataset.theme !== 'light';
-const NK = netKleuren(DONKER);
+const NK = netKleuren();
+const KD = false; // de kaart heeft één thema, ook in donkere modus
+let wegen = null;
 
 function klasseVan(t) {
   if (t.soort === 5 || t.soort === 6) return 'oud';
@@ -92,7 +94,9 @@ function netwerkLagen() {
   eigenNetBijwerken();
   if (!lagenGemaakt) {
     lagenGemaakt = true;
-    const lijn = (id, bron, filter, kleur, breedte, extra = {}) => kaart.laag({ id, type: 'line', source: bron, filter, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': kleur, 'line-width': breedte, ...extra } });
+    // echte spoortjes (ver ingezoomd) onder alle netwerklagen
+    for (const l of spoorLagen()) kaart.laag({ ...l, filter: ['all', l.filter, jaarFilter(jaar)] });
+    const lijn = (id, bron, filter, kleur, breedte, extra = {}) => kaart.laag({ id, type: 'line', source: bron, filter, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': kleur, 'line-width': breedte, ...(bron === 'spoor' ? { 'line-opacity': SPOOR_UIT } : {}), ...extra } });
     const zoomB = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 6, a, 11, b, 16, c];
     const k = c => ['==', ['get', 'k'], c];
     lijn('net-veer', 'veren', null, NK.veer, zoomB(1, 1.6, 2.5), { 'line-dasharray': [3, 2.5] });
@@ -113,26 +117,28 @@ function netwerkLagen() {
     lijn('net-lijnen', 'eigen-lijnen', null, ['get', 'kl'], zoomB(2, 3.5, 6));
     kaart.laag({ id: 'net-wissels', type: 'circle', source: 'wissels', minzoom: 15, paint: { 'circle-radius': 2.4, 'circle-color': '#e0a516' } });
     kaart.laag({ id: 'net-haltes', type: 'circle', source: 'haltes', minzoom: 14, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 18, 5], 'circle-color': ['case', ['==', ['get', 'veer'], 1], NK.veer, '#3d8b3d'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
-    kaart.laag({ id: 'net-haltes-naam', type: 'symbol', source: 'haltes', minzoom: 16, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0.8, 0], 'text-anchor': 'left', 'text-optional': true }, paint: { 'text-color': DONKER ? '#c9d3cf' : '#2a3431', 'text-halo-color': NK.halo, 'text-halo-width': 1.2 } });
+    kaart.laag({ id: 'net-haltes-naam', type: 'symbol', source: 'haltes', minzoom: 16, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0.8, 0], 'text-anchor': 'left', 'text-optional': true }, paint: { 'text-color': KD ? '#c9d3cf' : '#2a3431', 'text-halo-color': NK.halo, 'text-halo-width': 1.2 } });
     const stFilter = ['all', jaarFilter(jaar)];
     kaart.laag({ id: 'net-stations', type: 'circle', source: 'stations', filter: ['all', jaarFilter(jaar), ['any', ['==', ['get', 's'], 'trein'], ['>=', ['zoom'], 12.5]]],
       paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, ['case', ['==', ['get', 's'], 'trein'], ['case', ['>=', ['get', 'p'], 6], 3.5, 2], 1.5], 12, ['case', ['==', ['get', 's'], 'trein'], ['case', ['>=', ['get', 'p'], 6], 7, 5], 3.5], 16, ['case', ['==', ['get', 's'], 'trein'], 9, 5]],
         'circle-color': '#ffffff', 'circle-stroke-width': ['case', ['==', ['get', 's'], 'trein'], 2.2, 1.5],
-        'circle-stroke-color': ['match', ['get', 's'], 'trein', DONKER ? '#9fd3c7' : '#173b3a', 'metro', NK.metro, 'sneltram', NK.snel, 'tram', NK.tram, 'veer', NK.veer, 'busstation', '#3d8b3d', '#555'] } });
+        'circle-stroke-color': ['match', ['get', 's'], 'trein', KD ? '#9fd3c7' : '#173b3a', 'metro', NK.metro, 'sneltram', NK.snel, 'tram', NK.tram, 'veer', NK.veer, 'busstation', '#3d8b3d', '#555'] } });
     kaart.laag({ id: 'net-stations-naam', type: 'symbol', source: 'stations', filter: ['all', jaarFilter(jaar), ['any', ['all', ['==', ['get', 's'], 'trein'], ['any', ['>=', ['get', 'p'], 5], ['>=', ['zoom'], 9.5]]], ['>=', ['zoom'], 14]]],
       layout: { 'text-field': ['get', 'n'], 'text-font': ['case', ['==', ['get', 's'], 'trein'], ['literal', ['Noto Sans Bold']], ['literal', ['Noto Sans Regular']]], 'text-size': ['case', ['==', ['get', 's'], 'trein'], 12.5, 11], 'text-offset': [0.9, 0], 'text-anchor': 'left', 'symbol-sort-key': ['-', 0, ['get', 'p']], 'text-padding': 3 },
-      paint: { 'text-color': DONKER ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
+      paint: { 'text-color': KD ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
     void stFilter;
     kaart.laag({ id: 'net-vlieg', type: 'symbol', source: 'vliegvelden', filter: ['any', ['==', ['get', 'groot'], 1], ['>=', ['zoom'], 8]],
       layout: { 'text-field': ['case', ['>=', ['zoom'], 9], ['concat', '✈ ', ['get', 'l']], '✈'], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [-0.4, 0] },
       paint: { 'text-color': ['case', ['==', ['get', 'mil'], 1], '#7d7a8c', '#5b4bb7'], 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
     kaart.laag({ id: 'net-eigen-haltes', type: 'circle', source: 'eigen-haltes', paint: { 'circle-radius': ['case', ['==', ['get', 'm'], 'trein'], 7, 5], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': spel?.kleur || '#c2412d', 'circle-opacity': ['case', ['==', ['get', 'klaar'], 1], 1, 0.6] } });
-    kaart.laag({ id: 'net-eigen-haltes-naam', type: 'symbol', source: 'eigen-haltes', minzoom: 10, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [1, 0], 'text-anchor': 'left' }, paint: { 'text-color': DONKER ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
+    kaart.laag({ id: 'net-eigen-haltes-naam', type: 'symbol', source: 'eigen-haltes', minzoom: 10, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [1, 0], 'text-anchor': 'left' }, paint: { 'text-color': KD ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
   }
   jaarBijwerken();
+  if (!wegen) { wegen = new Wegen(kaart); wegen.start('grens'); }
 }
 function jaarBijwerken() {
   if (!lagenGemaakt) return;
+  for (const l of spoorLagen()) kaart.map.setFilter(l.id, ['all', l.filter, jaarFilter(spel?.jaar ?? 2026)]);
   const jaar = spel?.jaar ?? 2026, f = jaarFilter(jaar), m = kaart.map;
   const k = c => ['==', ['get', 'k'], c];
   for (const [id, c] of [['net-oud', 'oud'], ['net-zij', 'zij'], ['net-tram', 'tram'], ['net-smal', 'smal'], ['net-snel', 'snel'], ['net-metro', 'metro'], ['net-enkel', 'h1']]) m.setFilter(id, ['all', k(c), f]);
@@ -196,7 +202,7 @@ function tekenBoven(ctx, k) {
     ctx.fill(); ctx.stroke();
     ctx.restore();
     if (r < 2.5 && v.lijn.nr) {
-      ctx.font = '600 10px "Barlow Semi Condensed", sans-serif'; ctx.fillStyle = DONKER ? '#e6ece9' : '#1d2724';
+      ctx.font = '600 10px "Barlow Semi Condensed", sans-serif'; ctx.fillStyle = KD ? '#e6ece9' : '#1d2724';
       ctx.fillText(v.lijn.nr, px + 8, py - 7);
     }
     v.px = px; v.py = py;
@@ -222,7 +228,7 @@ function lus(nu) {
   const dt = Math.min(0.25, (nu - vorige) / 1000); vorige = nu;
   if (spel && snelheid) {
     const oud = spel.tijd;
-    spel.tijd += dt * snelheid;
+    spel.tijd += dt * snelheid / 60;
     // elk vol uur afrekenen
     for (let u = Math.floor(oud / 60) + 1; u <= Math.floor(spel.tijd / 60); u++) uurVoorbij(u * 60 - 60);
     if (spel.tijd >= 26 * 60) dagVoorbij(); // dienstdag loopt van 05:00 tot 02:00
@@ -910,7 +916,7 @@ async function bewaar(hand) {
   if (Cloud.gebruiker && (hand || performance.now() - laatsteOnline > 60000)) {
     laatsteOnline = performance.now();
     try { await Cloud.bewaarOnline(slot, spel.naam, vorm, samenvatting); if (hand) melding('Opgeslagen in je account.'); }
-    catch (e) { if (hand) melding('Online opslaan mislukte: ' + (e.code === 'permission-denied' ? 'de database-regels voor Knooppunt staan nog niet in Firebase.' : e.message)); }
+    catch (e) { if (hand) melding('Online opslaan mislukte: ' + (e.code === 'permission-denied' ? 'de database-regels voor OV-manager staan nog niet in Firebase.' : e.message)); }
   } else if (hand) melding(lokaal ? 'Opgeslagen in deze browser. Log in om op elk apparaat verder te spelen.' : 'Opslaan in de browser lukte niet.');
 }
 async function laadSpel(data, nieuwSlot) {
@@ -939,7 +945,7 @@ function vulVanAI(l, a, alle) {
 async function nieuwSpelStarten() {
   const soort = document.querySelector('#s-soort [aria-pressed="true"]').dataset.v;
   const jaar = +$('s-jaar').value;
-  const naam = $('s-naam').value.trim() || 'Knooppunt Vervoer';
+  const naam = $('s-naam').value.trim() || 'Mijn OV-bedrijf';
   let vervoerder = null, hist = null;
   if (soort === 'bestaand') {
     const keuze = document.querySelector('input[name="vervoerder"]:checked')?.value || '';
@@ -1039,7 +1045,7 @@ async function toonAccount() {
 
 // ---------------------------------------------------------------- opstarten
 function init() {
-  kaart = new Kaart($('kaart'), { donker: DONKER });
+  kaart = new Kaart($('kaart'));
   kaart.bijKlaar = () => netwerkLagen();
   kaart.lagenBoven.push(tekenBoven);
   kaart.bijKlik = klik;
@@ -1055,13 +1061,13 @@ function init() {
   document.querySelectorAll('.snelheid button').forEach(b => b.addEventListener('click', () => zetSnelheid(+b.dataset.s)));
   addEventListener('keydown', e => {
     if (e.target.closest('input, select, textarea')) return;
-    if (e.key === ' ') { e.preventDefault(); zetSnelheid(snelheid ? 0 : 1); }
+    if (e.key === ' ') { e.preventDefault(); zetSnelheid(snelheid ? 0 : 10); }
     if (e.key === 'Escape') { zetTool('kijk'); sluitPaneel(); }
   });
   $('b-account').onclick = () => toonStart();
   $('start').addEventListener('cancel', e => { if (!spel) e.preventDefault(); });
   addEventListener('visibilitychange', () => { if (document.hidden) bewaar(); });
-  zetSnelheid(1);
+  zetSnelheid(10);
   Cloud.bijInlog(u => { $('b-account').textContent = u ? (u.displayName || u.email || 'Account').split(' ')[0] : 'Inloggen'; if ($('start').open) toonAccount(); });
   Cloud.start().catch(() => {});
   toonStart();
