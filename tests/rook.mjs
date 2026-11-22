@@ -121,6 +121,22 @@ if (process.env.VRAAG) { const S = await import('../js/spel.js'); const sp = glo
   document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(200);
   const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
   log('eigen lijnpaneel', l.naam, '|', t.slice(t.indexOf('Drukte en'), t.indexOf('Drukte en') + 260), '|', t.slice(t.indexOf('Deze maand'), t.indexOf('Deze maand') + 200)); } }
+// nieuwe lijn bouwen: trein Amersfoort Centraal -> Amsterdam Centraal, met 'overal stoppen'
+if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const sp = globalThis.__ovTest.spel;
+  const st = n => globalThis.__ovTest.stations.find(s => s.n === n);
+  const a = st('Amersfoort Centraal') || st('Amersfoort'), b = st('Amsterdam Centraal');
+  if (a && b) {
+    globalThis.__map.easeTo({ center: [5.15, 52.3], zoom: 9.5 }); await wacht(200);
+    document.querySelector('[data-tool="lijn"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Trein').click();
+    for (const s2 of [a, b]) { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); const p = globalThis.__map.project([lo, la]); globalThis.__map.vuur('click', { point: p }); await wacht(50); }
+    await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300);
+    let t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+    log('nieuwe lijn:', t.slice(0, 260));
+    const vink = document.querySelector('[data-wijzig="nl-overal"]');
+    if (vink) { vink.checked = !vink.checked; vink.dispatchEvent(new window.Event('change')); await wacht(100); t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('na vinkje:', t.slice(t.indexOf('Stoppen op'), t.indexOf('Stoppen op') + 400)); }
+    const n0 = sp.lijnen.length; document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
+    const nl = sp.lijnen[sp.lijnen.length - 1]; log('lijn gemaakt:', sp.lijnen.length > n0, nl?.naam, nl?.haltes.length, 'haltes', Math.round(nl?.duur / 60), 'min');
+  } else log('stations niet gevonden voor bouwtest'); }
 // heen en terug op eigen spoor? (lijnen die twee richtingen rijden)
 { const gezien = new Set();
   for (const l of [...zl.map(v => v.lijn), ...globalThis.__ovTest.spel.lijnen]) { if (gezien.has(l) || !l._banen) continue; gezien.add(l);

@@ -8,7 +8,7 @@ import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
-import { Net, wegRoute } from './net.js';
+import { Net, wegRoute, bboxVan } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
 import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
@@ -388,7 +388,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; } }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; } }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- omlopen
 let opstel = null, groepIdx = null, groepIdxSig = '';
 const omlopen = new Map();
@@ -931,6 +931,7 @@ const PANELEN = {
       <p class="klein">Eigen spoor is van jou: je betaalt geen gebruiksvergoeding, en anderen betalen jou als ze er willen rijden. Bouwtijd ongeveer ${Math.round(60 + km * 8)} speldagen.</p>`;
   },
   nieuweLijn(d) {
+    if (d.geklikt) d.haltes = d.stopOveral ? d.overal : d.geklikt;
     let typen = beschikbaar(spel.jaar, d.modus);
     if (d.modus === 'vlucht') {
       const minBaan = Math.min(...d.haltes.map(h => h.heli ? 0 : (h.baan || 600)));
@@ -943,7 +944,8 @@ const PANELEN = {
     const vrijNr = String(spel.lijnen.length + 1);
     return `<h2>Nieuwe ${MODI[d.modus].naam.toLowerCase()}lijn</h2>
       <p class="klein">${d.haltes.length} haltes · ${(d.route.lengte / 1000).toFixed(1).replace('.', ',')} km${d.route.weg === false ? ' · <b>geen wegroute gevonden, rechte lijnen</b>' : ''}${d.waarschuwing ? '<br><b style="color:var(--rood)">' + esc(d.waarschuwing) + '</b>' : ''}</p>
-      <ol class="haltelijst">${d.haltes.map(h => `<li>${esc(h.naam)}</li>`).join('')}</ol>
+      ${d.overal && d.overal.length > d.geklikt.length ? `<label class="rij"><input type="checkbox" data-wijzig="nl-overal" ${d.stopOveral ? 'checked' : ''}> Stoppen op alle tussenliggende ${d.modus === 'trein' ? 'stations' : 'haltes'} (${d.overal.length - d.geklikt.length} extra)</label>` : ''}
+      <ol class="haltelijst">${d.haltes.map(h => `<li>${esc(h.naam)}${d.stopOveral && !d.geklikt.some(g => g.naam === h.naam) ? ' <span class="klein">(tussenstop)</span>' : ''}</li>`).join('')}</ol>
       <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.modus === 'trein' ? 'RE' + vrijNr : vrijNr)}" maxlength="8"></label>
       <label class="veld">Naam<input id="nl-naam" value="${esc(d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0])}" maxlength="60"></label></div>
       <div class="veld"><label for="nl-type">Materieel</label><select id="nl-type">${typen.map(v => `<option value="${v.id}">${esc(v.naam)} · ${v.zit + v.sta} pl. · ${S.euroKort(v.prijs)}</option>`).join('')}</select></div>
@@ -1086,6 +1088,7 @@ function wijzig(w, i) {
   const l = i.dataset.id ? lijnVan(i.dataset.id) : null;
   const tijd = v => { const [h, m] = v.split(':').map(Number); let t = h * 60 + m; if (t < 4 * 60) t += 1440; return t; };
   switch (w) {
+    case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
     case 'halte-wacht': { l.halteWacht = l.halteWacht || {}; const m = Math.max(0, Math.min(15, Math.round(+i.value || 0))); if (m) l.halteWacht[i.dataset.k] = m; else delete l.halteWacht[i.dataset.k]; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); setTimeout(() => ververs(), 0); break; }
@@ -1275,11 +1278,41 @@ function perronVoorstelWissen() { perronOntwerp = null; kaart.bron('perron-voors
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
   let beste = null, bd = maxPx;
   const [wx, wy] = kaart.wereld(px, py), bereik = maxPx * kaart.res * 1.6;
-  for (const c of kandidaten(modus)) {
+  const lijst = kandidaten(modus);
+  for (const c of lijst) {
     if (Math.abs(c.x - wx) > bereik || Math.abs(c.y - wy) > bereik) continue;
     const [sx, sy] = kaart.scherm(c.x, c.y); const d = Math.hypot(sx - px, sy - py); if (d < bd) { bd = d; beste = c; }
   }
-  return beste;
+  if (beste || modus === 'vlucht') return beste;
+  // op een station van een andere soort geklikt (bv. treinstation in busmodus): de halte van deze soort die bij
+  // dat station hoort (binnen 400 m), zodat een station en zijn bus-/tramhaltes als één knooppunt tellen
+  let st = null; bd = maxPx;
+  for (const s of D.stations) {
+    if (!stationZichtbaar(s, spel.jaar) || Math.abs(s.x - wx) > bereik || Math.abs(s.y - wy) > bereik) continue;
+    const [sx, sy] = kaart.scherm(s.x, s.y); const d = Math.hypot(sx - px, sy - py); if (d < bd) { bd = d; st = s; }
+  }
+  if (!st) return null;
+  let bij = null, bm = 400;
+  for (const c of lijst) { const d = Math.hypot(c.x - st.x, c.y - st.y); if (d < bm) { bm = d; bij = c; } }
+  return bij ? { ...bij, station: st.n } : null;
+}
+// haltes van deze soort die op de route liggen, in volgorde langs de route (voor 'overal stoppen')
+function haltesLangs(modus, pts, geklikt) {
+  const max = ['trein', 'metro', 'sneltram'].includes(modus) ? 120 : 45;
+  const cum = [0]; for (let k = 2; k < pts.length; k += 2) cum.push(cum[cum.length - 1] + Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]));
+  const [x0, y0, x1, y1] = bboxVan(pts);
+  const plek = (x, y) => { let bd = Infinity, bs = 0; for (let k = 2; k < pts.length; k += 2) { const ax = pts[k - 2], ay = pts[k - 1], dx = pts[k] - ax, dy = pts[k + 1] - ay, l2 = dx * dx + dy * dy || 1e-9; const f = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)); const d = Math.hypot(x - ax - dx * f, y - ay - dy * f); if (d < bd) { bd = d; bs = cum[k / 2 - 1] + f * Math.sqrt(l2); } } return [bd, bs]; };
+  const uit = [], namen = new Set(geklikt.map(h => h.naam));
+  for (const h of geklikt) uit.push({ ...h, s: plek(h.x, h.y)[1], geklikt: true });
+  for (const c of kandidaten(modus)) {
+    if (namen.has(c.naam) || c.x < x0 - max || c.x > x1 + max || c.y < y0 - max || c.y > y1 + max) continue;
+    const [d, sp] = plek(c.x, c.y);
+    if (d <= max) { namen.add(c.naam); uit.push({ naam: c.naam, x: c.x, y: c.y, s: sp }); }
+  }
+  uit.sort((a, b) => a.s - b.s);
+  // alleen tussen de eerste en de laatste aangeklikte halte
+  const i0 = uit.findIndex(h => h.geklikt), i1 = uit.length - 1 - [...uit].reverse().findIndex(h => h.geklikt);
+  return uit.slice(i0, i1 + 1).map(({ s, ...h }) => h);
 }
 
 async function lijnKlaar() {
@@ -1302,7 +1335,9 @@ async function lijnKlaar() {
   } else route = await wegRoute(p.map(h => [h.x, h.y]));
   bouw.route = route;
   hint(null);
-  openPaneel('nieuweLijn', { modus: m, haltes: p.map(h => ({ naam: h.naam, x: h.x, y: h.y, ...(m === 'vlucht' ? { baan: h.baan, verhard: h.verhard, landing: h.landing, heli: h.heli } : {}) })), route, waarschuwing });
+  const geklikt = p.map(h => ({ naam: h.naam, x: h.x, y: h.y, ...(m === 'vlucht' ? { baan: h.baan, verhard: h.verhard, landing: h.landing, heli: h.heli } : {}) }));
+  const overal = !['vlucht', 'veer', 'watertaxi'].includes(m) && route.pts?.length >= 4 ? haltesLangs(m, route.pts, geklikt) : geklikt;
+  openPaneel('nieuweLijn', { modus: m, geklikt, overal, stopOveral: overal.length > geklikt.length && m !== 'trein', haltes: geklikt, route, waarschuwing });
 }
 function maakNieuweLijn() {
   const d = paneelData;
