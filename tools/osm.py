@@ -177,6 +177,43 @@ def stationsgebouwen(bbox, uit):
     schrijf(uit, "stationsgebouwen.json", {"uitleg": "[x0, y0, dx, dy, ...] RD-meters, gesloten vlakken", "g": lijst})
 
 
+POI_SOORT = [  # (soort, overpass-filter)
+    ("school", '["amenity"="school"]'), ("hogeschool", '["amenity"~"^(university|college)$"]'), ("ziekenhuis", '["amenity"="hospital"]'),
+    ("museum", '["tourism"="museum"]'), ("dierentuin", '["tourism"~"^(zoo|theme_park)$"]'), ("zwembad", '["leisure"~"^(sports_centre|water_park)$"]["sport"~"swimming"]'),
+    ("zwembad", '["leisure"="water_park"]'), ("stadion", '["leisure"="stadium"]'), ("theater", '["amenity"~"^(theatre|cinema)$"]'), ("winkelcentrum", '["shop"="mall"]'),
+    ("bedrijventerrein", '["landuse"="industrial"]'), ("gemeentehuis", '["amenity"="townhall"]'),
+]
+
+
+def voorzieningen(bbox, uit):
+    """Benoemde voorzieningen (scholen, musea, zwembaden, ziekenhuizen ...) als punt: [naam, x, y, soortIdx]."""
+    voor, g = gebied(bbox)
+    soorten = sorted(set(s for s, _ in POI_SOORT))
+    lijst, gezien = [], set()
+    for soort, f in POI_SOORT:
+        q = f'[out:json][timeout:600];{voor}(nwr{f}["name"]{g};);out center tags;'
+        try:
+            res = overpass(q)
+        except Exception as e:  # noqa: BLE001
+            print(f"  {soort} mislukt: {e}", flush=True)
+            continue
+        n = 0
+        for el in res.get("elements", []):
+            c = el.get("center") or ({"lat": el.get("lat"), "lon": el.get("lon")} if "lat" in el else None)
+            naam = el.get("tags", {}).get("name")
+            if not c or not naam:
+                continue
+            x, y = rd_int(c["lat"], c["lon"])
+            if not in_nl(x, y) or (naam, x // 200, y // 200) in gezien:
+                continue
+            gezien.add((naam, x // 200, y // 200))
+            lijst.append([naam, x, y, soorten.index(soort)])
+            n += 1
+        print(f"  {soort}: {n}", flush=True)
+        time.sleep(5)
+    schrijf(uit, "voorzieningen.json", {"uitleg": "[naam, x, y, soortIdx] RD", "soorten": soorten, "v": lijst})
+
+
 # --------------------------------------------------------------------------- spoor
 def spoor(bbox, uit):
     voor, g = gebied(bbox)
@@ -597,6 +634,9 @@ def main():
     if a.alleen == "trolley":
         trolley(a.bbox, a.uit)
         return
+    if a.alleen == "voorzieningen":
+        voorzieningen(a.bbox, a.uit)
+        return
     if a.alleen == "gebouwen":
         stationsgebouwen(a.bbox, a.uit)
         return
@@ -608,6 +648,10 @@ def main():
     stations(a.bbox, a.uit, takken)
     wissels(a.bbox, a.uit)
     perrons(a.bbox, a.uit)
+    try:
+        voorzieningen(a.bbox, a.uit)
+    except Exception as e:  # noqa: BLE001
+        print("voorzieningen mislukt:", e, flush=True)
     try:
         stationsgebouwen(a.bbox, a.uit)
     except Exception as e:  # noqa: BLE001

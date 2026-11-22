@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Data-tak ophalen (als die er al is)
         run: |
           if git ls-remote --exit-code origin data >/dev/null 2>&1; then
@@ -32,6 +34,9 @@ jobs:
           mkdir -p _site
           cp -r index.html css js _site/
           [ -d data ] && cp -r data _site/ || true
+          # versie: datum en tijd van publiceren (NL-tijd), commit, aantal commits en laatste wijziging
+          N=$(git rev-list --count HEAD 2>/dev/null || echo 0)
+          printf '{"versie":"%s","datum":"%s","commit":"%s","wijziging":%s}\n' "1.$N" "$(TZ=Europe/Amsterdam date +'%d-%m-%Y %H:%M')" "${GITHUB_SHA::7}" "$(git log -1 --pretty=%s | head -c 160 | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')" > _site/versie.json
           touch _site/.nojekyll
           cd _site
           git init -q -b gh-pages

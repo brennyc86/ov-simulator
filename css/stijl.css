@@ -156,3 +156,6 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
 /* versleepbare punten en handvatten bij het tekenen van spoor */
 .spoor-anker { width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid #111; cursor: grab; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 .spoor-handvat { width: 10px; height: 10px; background: #f2c14e; border: 2px solid #111; cursor: grab; }
+
+/* versie van het spel, rechtsonder */
+.versie { position: fixed; right: 6px; bottom: 4px; font-size: 11px; color: #555; background: rgba(255,255,255,.75); padding: 1px 6px; border-radius: 4px; z-index: 5; pointer-events: auto; }

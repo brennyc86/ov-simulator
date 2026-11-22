@@ -34,6 +34,12 @@ async function json(pad) {
   try { const r = await fetch(pad, { cache: 'no-cache' }); if (!r.ok) throw 0; D.ok[pad] = true; return await r.json(); }
   catch { D.ok[pad] = false; return null; }
 }
+// versie van het spel (versie.json wordt bij publiceren geschreven): rechtsonder en in het startscherm
+fetch('versie.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(v => {
+  const t = v ? `versie ${v.versie} · ${v.datum} · ${v.commit}` : 'lokale versie (niet gepubliceerd)';
+  const el = document.getElementById('versie'); if (el) { el.textContent = t; if (v?.wijziging) el.title = 'Laatste wijziging: ' + v.wijziging; }
+  const st = document.getElementById('s-versie'); if (st) st.textContent = 'Spel ' + t + (v?.wijziging ? ` — laatste wijziging: ${v.wijziging}` : '');
+});
 async function laadData() {
   const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(json));

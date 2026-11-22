@@ -55,7 +55,8 @@ export function kaartStijl() {
       { id: 'park', type: 'fill', source: 'osm', 'source-layer': 'park', paint: { 'fill-color': k.gras } },
       { id: 'bebouwd', type: 'fill', source: 'osm', 'source-layer': 'landuse',
         filter: ['match', ['get', 'class'], ['residential', 'suburb', 'neighbourhood', 'commercial', 'retail', 'school', 'hospital', 'university', 'college', 'kindergarten', 'religious', 'garages'], true, false],
-        paint: { 'fill-color': k.bebouwd, 'fill-antialias': false } },
+        // functie van de bebouwing: wonen, winkels, voorzieningen (scholen, ziekenhuizen, kerken)
+        paint: { 'fill-color': ['match', ['get', 'class'], ['commercial', 'retail'], k.winkels || '#e0a04a', ['school', 'hospital', 'university', 'college', 'kindergarten', 'religious'], k.voorzieningen || '#8e9ccc', k.bebouwd], 'fill-antialias': false } },
       { id: 'industrie', type: 'fill', source: 'osm', 'source-layer': 'landuse', filter: ['match', ['get', 'class'], ['industrial', 'railway', 'quarry', 'military'], true, false],
         paint: { 'fill-color': k.industrie, 'fill-antialias': false } },
       { id: 'zand-landuse', type: 'fill', source: 'osm', 'source-layer': 'landuse', filter: ['match', ['get', 'class'], ['beach', 'sand'], true, false], paint: { 'fill-color': k.strand } },
