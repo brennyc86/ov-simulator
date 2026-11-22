@@ -385,7 +385,7 @@ function historischUiterlijk(jaar) {
   }
 }
 // alle richtingen van een lijn: bij andere vervoerders zijn heen en terug losse lijnen met hetzelfde lijnnummer
-const lijnGroep = l => !l ? [] : l.ai ? AI.lijnen.filter(x => x.vervoerder === l.vervoerder && x.lijnId === l.lijnId) : [l];
+const lijnGroep = l => !l ? [] : l.ai ? AI.lijnen.filter(x => x.vervoerder === l.vervoerder && x.lijnId === l.lijnId) : [l, ...(l.paar ? [lijnVan(l.paar)].filter(Boolean) : [])];
 function selectieKaart() {
   if (!kaart?.map?.getSource?.('selectie')) return;
   const ls = lijnGroep(selectie?.lijn).filter(l => l.route?.pts?.length >= 4);
@@ -725,10 +725,10 @@ let voertuigLijst = [];
 function voertuigTabel(l) {
   voertuigLijst = voertuigenVanLijn(l);
   if (!voertuigLijst.length) return '<p class="klein">Nog geen voertuigen berekend; zoom in op de lijn.</p>';
-  const tekst = e => e.wacht ? ({ keren: 'keert', wacht: 'wacht', opgesteld: 'opgesteld', rangeert: 'rangeert', remise: 'in remise/stalling', instappen: 'instappen', klaar: 'klaar' }[e.wacht] + (e.volgende ? `, volgende ${S.klok(e.volgende.dep)}` : ', klaar voor vandaag'))
+  const tekst = e => e.wacht ? ({ keren: 'keert', wacht: 'wacht', opgesteld: 'opgesteld', rangeert: 'rangeert', leeg: 'rijdt leeg', remise: 'in remise/stalling', instappen: 'instappen', klaar: 'klaar' }[e.wacht] + (e.volgende ? `, volgende ${S.klok(e.volgende.dep)}` : ', klaar voor vandaag'))
     : `rijdt naar ${esc((e.r ? e.lijn.haltes[0] : e.lijn.haltes[e.lijn.haltes.length - 1]).naam)}`;
   const groep = lijnGroep(l);
-  return `<table class="tabel">${voertuigLijst.map((e, i) => `<tr data-actie="toon-voertuig" data-i="${i}" style="cursor:pointer"><td>#${e.omloop.nr}</td><td>${tekst(e)}${groep.includes(e.wacht && e.volgende ? e.volgende.l : e.lijn) ? '' : ` <span class="klein">· nu op lijn ${esc((e.wacht && e.volgende ? e.volgende.l : e.lijn).nr || '')}</span>`}</td><td class="getal klein">${e.omloop.ritten.length} ritten</td></tr>`).join('')}</table>`;
+  return `<table class="tabel">${voertuigLijst.map((e, i) => `<tr data-actie="toon-voertuig" data-i="${i}" style="cursor:pointer"><td>#${e.omloop.nr}</td><td>${tekst(e)}${groep.includes(e.wacht && e.volgende ? e.volgende.l : e.lijn) ? '' : ` <span class="klein">· nu op lijn ${esc((e.wacht && e.volgende ? e.volgende.l : e.lijn).nr || '')}</span>`}</td><td class="getal klein">${e.omloop.ritten.filter(x => !x.leeg).length} ritten</td></tr>`).join('')}</table>`;
 }
 
 // bezetting nu (per klasse, zit/sta), kaartjes, en de hele rit
@@ -763,6 +763,16 @@ function trajectTabel(l) {
     <p class="klein">Geschat voor vandaag, alle ritten samen (reizigers per traject, beide richtingen). Hoe meer zwartrijders, hoe meer een controleploeg hier oplevert.</p>`;
 }
 
+// richting: heen en terug, alleen heen (met of zonder aparte terugweg) of rondlijn
+function richtingBlok(l) {
+  if (l.richting === 'rond') return '<p class="chip">Rondlijn: steeds hetzelfde rondje, geen terugweg.</p>';
+  const paar = l.paar ? lijnVan(l.paar) : null;
+  if (paar) return `<p class="chip">Eén richting; de terugweg rijdt als <a href="#" data-actie="toon-lijn" data-id="${paar.id}">lijn ${esc(paar.nr)} ${esc(paar.naam || '')}</a> over een eigen route.</p>`;
+  return `<div class="veld"><label>Richting</label><select data-wijzig="lijn-richting" data-id="${l.id}">
+    <option value="beide" ${S.ritRichtingen(l) === 2 ? 'selected' : ''}>Heen en terug over dezelfde route</option>
+    <option value="heen" ${l.richting === 'heen' ? 'selected' : ''}>Alleen heen (voertuigen rijden leeg terug)</option></select></div>
+    ${l.richting === 'heen' ? `<button class="knop" data-actie="terugweg" data-id="${l.id}">Terugweg met een eigen route bouwen</button>` : ''}`;
+}
 // inrichting en prijzen van een eigen lijn (ontwerp eerst, dan ombouwen)
 function inrichtingBlok(l) {
   const huidig = inrichtingVan(l, l.typeId);
@@ -894,8 +904,8 @@ const PANELEN = {
     const typen = eigen ? beschikbaar(spel.jaar, l.modus) : [];
     return `<h2><span class="lijnnr" style="background:${esc(kleur)}">${esc(l.nr || '')}</span> ${esc(l.naam || '')}</h2>
       <p class="klein">${MODI[l.modus]?.naam || l.modus} van <b>${esc(eigenaar)}</b>${eigen ? ' (jij)' : ''} · ${esc(type?.naam || '')}${l.kop ? ` · richting ${esc(l.kop)}` : ''}</p>
-      ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', remise: 'Staat in de remise/stalling tot de volgende rit', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
-      ${v.omloop ? `<p class="klein">Voertuig #${v.omloop.nr} (${l._omloopN || '?'} in de pool van ${esc(eigenaar)} met dit materieel) · vandaag ${v.omloop.ritten.length} ritten${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size > 1 ? ` op ${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size} lijnen` : ''}: ${v.omloop.ritten.slice(0, 8).map(x => `${S.klok(x.dep)}${x.l.nr && x.l.nr !== l.nr ? ` (${esc(x.l.nr)})` : ''}`).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
+      ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', leeg: 'Rijdt leeg (zonder reizigers) naar het begin van de volgende rit', remise: 'Staat in de remise/stalling tot de volgende rit', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
+      ${v.omloop ? `<p class="klein">Voertuig #${v.omloop.nr} (${l._omloopN || '?'} in de pool van ${esc(eigenaar)} met dit materieel) · vandaag ${v.omloop.ritten.filter(x => !x.leeg).length} ritten${v.omloop.ritten.some(x => x.leeg) ? ` (+ ${v.omloop.ritten.filter(x => x.leeg).length} leeg)` : ''}${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size > 1 ? ` op ${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size} lijnen` : ''}: ${v.omloop.ritten.slice(0, 8).map(x => `${x.leeg ? '<i>leeg</i> ' : ''}${S.klok(x.dep)}${x.l.nr && x.l.nr !== l.nr ? ` (${esc(x.l.nr)})` : ''}`).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
       <div class="rij"><button class="knop" data-actie="sel-lijn">☰ Toon lijn</button>${v.omloop ? `<button class="knop ${volg === v.omloop ? 'hoofd' : ''}" data-actie="volg">${volg === v.omloop ? '◉ Stop volgen' : '◎ Volg'}</button>` : ''}</div>
       <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volg[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volg[n - 1].naam)}.</p>
       <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th class="getal" title="instappers + / uitstappers −">in/uit</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
@@ -951,6 +961,7 @@ const PANELEN = {
       <p class="klein">${MODI[l.modus].naam} · ${l.lengteKm.toFixed(1).replace('.', ',')} km · rijtijd ${Math.round(l.duur / 60)} min · ${l.vertrek[0].length + l.vertrek[1].length} ritten per dag
       ${l.concessie ? ' · <span class="chip goed">concessie</span>' : ''} ${l.wacht ? '<span class="chip let">wacht op ProRail</span>' : ''} ${!l.actief && !l.wacht ? '<span class="chip">gestopt</span>' : ''}</p>
       <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span></li>`).join('')}</ol>
+      ${richtingBlok(l)}
       <h3>Voertuigen op deze lijn</h3>${voertuigTabel(l)}
       <h3>Materieel</h3>
       ${l.modus === 'trein' ? `<label class="rij"><input type="checkbox" data-wijzig="spitsdubbel" data-id="${l.id}" ${l.spitsDubbel ? 'checked' : ''}> In de spits gekoppeld rijden (2 eenheden: dubbele capaciteit, meer materieel nodig)</label>` : ''}
@@ -1110,8 +1121,14 @@ const PANELEN = {
       <p class="klein">${d.haltes.length} haltes · ${(d.route.lengte / 1000).toFixed(1).replace('.', ',')} km${d.route.weg === false ? ' · <b>geen wegroute gevonden, rechte lijnen</b>' : ''}${d.waarschuwing ? '<br><b style="color:var(--rood)">' + esc(d.waarschuwing) + '</b>' : ''}</p>
       ${d.overal && d.overal.length > d.geklikt.length ? `<label class="rij"><input type="checkbox" data-wijzig="nl-overal" ${d.stopOveral ? 'checked' : ''}> Stoppen op alle tussenliggende ${d.modus === 'trein' ? 'stations' : 'haltes'} (${d.overal.length - d.geklikt.length} extra)</label>` : ''}
       <ol class="haltelijst">${d.haltes.map(h => `<li>${esc(h.naam)}${d.stopOveral && !d.geklikt.some(g => g.naam === h.naam) ? ' <span class="klein">(tussenstop)</span>' : ''}</li>`).join('')}</ol>
-      <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.modus === 'trein' ? 'RE' + vrijNr : vrijNr)}" maxlength="8"></label>
-      <label class="veld">Naam<input id="nl-naam" value="${esc(d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0])}" maxlength="60"></label></div>
+      ${d.terugVan ? `<p class="chip">Terugweg van lijn ${esc(d.terugVan.nr)} (${esc(d.terugVan.naam || '')}): samen vormen ze één lijn met een eigen route per richting.</p>`
+        : d.rond ? `<p class="chip">Rondlijn: de voertuigen rijden steeds hetzelfde rondje, er is geen terugweg.</p>`
+        : `<div class="veld"><label>Richting</label>
+          <label class="rij"><input type="radio" name="nl-richting" data-wijzig="nl-richting" value="beide" ${d.richting === 'beide' ? 'checked' : ''}> Heen en terug over dezelfde route</label>
+          <label class="rij"><input type="radio" name="nl-richting" data-wijzig="nl-richting" value="heen" ${d.richting === 'heen' ? 'checked' : ''}> Alleen deze richting (de terugweg bouw je daarna apart, of de voertuigen rijden leeg terug)</label>
+          <p class="klein">Een rondlijn maak je door als laatste weer op de eerste halte te klikken.</p></div>`}
+      <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.terugVan ? d.terugVan.nr : d.modus === 'trein' ? 'RE' + vrijNr : vrijNr)}" maxlength="8"></label>
+      <label class="veld">Naam<input id="nl-naam" value="${esc(d.rond ? 'Ring ' + d.haltes[0].naam.split(',')[0] : d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0])}" maxlength="60"></label></div>
       <div class="veld"><label for="nl-type">Materieel</label><select id="nl-type">${typen.map(v => `<option value="${v.id}">${esc(v.naam)} · ${v.zit + v.sta} pl. · ${S.euroKort(v.prijs)}</option>`).join('')}</select></div>
       <div class="raster2"><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.modus === 'trein' ? 30 : 15}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="30" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="60" min="3"></label></div>
       <label class="rij"><input type="checkbox" data-wijzig="nl-bijzonder" ${d.bijzonder ? 'checked' : ''}> Eenmalige bijzondere rit (bv. stoomtrein of themarit)</label>
@@ -1121,6 +1138,7 @@ const PANELEN = {
         <p class="klein">Mensen schrijven zich in tot de dag van de rit. Museummaterieel en weekenddagen trekken veel meer belangstelling.</p>
         <div class="rij"><button class="knop hoofd" data-actie="bijzonder-maak">Rit uitschrijven</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div>` : ''}
       <div ${d.bijzonder ? 'hidden' : ''}>
+      ${d.richting === 'heen' && !d.terugVan && !d.rond ? '<label class="rij"><input type="checkbox" id="nl-terug" checked> Daarna meteen de terugweg bouwen (andere route of andere haltes)</label>' : ''}
       <label class="rij"><input type="checkbox" id="nl-koop" checked> Benodigd materieel meteen kopen</label>
       <label class="rij"><input type="checkbox" id="nl-concessie" checked> Concessie (subsidie) aanvragen bij de provincie</label>
       ${d.modus === 'trein' ? '<p class="klein">Voor een treinlijn vraag je ruimte op het spoor aan bij ProRail. De lijn rijdt pas als die is toegekend (behalve over je eigen spoor).</p>' : ''}
@@ -1155,6 +1173,7 @@ function actieUit(a, d) {
   switch (a) {
     case 'toon-lijn': selectie = { lijn: l }; openPaneel('lijn', l); kaart.vliegNaar((l.bbox[0] + l.bbox[2]) / 2, (l.bbox[1] + l.bbox[3]) / 2, Math.max(2, Math.max(l.bbox[2] - l.bbox[0], l.bbox[3] - l.bbox[1]) / Math.min(kaart.W, kaart.H) * 1.4)); break;
     case 'tool': zetTool(d.tool); break;
+    case 'terugweg': sluitPaneel(); terugwegBouwen(l); break;
     case 'koop': {
       const t = TYPE[d.type], n = +d.n || 1;
       if (!betaal(t.prijs * n, `${n} × ${t.naam}`)) break;
@@ -1167,7 +1186,7 @@ function actieUit(a, d) {
       spel.voertuigen[d.type]--; spel.geld += t.prijs * 0.45; ververs(); break;
     }
     case 'aanuit': l.actief = !l.actief; ververs(); break;
-    case 'opheffen': if (d.zeker) { spel.lijnen = spel.lijnen.filter(x => x !== l); sluitPaneel(); melding(`Lijn ${l.nr} opgeheven.`); }
+    case 'opheffen': if (d.zeker) { spel.lijnen = spel.lijnen.filter(x => x !== l); const pr = l.paar && lijnVan(l.paar); if (pr) { pr.paar = null; S.herbereken(pr); } sluitPaneel(); melding(`Lijn ${l.nr} opgeheven.`); }
       else { const b = document.querySelector('[data-actie="opheffen"]'); b.textContent = 'Zeker weten? Klik nog eens'; b.dataset.zeker = '1'; } break;
     case 'ink-erbij': { const o = l._ontwerp || (l._ontwerp = inrichtingVan(l, l.typeId).map(k => ({ ...k }))); const vrij = ['P', '1', '3', '2'].find(c => !o.some(k => k.klasse === c)) || '2';
       const deel = 0.15; o.forEach(k => k.deel = k.deel * (1 - deel)); o.unshift({ klasse: vrij, breed: vrij === 'P' ? 2 : vrij === '3' ? 5 : 3, been: vrij === 'P' ? 'royaal' : vrij === '3' ? 'krap' : 'ruim', extra: vrij === 'P' ? 'massage' : vrij === '3' ? 'kaal' : '', deel, prijs: { P: 2.6, 1: 1.7, 3: 0.7, 2: 1 }[vrij] }); ververs(); break; }
@@ -1284,6 +1303,8 @@ function wijzig(w, i) {
   switch (w) {
     case 'spitsdubbel': l.spitsDubbel = i.checked; S.herbereken(l); break;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
+    case 'nl-richting': paneelData.richting = i.value; ververs(); return;
+    case 'lijn-richting': l.richting = i.value; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
@@ -1571,16 +1592,23 @@ async function lijnKlaar() {
   bouw.route = route;
   hint(null);
   const geklikt = p.map(h => ({ naam: h.naam, x: h.x, y: h.y, ...(m === 'vlucht' ? { baan: h.baan, verhard: h.verhard, landing: h.landing, heli: h.heli } : {}) }));
-  const overal = !['vlucht', 'veer', 'watertaxi'].includes(m) && route.pts?.length >= 4 ? haltesLangs(m, route.pts, geklikt) : geklikt;
-  openPaneel('nieuweLijn', { modus: m, geklikt, overal, stopOveral: overal.length > geklikt.length && m !== 'trein', haltes: geklikt, route, waarschuwing });
+  // rondlijn: de laatste halte is de eerste; tussenstops zoeken zonder die dubbele halte
+  const rond = !!bouw.rond, basis = rond ? geklikt.slice(0, -1) : geklikt;
+  let overal = !['vlucht', 'veer', 'watertaxi'].includes(m) && route.pts?.length >= 4 ? haltesLangs(m, route.pts, basis) : basis;
+  if (rond) overal = [...overal, geklikt[0]];
+  const terugVan = bouw.terugVan ? lijnVan(bouw.terugVan) : null;
+  openPaneel('nieuweLijn', { modus: m, geklikt, overal, stopOveral: overal.length > geklikt.length && m !== 'trein', haltes: geklikt, route, waarschuwing,
+    richting: rond ? 'rond' : terugVan ? 'heen' : 'beide', rond, terugVan });
 }
 function maakNieuweLijn() {
   const d = paneelData;
   const spits = +$('nl-spits').value || 15, dal = +$('nl-dal').value || 30, avond = +$('nl-avond').value || 60;
   const eigenSpoor = d.route.takken?.length && d.route.takken.every(i => i >= 1e6);
   const l = S.maakLijn(spel, { nr: $('nl-nr').value.trim() || String(spel.lijnen.length + 1), naam: $('nl-naam').value.trim(), modus: d.modus, typeId: $('nl-type').value,
-    haltes: d.haltes, route: d.route, interval: { vroeg: dal, ochtendspits: spits, dal, avondspits: spits, avond } });
+    haltes: d.haltes, route: d.route, interval: { vroeg: dal, ochtendspits: spits, dal, avondspits: spits, avond }, richting: d.rond ? 'rond' : d.richting || 'beide' });
   l.eigenSpoor = eigenSpoor;
+  if (d.terugVan) { l.paar = d.terugVan.id; d.terugVan.paar = l.id; S.herbereken(d.terugVan); S.herbereken(l); }
+  const terugBouwen = d.richting === 'heen' && !d.terugVan && !d.rond && $('nl-terug')?.checked;
   if ($('nl-koop').checked) {
     const t = TYPE[l.typeId], n = Math.max(0, l.nodig - (spel.voertuigen[l.typeId] || 0) + spel.lijnen.filter(x => x !== l && x.typeId === l.typeId && x.actief).reduce((s, x) => s + x.nodig, 0));
     if (n && betaal(n * t.prijs, 'materieel')) spel.voertuigen[l.typeId] = (spel.voertuigen[l.typeId] || 0) + n;
@@ -1589,6 +1617,15 @@ function maakNieuweLijn() {
   if ($('nl-concessie').checked) nieuwVerzoek(spel, { aan: 'provincie', aanNaam: 'Provincie', soort: 'concessie', lijnId: l.id, tekst: `Concessie en subsidie gevraagd voor lijn ${l.nr}.` });
   melding(`Lijn ${l.nr} ${l.actief ? 'rijdt vanaf nu' : 'wacht op ruimte op het spoor'}. Benodigd: ${l.nodig} voertuig(en).`);
   bouw = null; zetTool('kijk'); selectie = { lijn: l }; openPaneel('lijn', l);
+  if (terugBouwen) terugwegBouwen(l);
+}
+// de terugweg van een eenrichtingslijn: begint bij de laatste halte, eindigt bij de eerste
+function terugwegBouwen(l) {
+  const eind = l.haltes[l.haltes.length - 1];
+  zetTool('lijn');
+  bouw = { modus: l.modus, punten: [{ naam: eind.naam, x: eind.x, y: eind.y }], terugVan: l.id };
+  hint(`Terugweg van lijn ${l.nr}: begint bij ${eind.naam}. Klik de haltes op volgorde aan en eindig bij ${l.haltes[0].naam}.`,
+    [['Klaar', lijnKlaar], ['Laatste weg', () => { if (bouw.punten.length > 1) bouw.punten.pop(); }], ['Stoppen', () => zetTool('kijk')]]);
 }
 function spoorKlaar() {
   if (!bouw || bouw.punten.length < 2) { melding('Klik minstens twee punten.'); return; }
@@ -1607,6 +1644,8 @@ function klik(px, py) {
     }
     if (!c) { melding(bouw.modus === 'trein' ? 'Hier is geen station. Bouw er een met ▣ Station, of klik dichter bij een station.' : 'Hier is geen halte voor deze modus. Klik dichter bij een halte.'); return; }
     if (bouw.punten.length && bouw.punten[bouw.punten.length - 1].naam === c.naam) return;
+    // terug bij de eerste halte: rondlijn gesloten
+    if (bouw.punten.length >= 3 && bouw.punten[0].naam === c.naam && !bouw.terugVan) { bouw.punten.push(bouw.punten[0]); bouw.rond = true; melding('Rondlijn gesloten.'); lijnKlaar(); return; }
     bouw.punten.push(c);
     return;
   }

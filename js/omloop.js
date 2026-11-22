@@ -42,13 +42,35 @@ export function maakOmloop(lijnen) {
     }
     let v;
     if (bi >= 0) v = rij.splice(bi, 1)[0];
-    else { v = { nr: voertuigen.length + 1, ritten: [] }; voertuigen.push(v); }
+    else v = leegErheen(wachtrij, rit, keer);
+    if (!v) { v = { nr: voertuigen.length + 1, ritten: [] }; voertuigen.push(v); }
     v.ritten.push(rit);
     const doel = rit.naar.naam;
     if (!wachtrij.has(doel)) wachtrij.set(doel, []);
     wachtrij.get(doel).push(v);
   }
   return { voertuigen, ritten: ritten.length };
+}
+
+// Geen voertuig bij het beginpunt: een voertuig dat elders klaarstaat rijdt leeg (zonder reizigers) terug
+// over de lijn waarmee het kwam, als dat precies naar dit beginpunt leidt (eenrichtingslijnen, ongelijke
+// heen- en terugweg). Zo verdwijnt het niet en komt er geen nieuw voertuig bij.
+function leegErheen(wachtrij, rit, keer) {
+  let beste = null;
+  for (const [plek, rij] of wachtrij) {
+    if (plek === rit.van.naam) continue;
+    for (let k = 0; k < rij.length; k++) {
+      const laatst = rij[k].ritten[rij[k].ritten.length - 1], terug = 1 - laatst.r;
+      if (laatst.leeg || beginVan(laatst.l, laatst.r).naam !== rit.van.naam || !tijden(laatst.l, terug)?.length) continue;
+      const dep = laatst.arr + keer, duur = tijden(laatst.l, terug).at(-1) / 60 * 0.85; // zonder stops iets sneller
+      if (dep + duur + keer > rit.dep) continue;
+      if (!beste || laatst.arr > beste.laatst.arr) beste = { rij, k, laatst, terug, dep, duur };
+    }
+  }
+  if (!beste) return null;
+  const v = beste.rij.splice(beste.k, 1)[0], l = beste.laatst.l;
+  v.ritten.push({ l, r: beste.terug, dep: beste.dep, arr: beste.dep + beste.duur, van: beginVan(l, beste.terug), naar: eindVan(l, beste.terug), leeg: true, snel: 0.85 });
+  return v;
 }
 
 // ---------------------------------------------------------------- opstelsporen
@@ -115,8 +137,9 @@ export function voertuigenOmloop(omloop, tm, uit, opstel, lengteVan, inZicht = n
     const nu = i >= 0 ? R[i] : null;
     if (inZicht && !inZicht((nu || R[0]).l) && !(R[i + 1] && inZicht(R[i + 1].l))) continue;
     if (nu && tm <= nu.arr) {
-      const p = ritPositie(nu.l, nu.r, nu.dep, tm);
-      if (p) { p.omloop = v; uit.push(p); continue; }
+      // lege rit: zonder te stoppen over de lijn, iets sneller dan de dienstregeling
+      const p = nu.leeg ? ritPositie(nu.l, nu.r, nu.dep, nu.dep + (tm - nu.dep) / nu.snel, true) : ritPositie(nu.l, nu.r, nu.dep, tm);
+      if (p) { p.omloop = v; if (nu.leeg) Object.assign(p, { wacht: 'leeg', staat: false, volgende: R[i + 1] || null }); uit.push(p); continue; }
     }
     const vorige = nu, volgende = R[i + 1] || null;
     const l = (vorige || volgende).l, modus = l.modus;

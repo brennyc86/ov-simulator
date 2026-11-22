@@ -74,9 +74,9 @@ export function nieuwSpel({ naam, kleur, jaar, start, vervoerder, kapitaal }) {
 export function nieuweMaand() { return { inkomsten: 0, kaartjes: 0, boetes: 0, subsidie: 0, personeel: 0, energie: 0, afschrijving: 0, gebruik: 0, overig: 0, reizigers: 0, zwart: 0, betrapt: 0 }; }
 
 // ---------------------------------------------------------------- lijnen en dienstregeling
-export function maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interval, eerste, laatste, concessie }) {
+export function maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interval, eerste, laatste, concessie, richting }) {
   const lijn = {
-    id: nieuwId('l'), nr, naam, modus, typeId, haltes, // haltes: [{naam,x,y,ref}]
+    id: nieuwId('l'), nr, naam, modus, typeId, haltes, richting: richting || 'beide', // beide | heen (alleen deze richting) | rond (rondlijn) // haltes: [{naam,x,y,ref}]
     route, // {pts, lengte}
     interval: interval || { vroeg: 30, ochtendspits: 15, dal: 30, avondspits: 15, avond: 60 },
     eerste: eerste ?? 6 * 60, laatste: laatste ?? 23 * 60, offset: 0, concessie: !!concessie,
@@ -194,10 +194,12 @@ export function herbereken(lijn) {
   lijn.nodig = materieelNodig(lijn);
 }
 
+// hoeveel richtingen rijden er: heen en terug, of alleen heen (eenrichting of rondlijn)
+export const ritRichtingen = l => l.richting === 'heen' || l.richting === 'rond' ? 1 : 2;
 export function vertrekken(lijn) {
   // beide richtingen; [richting][minuten]
   const uit = [[], []];
-  for (let r = 0; r < 2; r++) {
+  for (let r = 0; r < ritRichtingen(lijn); r++) {
     let t = lijn.eerste + lijn.offset + (r ? Math.round((lijn.interval.dal || 30) / 2) : 0);
     while (t <= lijn.laatste) {
       uit[r].push(t);
@@ -218,7 +220,8 @@ export function materieelNodig(lijn) {
   const perUur = new Array(30).fill(0);
   for (const r of lijn.vertrek) for (const v of r) perUur[Math.min(29, Math.floor(v / 60))] += eenheden(lijn, 0, v); // dag 0 = werkdag
   const piek = Math.max(...perUur);
-  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 + mod.keer) / 60));
+  const leegTerug = lijn.richting === 'heen' && !lijn.paar ? 2 : 1; // eenrichting zonder terugweg: leeg terugrijden
+  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 * leegTerug + mod.keer) / 60));
 }
 
 // positie langs de lijn op afstand s (m langs de route-punten)
@@ -232,11 +235,15 @@ export function puntOp(lijn, s) { // lijn: alles met .cum en .route.pts (ook een
 }
 
 // positie van één rit (richting r, vertrek v in minuten) op tijd tm; null als de rit niet rijdt
-export function ritPositie(lijn, r, v, tm) {
+export function ritPositie(lijn, r, v, tm, zonderStops = false) {
   if (v > tm) return null;
   const verstreken = (tm - v) * 60;
   const t = lijn.tr?.[r] || lijn.t, n = t.length;
   if (verstreken > t[n - 1]) return null;
+  if (zonderStops) { // lege rit: gelijkmatig door, niet stilstaan bij haltes
+    const s = verstreken / t[n - 1] * (n - 1), i = Math.min(n - 2, Math.floor(s));
+    return ritPlek(lijn, r, i, s - i, v);
+  }
   let i = 0;
   while (i < n - 2 && t[i + 1] <= verstreken) i++;
   const halte = lijn._halteTijd ?? MODI[lijn.modus].halteTijd;
@@ -295,12 +302,14 @@ export function vraagLijn(lijn, plaatsen, concurrentie = 0) {
     const d = Math.abs(lijn.km[j] - lijn.km[i]) / 1000;
     paren += V[i] * V[j] / Math.pow(d + 2, 1.3);
   }
-  const ritten = lijn.vertrek[0].length + lijn.vertrek[1].length;
+  const enkel = ritRichtingen(lijn) === 1;
+  const ritten = (lijn.vertrek[0].length + lijn.vertrek[1].length) * (enkel ? 2 : 1); // frequentie per richting
   const aanbod = 1 - Math.exp(-ritten / 50);
   const lengteKm = lijn.lengteKm ?? (lijn.route?.lengte || 0) / 1000; // lijnen van anderen hebben geen lengteKm
   const snelheid = Math.min(1.3, Math.max(0.4, (lengteKm / (lijn.duur / 3600 || 1)) / 30));
   const schaal = { trein: 0.0016, sneltram: 0.0009, metro: 0.0012, tram: 0.0007, bus: 0.00045, hov: 0.0006, belbus: 0.00005, veer: 0.002, watertaxi: 0.0004, vlucht: 0.0003 }[lijn.modus] || 0.0005;
-  const perDag = Math.sqrt(paren) * schaal * 100 * aanbod * snelheid * (1 - concurrentie * 0.5);
+  // eenrichtingslijn: alleen de reizigers in deze richting (een rondlijn brengt iedereen rond)
+  const perDag = Math.sqrt(paren) * schaal * 100 * aanbod * snelheid * (1 - concurrentie * 0.5) * (lijn.richting === 'heen' ? 0.5 : 1);
   // gemiddelde reisafstand: bij twee haltes de hele lijn, bij veel haltes een deel ervan
   const deel = n <= 2 ? 1 : Math.min(1, 0.38 + 0.6 / n);
   return { perDag: isFinite(perDag) ? perDag : 0, gemKm: Math.max(1.5, lengteKm * deel) };

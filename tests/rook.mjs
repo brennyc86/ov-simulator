@@ -129,7 +129,7 @@ if (process.env.JAARCHECK) { const net = globalThis.__ovTest.net, j = +process.e
   const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
   log('eigen lijnpaneel', l.naam, '|', t.slice(t.indexOf('Drukte en'), t.indexOf('Drukte en') + 260), '|', t.slice(t.indexOf('Deze maand'), t.indexOf('Deze maand') + 200)); } }
 // nieuwe lijn bouwen: trein Amersfoort Centraal -> Amsterdam Centraal, met 'overal stoppen'
-if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const sp = globalThis.__ovTest.spel;
+if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0 = await import('../js/spel.js'); const sp = globalThis.__ovTest.spel;
   const st = n => globalThis.__ovTest.stations.find(s => s.n === n);
   const a = st('Amersfoort Centraal') || st('Amersfoort'), b = st('Amsterdam Centraal');
   if (a && b) {
@@ -166,6 +166,35 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const sp
       nl.aankomstWens = { '0:3': nl.trMin[0][3] + 300 }; nl.halteWacht = { '0:2': 2 }; S.herbereken(nl);
       log('rijtijden heen (min) voor:', voor.join(','), '| na +5 min aankomst halte 3 en 2 min wachten halte 2:', nl.tr[0].map(x => Math.round(x / 60)).join(','));
       log('vroegst per halte:', nl.trMin[0].map(x => Math.round(x / 60)).join(','), '| haltes', nl.haltes.map(h => h.naam).join(' > ')); }
+    // richtingen: eenrichting Amersfoort -> Amsterdam met terugweg via Utrecht, en een rondlijn
+    const u = st('Utrecht Centraal'); const klikSt = async s2 => { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); };
+    if (u) {
+      document.querySelector('[data-tool="lijn"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Trein').click();
+      await klikSt(a); await klikSt(b); await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300);
+      const r = document.querySelector('[data-wijzig="nl-richting"][value="heen"]'); r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(100);
+      log('terug-vinkje aanwezig:', !!document.getElementById('nl-terug')); document.getElementById('nl-terug').checked = true;
+      document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
+      const heen = sp.lijnen[sp.lijnen.length - 1];
+      log('hint terugweg:', document.getElementById('hint').textContent.slice(0, 120));
+      await klikSt(u); await klikSt(a); await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300);
+      log('paneel terugweg:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 200));
+      document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
+      const terug = sp.lijnen[sp.lijnen.length - 1];
+      log('heen', heen.nr, heen.richting, heen.vertrek.map(x => x.length), 'paar', heen.paar === terug.id, '| terug', terug.nr, terug.haltes.map(h => h.naam).join(' > '), terug.vertrek.map(x => x.length), Math.round(terug.lengteKm), 'km');
+      // rondlijn
+      document.querySelector('[data-tool="lijn"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Trein').click();
+      await klikSt(a); await klikSt(u); await klikSt(b); await klikSt(a); await wacht(400);
+      log('rondlijn paneel:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 220));
+      document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
+      const ring = sp.lijnen[sp.lijnen.length - 1];
+      log('ring', ring.naam, ring.richting, ring.haltes.length, 'haltes', ring.vertrek.map(x => x.length), Math.round(ring.lengteKm), 'km, nodig', ring.nodig);
+      // eenrichting zonder terugweg: voertuigen rijden leeg terug
+      heen.paar = null; heen.actief = true; ring.actief = true; S0.herbereken(heen);
+      const O = await import('../js/omloop.js'); const om = O.maakOmloop([heen]);
+      log('eenrichting zonder terugweg:', heen.vertrek[0].length, 'ritten,', om.voertuigen.length, 'voertuigen, lege ritten', om.voertuigen.reduce((n, v) => n + v.ritten.filter(x => x.leeg).length, 0), ', nodig', heen.nodig);
+      const omr = O.maakOmloop([ring]); log('ring:', ring.vertrek[0].length, 'ritten,', omr.voertuigen.length, 'voertuigen');
+      const omp = O.maakOmloop([heen, terug].map(x => (x.actief = true, x)), true); heen.paar = terug.id; S0.herbereken(heen); log('heen + aparte terugweg:', omp.voertuigen.length, 'voertuigen, lege ritten', omp.voertuigen.reduce((n, v) => n + v.ritten.filter(x => x.leeg).length, 0));
+    }
   } else log('stations niet gevonden voor bouwtest'); }
 // inrichting: premium-klasse erbij, prijs aanpassen, ombouwen
 { const t0 = document.querySelector('[data-actie="ink-erbij"]');
