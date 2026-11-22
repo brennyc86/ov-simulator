@@ -138,3 +138,9 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
   #startform h1 { font-size: 42px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ritpaneel */
+.rittabel td { padding: 3px 6px; }
+.rittabel tr.voorbij td { color: var(--zacht, #8a918e); }
+.rittabel tr.hier td { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
+.knop.klein { padding: 2px 6px; font-size: 12px; }

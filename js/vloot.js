@@ -118,5 +118,9 @@ export function standaardType(vervoerder, modus, jaar = 2026) {
   }
   const n = (vervoerder || '').toLowerCase();
   const pas = lijst.find(v => v.wie.toLowerCase().split(/[ ,()]+/).some(w => w.length > 2 && n.includes(w)));
-  return pas || lijst[lijst.length - 1];
+  if (pas) return pas;
+  // geen naam-match: een gangbaar type voor deze modus (geen hogesnelheidstrein of museumstuk)
+  const gangbaar = { trein: ['sng4', 'slt6', 'flirt4', 'icm', 'sgm', 'planv', 'hondekop', 'mat36', 'stoom3700'], tram: ['urbos15g', 'citadis302', 'combino', 'gtl8', 'gvb9g', 'pcc', 'tweeasser', 'stoomtram', 'paardentram'] }[modus];
+  for (const id of gangbaar || []) { const t = lijst.find(v => v.id === id); if (t) return t; }
+  return lijst.filter(v => v.id !== 'ice3').pop() || lijst[lijst.length - 1];
 }

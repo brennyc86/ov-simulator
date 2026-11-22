@@ -107,12 +107,14 @@ const DAK = '#a3a6a9', DAK_DD = '#b8babc', RAAM = '#1d2a33';
 export function tekenEcht(ctx, k, v, u, kleur, eigen) {
   const lijn = v.lijn, totaal = lijn.cum[lijn.cum.length - 1];
   const richting = v.r ? -1 : 1;
+  // de dienstregeling geeft de plek van de halte: de trein staat met zijn midden bij het perron
+  const kopS = Math.max(0, Math.min(totaal, v.s + richting * (u.neus === 'boot' || u.neus === 'vlieg' ? 0 : u._l / 2)));
   const pm = 1 / k.res;                 // pixels per meter
   const W = u._b * pm;
   let off = 0;
   for (let i = 0; i < u.bakken.length; i++) {
     const L = u.bakken[i];
-    const sv = Math.max(0, Math.min(totaal, v.s - richting * off)), sa = Math.max(0, Math.min(totaal, v.s - richting * (off + L)));
+    const sv = Math.max(0, Math.min(totaal, kopS - richting * off)), sa = Math.max(0, Math.min(totaal, kopS - richting * (off + L)));
     off += L + u._tussen;
     const [ax, ay] = puntOp(lijn, sv), [bx, by] = puntOp(lijn, sa);
     const [pax, pay] = k.scherm(ax, ay), [pbx, pby] = k.scherm(bx, by);

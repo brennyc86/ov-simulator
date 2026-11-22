@@ -4,16 +4,40 @@ import { rdNaarWgs, wgsNaarRd } from './geo.js';
 // soorten: 0 rail, 1 light_rail, 2 subway, 3 tram, 4 narrow_gauge, 5 disused, 6 abandoned/razed, 7 construction, 8 preserved
 const MODUS_SOORT = { trein: [0, 4, 8], sneltram: [1, 3, 2], metro: [2, 1], tram: [3, 1] };
 
+// Hoeken in het spoor licht afronden (de OSM-lijnen zijn vereenvoudigd en daardoor hoekig).
+// Begin- en eindpunt blijven staan, zodat de takken aan elkaar blijven zitten.
+export function glad(pts, max = 60) {
+  const uit = [pts[0], pts[1]];
+  for (let k = 2; k < pts.length - 2; k += 2) {
+    const ax = pts[k - 2], ay = pts[k - 1], px = pts[k], py = pts[k + 1], bx = pts[k + 2], by = pts[k + 3];
+    const l1 = Math.hypot(px - ax, py - ay), l2 = Math.hypot(bx - px, by - py);
+    if (l1 < 0.5 || l2 < 0.5) { uit.push(px, py); continue; }
+    const u1x = (px - ax) / l1, u1y = (py - ay) / l1, u2x = (bx - px) / l2, u2y = (by - py) / l2;
+    const cos = u1x * u2x + u1y * u2y;
+    if (cos > 0.99985 || cos < 0.3) { uit.push(px, py); continue; } // recht genoeg, of een echte knik (kopspoor)
+    const d = Math.min(l1 * 0.45, l2 * 0.45, max);
+    const sx = px - u1x * d, sy = py - u1y * d, ex = px + u2x * d, ey = py + u2y * d;
+    const n = cos > 0.998 ? 2 : 5;
+    for (let i = 0; i <= n; i++) {
+      const f = i / n, g = 1 - f;
+      uit.push(g * g * sx + 2 * g * f * px + f * f * ex, g * g * sy + 2 * g * f * py + f * f * ey);
+    }
+  }
+  uit.push(pts[pts.length - 2], pts[pts.length - 1]);
+  return uit;
+}
+
 export class Net {
   constructor(spoor) {
     this.knopen = spoor ? Float64Array.from(spoor.knopen) : new Float64Array();
     this.namen = spoor?.namen || [];
     this.takken = (spoor?.takken || []).map((t, i) => {
       const [a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, tussen] = t;
-      const pts = [this.knopen[a * 2], this.knopen[a * 2 + 1]];
+      let pts = [this.knopen[a * 2], this.knopen[a * 2 + 1]];
       let x = pts[0], y = pts[1];
       for (let k = 0; k < tussen.length; k += 2) { x += tussen[k]; y += tussen[k + 1]; pts.push(x, y); }
       pts.push(this.knopen[b * 2], this.knopen[b * 2 + 1]);
+      if (pts.length > 4) pts = glad(pts);
       let lengte = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       for (let k = 0; k < pts.length; k += 2) {
         if (k) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
@@ -42,6 +66,35 @@ export class Net {
           this.tRaster.get(sl).push(t);
         }
     }
+  }
+  // Verdwenen lijnen (OpenHistoricalMap) als losse takken toevoegen, zodat ze in hun jaren berijdbaar zijn.
+  // Uiteinden die (bijna) samenvallen krijgen dezelfde knoop; ze worden niet op het huidige net aangesloten.
+  voegHistorischToe(lijnen) {
+    const SOORT = { tram: 3, rail: 0, smal: 4, light_rail: 1, subway: 2 };
+    const knopen = new Map();
+    let volgende = -1e6 - this.extra.size;
+    // knopen binnen 6 m van elkaar samenvoegen (raster van 6 m, buren meegezocht)
+    const knoop = (x, y) => {
+      const ci = Math.floor(x / 6), cj = Math.floor(y / 6);
+      for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++)
+        for (const id of knopen.get(i + ',' + j) || []) { const [kx, ky] = this.extra.get(id); if (Math.hypot(kx - x, ky - y) < 6) return id; }
+      const id = volgende--; this.extra.set(id, [x, y]);
+      const sl = ci + ',' + cj; if (!knopen.has(sl)) knopen.set(sl, []); knopen.get(sl).push(id);
+      return id;
+    };
+    for (const l of lijnen) {
+      if (l.pts.length < 4) continue;
+      const pts = l.pts.length > 4 ? glad(l.pts) : l.pts;
+      let lengte = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (let k = 0; k < pts.length; k += 2) {
+        if (k) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
+        x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]);
+      }
+      const a = knoop(pts[0], pts[1]), b = knoop(pts[pts.length - 2], pts[pts.length - 1]);
+      this.takken.push({ i: this.takken.length, a, b, soort: SOORT[l.soort] ?? 0, dienst: 0, gebruik: 0, sporen: 1, vmax: l.soort === 'tram' ? 25 : 80, elek: 0,
+        start: l.van, eind: l.tot, naam: -1, pts, lengte, bbox: [x0, y0, x1, y1], eigenaar: 'historisch', hist: true });
+    }
+    this.bouwBuren();
   }
   knoopX(k) { return k >= 0 ? this.knopen[k * 2] : this.extra.get(k)[0]; }
   knoopY(k) { return k >= 0 ? this.knopen[k * 2 + 1] : this.extra.get(k)[1]; }

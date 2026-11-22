@@ -96,7 +96,13 @@ export function herbereken(lijn) {
     if (lijn.echt.km && lijn.echt.km.length === lijn.haltes.length) lijn.km = lijn.echt.km;
     if (lijn.echt.t && lijn.echt.t.length === lijn.haltes.length) lijn.t = lijn.echt.t;
   }
-  lijn.duur = Math.max(60, lijn.t[lijn.t.length - 1]);
+  // extra wachttijd bij haltes (instelbaar per richting): tr[r] = tijden in rijvolgorde van richting r
+  const n = lijn.t.length, dw = lijn.halteWacht || {};
+  const t0 = [0], t1 = [0];
+  for (let i = 1; i < n; i++) t0.push(t0[i - 1] + (lijn.t[i] - lijn.t[i - 1]) + (dw[`0:${i - 1}`] || 0) * 60);
+  for (let i = 1; i < n; i++) t1.push(t1[i - 1] + (lijn.t[n - i] - lijn.t[n - i - 1]) + (dw[`1:${i - 1}`] || 0) * 60);
+  lijn.tr = [t0, t1];
+  lijn.duur = Math.max(60, t0[n - 1], t1[n - 1]);
   lijn.lengteKm = (lijn.route.lengte || cum[cum.length - 1]) / 1000;
   lijn.bbox = bboxVan(pts);
   lijn.vertrek = lijn.echt?.v && !lijn.aangepast ? lijn.echt.v : vertrekken(lijn);
@@ -145,11 +151,14 @@ export function voertuigenOp(lijn, tm, uit) {
       const verstreken = (tm - v) * 60;
       if (verstreken > lijn.duur) continue;
       // in welk stuk tussen haltes zitten we
-      const t = lijn.t, n = t.length;
+      const t = lijn.tr?.[r] || lijn.t, n = t.length;
+      if (verstreken > t[n - 1]) continue;
       let i = 0;
       while (i < n - 2 && t[i + 1] <= verstreken) i++;
       const halte = MODI[lijn.modus].halteTijd;
-      const begin = t[i] + (i > 0 ? 0 : 0), eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
+      // extra wachttijd bij de halte waar dit stuk begint: eerst blijven staan
+      const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
+      const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
       const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
       const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
       const ka = lijn.km[ri], kb = lijn.km[rj];
@@ -288,11 +297,27 @@ export function pakkans(spel, lijn) {
 }
 
 // welk deel van het benodigde materieel heeft deze lijn (vloot wordt eerlijk verdeeld)
+function eigenDeel(spel, lijn, typeId) {
+  const totaal = spel.voertuigen[typeId] || 0;
+  const vraag = spel.lijnen.filter(l => l.actief && l.typeId === typeId).reduce((s, l) => s + l.nodig, 0);
+  return { totaal, vraag, deel: vraag <= totaal ? lijn.nodig : Math.floor(totaal * lijn.nodig / vraag) };
+}
+// hoeveel voertuigen kan deze lijn inzetten (eigen type + eventueel alternatief type dat over is)
 export function beschikbaarVoor(spel, lijn) {
-  const totaal = spel.voertuigen[lijn.typeId] || 0;
-  const vraag = spel.lijnen.filter(l => l.actief && l.typeId === lijn.typeId).reduce((s, l) => s + l.nodig, 0);
-  if (vraag <= totaal) return lijn.nodig;
-  return Math.floor(totaal * lijn.nodig / vraag);
+  const e = eigenDeel(spel, lijn, lijn.typeId);
+  if (e.deel >= lijn.nodig || !lijn.altTypeId) return e.deel;
+  const a = eigenDeel(spel, lijn, lijn.altTypeId);
+  const over = Math.max(0, a.totaal - a.vraag);
+  // het reservemateriaal wordt verdeeld over de lijnen die het als alternatief hebben
+  const delers = spel.lijnen.filter(l => l.actief && l.altTypeId === lijn.altTypeId && eigenDeel(spel, l, l.typeId).deel < l.nodig).length || 1;
+  return e.deel + Math.min(lijn.nodig - e.deel, Math.floor(over / delers));
+}
+// welk deel van de ritten rijdt met het alternatieve materieel
+export function altDeel(spel, lijn) {
+  if (!lijn.altTypeId) return 0;
+  const e = eigenDeel(spel, lijn, lijn.typeId).deel;
+  if (e >= lijn.nodig) return 0;
+  return Math.max(0, (beschikbaarVoor(spel, lijn) - e) / lijn.nodig);
 }
 
 export function maandAfsluiten(spel) {

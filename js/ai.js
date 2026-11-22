@@ -272,3 +272,28 @@ export function beoordeelTegenOpAI(spel, vz) {
 
 const euroKort = n => n >= 1e9 ? `€ ${(n / 1e9).toFixed(1).replace('.', ',')} mld` : `€ ${(n / 1e6).toFixed(0)} mln`;
 export { klok, PERIODES };
+
+// Speler vraagt een andere vervoerder (vanuit een rit) om een lijn te verschuiven of langer te laten wachten.
+// Zij wegen hun eigen nadeel (aansluitingen in hun net, reistijd, spoorpaden) af tegen goodwill en geld.
+export function beoordeelAanpassing(spel, vz, ctx) {
+  const a = AI.lijnen.find(l => l.sleutel === vz.aiSleutel);
+  if (!a) return { status: 'afgewezen', reden: 'Deze lijn rijdt niet meer.' };
+  const k = vz.minuten, wacht = vz.wijze === 'wacht';
+  const goodwill = spel.goodwill[a.vervoerder] ?? 0;
+  const enkelspoor = a.modus === 'trein' ? ctx.enkelspoorBij?.(a) : false;
+  // nadeel in "punten": verloren aansluitingen in hun eigen net + reistijd voor hun reizigers + gedoe met paden
+  const nadeel = m => (wacht ? m * 0.9 + (m > 3 ? (m - 3) * 1.2 : 0) : eigenVerlies(a, m) * 1.5 + Math.abs(m) * 0.25)
+    + (a.modus === 'trein' ? 1.5 + (enkelspoor ? 3 : 0) : 0.4);
+  const waarde = geld => 0.6 + geld / 15000 + goodwill / 20;
+  const geld = vz.vergoeding || 0;
+  const wat = m => wacht ? `${m} min langer wachten bij ${vz.halte.naam}` : `${m > 0 ? m + ' min later' : -m + ' min eerder'} rijden`;
+  if (waarde(geld) >= nadeel(k)) return { status: 'geaccepteerd', reden: `${a.vervoerderNaam} gaat akkoord: lijn ${a.nr} gaat ${wat(k)}.` };
+  // tegenvoorstel: minder minuten voor hetzelfde geld, of hetzelfde voor een vergoeding
+  for (let m = Math.abs(k) - 1; m >= 1; m--) {
+    const mm = Math.sign(k) * m;
+    if (waarde(geld) >= nadeel(mm)) return { status: 'tegenvoorstel', tegen: { minuten: mm, vergoeding: geld }, reden: `${wat(k)} gaat ons te ver. ${wat(mm)} kan wel.` };
+  }
+  const nodig = Math.ceil((nadeel(k) - waarde(0)) * 15000 / 5000) * 5000;
+  if (nodig <= 150000) return { status: 'tegenvoorstel', tegen: { minuten: k, vergoeding: nodig }, reden: `Dat kost ons reizigers en aansluitingen. Voor ${euro(nodig)} per jaar doen we het.` };
+  return { status: 'afgewezen', reden: `${wat(k)} past niet in onze dienstregeling${enkelspoor ? ' (enkelspoor: de kruisingen liggen vast)' : ''}.` };
+}

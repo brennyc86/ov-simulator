@@ -112,8 +112,12 @@ def rd_int(lat, lon):
 def perrons(bbox, uit):
     """Perrons (railway=platform) als vlak of als lijn, in hele RD-meters, delta-gecodeerd."""
     voor, g = gebied(bbox)
+    # perrons zijn op veel manieren ingetekend: railway=platform, of alleen public_transport=platform
+    # (vaak zonder train=yes). Bushaltes (bus=yes zonder trein/tram) laten we weg.
     q = (f'[out:json][timeout:900];{voor}(way["railway"="platform"]{g};relation["railway"="platform"]{g};'
-         f'way["public_transport"="platform"]["train"="yes"]{g};way["public_transport"="platform"]["tram"="yes"]{g};);out tags geom;')
+         f'way["public_transport"="platform"]["bus"!="yes"]["highway"!="bus_stop"]{g};'
+         f'way["public_transport"="platform"]["train"="yes"]{g};way["public_transport"="platform"]["tram"="yes"]{g};'
+         f'relation["public_transport"="platform"]["bus"!="yes"]{g};);out tags geom;')
     res = overpass(q)
     gezien, lijst = set(), []
 

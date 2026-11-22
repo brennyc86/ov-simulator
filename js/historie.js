@@ -94,3 +94,36 @@ export function frequentie(modus, jaar, belangrijk) {
   if (modus === 'vlucht') return [240, 480, 999];
   return jaar < 1950 ? (belangrijk ? [60, 120, 999] : [120, 240, 999]) : (belangrijk ? [15, 30, 60] : [30, 60, 120]);
 }
+
+// Naamswijzigingen van stations: [huidige naam, oude naam, jaar van de nieuwe naam].
+// Bronnen: Wikidata (officiële naam met start/eind) en bekende hernoemingen.
+export const NAAMWIJZIGINGEN = [
+  ['Dieren', 'Dieren-Doesburg', 1976],
+  ['De Westereen', 'Zwaagwesteinde', 2015],
+  ['Heerhugowaard', 'Heerhugowaard-Broek op Langendijk', 1976],
+  ['Schiedam Centrum', 'Schiedam-Rotterdam West', 1998],
+  ['Eindhoven Centraal', 'Eindhoven', 2019],
+  ['Amsterdam Bijlmer ArenA', 'Amsterdam Bijlmer', 2007],
+  ['Hilversum Media Park', 'Hilversum Noord', 2006],
+  ['Amersfoort Centraal', 'Amersfoort', 2016],
+  ['Arnhem Centraal', 'Arnhem', 2015],
+];
+
+// naam van een station in een bepaald jaar
+export function stationsnaam(naam, jaar, oud = []) {
+  for (const [nu, vroeger, sinds] of NAAMWIJZIGINGEN) if (naam === nu && jaar < sinds) return vroeger;
+  // oude namen uit OpenHistoricalMap op dezelfde plek: [naam, van, tot]
+  for (const [n, van, tot] of oud) if (jaar >= (van || 0) && jaar < tot && n !== naam) return n;
+  // "X Centraal" heette tot ongeveer 2000 "X CS" (Centraal Station)
+  if (jaar < 2000 && / Centraal$/.test(naam) && !NAAMWIJZIGINGEN.some(w => w[0] === naam)) return naam.replace(/ Centraal$/, ' CS');
+  return naam;
+}
+
+// Openingsjaren van spoorlijnen die in OpenStreetMap geen startdatum hebben (naam van de lijn in OSM).
+export const LIJNJAREN = {
+  'Flevolijn': 1987, 'Schiphollijn': 1981, 'HSL-Zuid': 2009, 'HSL Breda aansluiting': 2009, 'Betuweroute': 2007, 'Hanzelijn': 2012,
+  'Zoetermeer Stadslijn': 1977, 'Uithoflijn': 2019, 'Calandlijn': 1982, 'Erasmuslijn': 1968, 'Noord/Zuidlijn': 2018,
+  'Oosterheemlijn': 2007, 'Beneluxlijn': 2002, 'Westelijke Ringspoorbaan': 1986, 'Zuidelijke Ringspoorbaan': 1993,
+  'Utrechtboog': 2006, 'Hemboog': 2003, 'Schipholboog': 1986, 'Nootdorpboog': 2006, 'Ringlijn': 1997, 'Oostlijn': 1977,
+  'Amstelveenlijn': 1990, 'Nieuwegeinlijn': 1983, 'RandstadRail': 2006,
+};

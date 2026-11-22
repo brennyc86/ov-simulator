@@ -23,6 +23,18 @@ export class Perrons {
       }
     return p;
   }
+  // ligt er een perron binnen r meter van (x,y)?
+  dichtbij(x, y, r) {
+    const gezien = new Set();
+    for (let i = Math.floor((x - r) / 250); i <= Math.floor((x + r) / 250); i++)
+      for (let j = Math.floor((y - r) / 250); j <= Math.floor((y + r) / 250); j++)
+        for (const p of this.raster.get(i + ',' + j) || []) {
+          if (gezien.has(p) || p.gemaakt) continue; gezien.add(p);
+          const [x0, y0, x1, y1] = p.bbox;
+          if (x > x0 - r && x < x1 + r && y > y0 - r && y < y1 + r) return true;
+        }
+    return false;
+  }
   // ligt (x,y) op een perron (of binnen 2 m van een perronlijn)?
   op(x, y) {
     for (const p of this.raster.get(Math.floor(x / 250) + ',' + Math.floor(y / 250)) || []) {
@@ -160,4 +172,42 @@ export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250
   for (let i = rechts.length - 2; i >= 0; i -= 2) vlak.push(rechts[i], rechts[i + 1]);
   vlak.push(vlak[0], vlak[1]);
   return { punten, perron: vlak.map(v => Math.round(v * 10) / 10), kant: teken, afstand: Math.abs(spoorD), naast: r.soort };
+}
+
+// Een eenvoudig perron langs een spoorlijn (voor oude stations zonder ingetekend perron).
+// pts = lijn [x,y,...], (x,y) = station; het perron komt aan de kant waar het station ligt.
+export function perronLangs(pts, x, y, lengte = 120, breedte = 3.5) {
+  let bd = Infinity, bs = 0, cum = 0, zij = 1;
+  for (let k = 2; k < pts.length; k += 2) {
+    const ax = pts[k - 2], ay = pts[k - 1], dx = pts[k] - ax, dy = pts[k + 1] - ay, l2 = dx * dx + dy * dy, l = Math.sqrt(l2);
+    if (l2 < 1e-6) continue;
+    const f = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+    const d = Math.hypot(x - ax - dx * f, y - ay - dy * f);
+    if (d < bd) { bd = d; bs = cum + f * l; zij = (dx * (y - ay) - dy * (x - ax)) >= 0 ? 1 : -1; }
+    cum += l;
+  }
+  if (bd > 80) return null;
+  const s0 = Math.max(0, bs - lengte / 2), s1 = Math.min(cum, bs + lengte / 2);
+  // punten langs de lijn tussen s0 en s1
+  const langs = [];
+  let c = 0;
+  for (let k = 2; k < pts.length; k += 2) {
+    const ax = pts[k - 2], ay = pts[k - 1], bx = pts[k], by = pts[k + 1], l = Math.hypot(bx - ax, by - ay);
+    if (l < 1e-6) continue;
+    for (let s = Math.max(s0, c); s <= Math.min(s1, c + l) + 1e-6; s += 10) {
+      const f = (s - c) / l; langs.push([ax + (bx - ax) * f, ay + (by - ay) * f, (bx - ax) / l, (by - ay) / l]);
+    }
+    c += l;
+    if (c > s1) break;
+  }
+  if (langs.length < 2) return null;
+  const a = 1.65, b = 1.65 + breedte, links = [], rechts = [];
+  for (const [px, py, ux, uy] of langs) {
+    links.push(px - uy * a * zij, py + ux * a * zij);
+    rechts.push(px - uy * b * zij, py + ux * b * zij);
+  }
+  const vlak = [...links];
+  for (let i = rechts.length - 2; i >= 0; i -= 2) vlak.push(rechts[i], rechts[i + 1]);
+  vlak.push(vlak[0], vlak[1]);
+  return vlak;
 }
