@@ -249,3 +249,71 @@ export function perronLangs(pts, x, y, lengte = 120, breedte = 3.5) {
   vlak.push(vlak[0], vlak[1]);
   return vlak;
 }
+
+// ---------------------------------------------------------------- nieuw station met sporen en perrons
+// Dwarsdoorsnede van links naar rechts: 'B' = bestaand spoor, 'S' = nieuw spoor, 'P' = perron.
+// sporen = totaal aantal sporen; doorgaand = bestaande sporen blijven zonder perron (snelle treinen rijden door);
+// kant = 1/-1: aan welke kant het enige perron of het extra spoor komt.
+export function stationDoorsnede(bestaand, sporen, doorgaand, kant = 1) {
+  sporen = Math.max(bestaand, sporen);
+  const nieuw = sporen - bestaand;
+  // naar buiten vanaf het bestaande blok: welke reeks hoort bij k nieuwe sporen aan die kant
+  const zijde = (k, langsBestaand) => {
+    const uit = [];
+    if (langsBestaand) { uit.push('P'); let n = 0; while (n < k) { uit.push('S'); n++; if (n < k) { uit.push('S'); n++; uit.push('P'); } } return uit; }
+    let n = 0; while (n < k) { uit.push('S'); n++; uit.push('P'); if (n < k) { uit.push('S'); n++; } }
+    return uit;
+  };
+  let links, rechts;
+  if (bestaand === 1 && !doorgaand && nieuw === 0) { links = kant < 0 ? ['P'] : []; rechts = kant > 0 ? ['P'] : []; }
+  else {
+    const a = Math.floor(nieuw / 2), b = nieuw - a; // het meeste aan de gekozen kant
+    const [kl, kr] = kant > 0 ? [a, b] : [b, a];
+    if (bestaand === 1 && !doorgaand) { // één bestaand spoor: perron aan één kant, nieuwe sporen aan de andere kant via een eiland
+      links = kant < 0 ? zijde(kl + kr, true) : zijde(0, false); rechts = kant > 0 ? zijde(kl + kr, true) : zijde(0, false);
+      if (kant > 0) { links = []; rechts = zijde(nieuw, true); } else { rechts = []; links = zijde(nieuw, true); }
+    } else { links = zijde(kl, !doorgaand); rechts = zijde(kr, !doorgaand); }
+  }
+  return [...links.reverse(), ...Array(bestaand).fill('B'), ...rechts];
+}
+export const doorsnedeTekst = d => d.join(' ').replace(/B/g, '═').replace(/S/g, '─').replace(/P/g, '▭');
+
+export function ontwerpStation(net, perrons, x, y, jaar, { sporen = 0, doorgaand = false, kant = 1, lengte = 220 } = {}) {
+  const raak = net.dichtsteTak(x, y, 'trein', jaar, 150);
+  if (!raak) return null;
+  const t = raak.t;
+  const a = net.stuk(t, Math.max(0, raak.s - 40), Math.min(t.lengte, raak.s + 40));
+  let ux = a[a.length - 2] - a[0], uy = a[a.length - 1] - a[1]; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+  const nx = -uy, ny = ux;
+  // is er een tweede bestaand spoor naast (dubbelspoor)? aan welke kant?
+  const ander = d => { for (const l of [-60, 0, 60]) { const r = net.dichtsteTak(raak.x + ux * l + nx * d, raak.y + uy * l + ny * d, 'trein', jaar, 1.2); if (r && r.t !== t) return true; } return false; };
+  let tweede = 0;
+  for (let d = 3.5; d <= 6; d += 0.5) { if (ander(d)) { tweede = d; break; } if (ander(-d)) { tweede = -d; break; } }
+  const bestaand = tweede ? 2 : 1;
+  const doorsnede = stationDoorsnede(bestaand, sporen || bestaand, doorgaand, kant);
+  // posities (m, links = negatief) van elk element; het bestaande blok ligt op 0 en 'tweede'
+  const B0 = Math.min(0, tweede), B1 = Math.max(0, tweede);
+  const iB = doorsnede.indexOf('B'), pos = new Array(doorsnede.length);
+  const breedte = (i) => { const l = doorsnede[i - 1], r = doorsnede[i + 1]; return (l === 'S' || l === 'B') && (r === 'S' || r === 'B') ? 8 : 4.5; }; // eiland of zijperron
+  const stap = (i, j) => { const p = doorsnede[i], q = doorsnede[j]; if (p !== 'P' && q !== 'P') return 4.5; const w = p === 'P' ? breedte(i) : breedte(j); return 1.65 + w / 2; };
+  pos[iB] = B0; if (bestaand === 2) pos[iB + 1] = B1;
+  for (let i = iB - 1; i >= 0; i--) pos[i] = pos[i + 1] - stap(i, i + 1);
+  for (let i = iB + bestaand; i < doorsnede.length; i++) pos[i] = pos[i - 1] + stap(i - 1, i);
+  // as langs het bestaande spoor
+  const boog = 120, s0 = raak.s - lengte / 2 - boog, s1 = raak.s + lengte / 2 + boog;
+  let as = net.stuk(t, Math.max(0, s0), Math.min(t.lengte, s1));
+  const verleng = (pts, l, eind) => { if (l <= 0) return pts; const n = pts.length; const [ax, ay, bx, by] = eind ? [pts[n - 4], pts[n - 3], pts[n - 2], pts[n - 1]] : [pts[2], pts[3], pts[0], pts[1]]; const d = Math.hypot(bx - ax, by - ay) || 1; return eind ? [...pts, bx + (bx - ax) / d * l, by + (by - ay) / d * l] : [bx + (bx - ax) / d * l, by + (by - ay) / d * l, ...pts]; };
+  as = herbemonster(verleng(verleng(as, -s0, false), s1 - t.lengte, true), 8);
+  const asS = [s0]; for (let i = 2; i < as.length; i += 2) asS.push(asS[asS.length - 1] + Math.hypot(as[i] - as[i - 2], as[i + 1] - as[i - 1]));
+  // positie langs de as: links van de rijrichting is +normaal; onze 'links' (negatief) ligt aan de -normaal-kant
+  const normaal = i => { const j = Math.min(as.length - 2, i + 2), h = Math.max(0, i - 2); let lx = as[j] - as[h], ly = as[j + 1] - as[h + 1]; const ll = Math.hypot(lx, ly) || 1; return [lx / ll, ly / ll]; };
+  const spoorOp = D => { const pts = []; for (let i = 0; i < as.length; i += 2) { const sv = asS[i / 2], f = Math.max(0, Math.min(1, (sv - s0) / boog, (s1 - sv) / boog)), g = f * f * (3 - 2 * f), [lx, ly] = normaal(i); pts.push([Math.round((as[i] - ly * D * g) * 10) / 10, Math.round((as[i + 1] + lx * D * g) * 10) / 10]); } return pts; };
+  const perronOp = (d1, d2) => { const L = [], R = []; for (let i = 0; i < as.length; i += 2) { const sv = asS[i / 2]; if (sv < raak.s - lengte / 2 || sv > raak.s + lengte / 2) continue; const [lx, ly] = normaal(i); L.push(as[i] - ly * d1, as[i + 1] + lx * d1); R.push(as[i] - ly * d2, as[i + 1] + lx * d2); } const v = [...L]; for (let i = R.length - 2; i >= 0; i -= 2) v.push(R[i], R[i + 1]); v.push(v[0], v[1]); return v.map(q => Math.round(q * 10) / 10); };
+  const sporenUit = [], vlakken = [];
+  doorsnede.forEach((e, i) => {
+    if (e === 'S') sporenUit.push(spoorOp(pos[i]));
+    if (e === 'P') { const w = breedte(i); vlakken.push(perronOp(pos[i] - w / 2, pos[i] + w / 2)); }
+  });
+  const lengteSpoor = sporenUit.reduce((s, p) => s + p.reduce((a2, q, i) => i ? a2 + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0, 0), 0);
+  return { doorsnede, bestaand, sporen: sporenUit, vlakken, lengte: lengteSpoor, eilanden: doorsnede.filter((e, i) => e === 'P' && breedte(i) === 8).length, x: raak.x, y: raak.y, punten: sporenUit[0] || [[raak.x, raak.y]] };
+}

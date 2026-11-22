@@ -206,6 +206,19 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     const v = document.getElementById('nl-aanbod'); if (v) v.checked = true;
     document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
     const l = sp.lijnen.at(-1); log('lijn', l.nr, 'actief', l.actief, 'wacht', l.wacht, '| aanbod', JSON.stringify(l.aanbod), 'ok', l.aanbodOk, '| melding:', document.getElementById('meldingen')?.textContent?.slice(-200)); } }
+// nieuw station met sporen en perrons (Weesp-achtig: 2 doorgaand + aan weerszijden een eiland)
+{ const sp = globalThis.__ovTest.spel, tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  const t = globalThis.__ovTest.net.takken.find(x => x.soort === 0 && x.dienst === 0 && x.lengte > 3000 && x.sporen >= 2);
+  if (t) { const m = t.pts.length >> 1 & ~1; const G4 = await import('../js/geo.js'), [la, lo] = G4.rdNaarWgs(t.pts[m], t.pts[m + 1]); globalThis.__map.easeTo({ center: [lo, la], zoom: 16 }); await wacht(50);
+    document.querySelector('[data-tool="station"]').click(); globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(60);
+    log('nieuw station:', tekst().slice(0, 300));
+    const zs = document.querySelector('[data-wijzig="ns-sporen"]'); zs.value = '6'; zs.dispatchEvent(new window.Event('change')); await wacht(40);
+    const dg = document.querySelector('[data-wijzig="ns-doorgaand"]'); dg.checked = true; dg.dispatchEvent(new window.Event('change')); await wacht(40);
+    log('weesp-variant:', tekst().match(/Doorsnede.{0,160}/)?.[0]);
+    const h0 = sp.haltes.length, s0 = sp.spoor.length; document.querySelector('[data-actie="station-zelf"]').click(); await wacht(50);
+    log('gebouwd: station', sp.haltes.length - h0, 'sporen', sp.spoor.length - s0, 'perrons', (sp.perronVormen || []).filter(v => v.station === sp.haltes.at(-1)?.naam).length, '| projecten', document.getElementById('b-bouw')?.textContent);
+    sp.tijd += 125; globalThis.__ovTest.bouwOpleveren(); log('na 2 uur: station klaar', !!sp.haltes.at(-1)?.opgeleverd, 'sporen klaar', sp.spoor.slice(s0).every(x => x.klaar)); }
+  document.querySelector('[data-tool="kijk"]')?.click(); }
 // perrons: vormen, eilandperron bouwen, voortgang, versneld bouwen; enkelspoor verdubbelen
 { const sp = globalThis.__ovTest.spel, st = globalThis.__ovTest.stations.find(x => x.n === 'Naarden-Bussum') || globalThis.__ovTest.stations.find(x => x.s === 'trein');
   const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');

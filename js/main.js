@@ -4,7 +4,7 @@ import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
 import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
 import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst } from './subsidie.js';
-import { Perrons, ontwerpPerron, ontwerpVerdubbeling, binnen, perronLangs } from './perron.js';
+import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
@@ -914,7 +914,7 @@ function openPaneel(soort, data) {
   document.querySelectorAll('[data-paneel]').forEach(b => b.classList.toggle('aan', b.dataset.paneel === soort));
   ververs(data);
 }
-function sluitPaneel() { $('paneel').hidden = true; paneelSoort = null; selectie = null; document.querySelectorAll('[data-paneel]').forEach(b => b.classList.remove('aan')); }
+function sluitPaneel() { if (perronOntwerp || paneelSoort === 'nieuwStation') perronVoorstelWissen(); $('paneel').hidden = true; paneelSoort = null; selectie = null; document.querySelectorAll('[data-paneel]').forEach(b => b.classList.remove('aan')); }
 let paneelData = null;
 function ververs(data) {
   if (data !== undefined) paneelData = data;
@@ -1221,9 +1221,16 @@ const PANELEN = {
       ${pr.map((p, i) => voortgang(p, i)).join('')}`;
   },
   nieuwStation(d) {
-    return `<h2>Nieuw station</h2><p class="klein">Op het spoor bij ${esc(d.plaats || 'deze plek')}.</p>
-      <div class="veld"><label for="ns-naam">Naam</label><input id="ns-naam" value="${esc(d.naam)}" maxlength="40"></div>
-      <div class="rij"><button class="knop hoofd" data-actie="station-zelf">Zelf bouwen (€ 6 mln, 2 speluren)</button><button class="knop" data-actie="station-prorail">ProRail vragen (gratis, als het rendeert)</button></div>
+    const o = stationOntwerp(d), kosten = o ? stationKosten(o) : 6e6;
+    const max = (o?.bestaand || 1) + 6;
+    return `<h2>Nieuw station</h2><p class="klein">Op het spoor bij ${esc(d.plaats || 'deze plek')}${o ? ` · hier ligt ${o.bestaand === 2 ? 'dubbelspoor' : 'enkelspoor'}` : ''}.</p>
+      <div class="veld"><label for="ns-naam">Naam</label><input id="ns-naam" value="${esc(d.naam)}" maxlength="40" data-wijzig="ns-naam"></div>
+      ${o ? `<div class="raster2"><label class="veld">Sporen bij het station<select data-wijzig="ns-sporen">${Array.from({ length: max - o.bestaand + 1 }, (_, k) => o.bestaand + k).map(n => `<option value="${n}" ${n === (d.sporen || o.bestaand) ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
+        <label class="rij"><input type="checkbox" data-wijzig="ns-doorgaand" ${d.doorgaand ? 'checked' : ''}> Bestaande sporen blijven doorgaand (zonder perron); de perrons komen langs nieuwe sporen ernaast</label>
+        <p>Doorsnede: <b style="font-family:monospace;letter-spacing:2px">${doorsnedeTekst(o.doorsnede)}</b> <span class="klein">(═ bestaand spoor, ─ nieuw spoor, ▭ perron)</span>
+        <button class="knop klein" data-actie="ns-kant">⇄ Andere kant</button></p>
+        <p class="klein">${o.sporen.length} nieuw(e) spoor/sporen, ${o.vlakken.length} perron(s)${o.eilanden ? ` waarvan ${o.eilanden} eilandperron(s)` : ''} van 220 m.</p>` : ''}
+      <div class="rij"><button class="knop hoofd" data-actie="station-zelf">Zelf bouwen (${S.euroKort(kosten)}, 2 speluren)</button><button class="knop" data-actie="station-prorail">ProRail vragen (gratis, als het rendeert)</button></div>
       <p class="klein">Een eigen station is van jou: andere vervoerders moeten jou vragen om er te stoppen. ProRail bouwt alleen als de maatschappelijke kosten-batenanalyse (MKBA) positief is.</p>`;
   },
   nieuwSpoor(d) {
@@ -1420,6 +1427,7 @@ function actieUit(a, d) {
       melding(`${p.naam}: versneld bouwen, klaar om ${S.klok((nieuw + 300) % 1440)} (${S.euroKort(kosten)}).`); ververs(); hud(); break;
     }
     case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
+    case 'ns-kant': paneelData.kant = -(paneelData.kant || 1); ververs(); break;
     case 'perron-bouw': {
       const o = perronOntwerp; if (!o) break;
       const kosten = perronKosten(o);
@@ -1438,8 +1446,16 @@ function actieUit(a, d) {
     case 'station-zelf': case 'station-prorail': {
       const p = paneelData; const naam = $('ns-naam').value.trim() || p.naam;
       if (a === 'station-zelf') {
-        if (!betaal(6e6, 'een station')) break;
-        spel.haltes.push({ id: S.nieuwId('h'), naam, modus: 'trein', x: p.x, y: p.y, eigen: true, ...bouwKlaar(), kosten: 6e6 });
+        const o = stationOntwerp(p), kosten = o ? stationKosten(o) : 6e6;
+        if (!betaal(kosten, 'een station')) break;
+        const tijd = bouwKlaar(), project = S.nieuwId('b');
+        spel.haltes.push({ id: S.nieuwId('h'), naam, modus: 'trein', x: p.x, y: p.y, eigen: true, ...tijd, kosten, project, doorsnede: o?.doorsnede });
+        if (o) {
+          o.sporen.forEach(pts => spel.spoor.push({ punten: pts, sporen: 1, eigenaar: 'speler', ...tijd, klaar: false, perron: naam, project, projectNaam: `Station ${naam}` }));
+          spel.perronVormen = spel.perronVormen || [];
+          for (const v of o.vlakken) { spel.perronVormen.push({ station: naam, pts: v, ...tijd, project }); D.perrons.voeg({ vlak: true, pts: v, eigen: true }); }
+        }
+        perronVoorstelWissen();
         melding(`Bouw van station ${naam} gestart. Klaar over 2 speluren.`); eigenNetBijwerken(); sluitPaneel();
       } else {
         nieuwVerzoek(spel, { aan: 'prorail', aanNaam: 'ProRail', soort: 'station', x: p.x, y: p.y, naam, tekst: `Verzoek aan ProRail om station ${naam} te bouwen.` });
@@ -1481,6 +1497,9 @@ function wijzig(w, i) {
     case 'spitsdubbel': l.spitsDubbel = i.checked; S.herbereken(l); break;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
+    case 'ns-naam': paneelData.naam = i.value; return;
+    case 'ns-sporen': paneelData.sporen = +i.value; i.blur(); setTimeout(() => ververs(), 0); return;
+    case 'ns-doorgaand': paneelData.doorgaand = i.checked; if (i.checked && (paneelData.sporen || 0) <= (stationOntwerp({ ...paneelData, doorgaand: false })?.bestaand || 1)) paneelData.sporen = (stationOntwerp({ ...paneelData, doorgaand: false })?.bestaand || 1) + 2; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'perron-vorm': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, i.value, perronOntwerp.eind); return;
     case 'lijn-richting': l.richting = i.value; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
@@ -1808,7 +1827,7 @@ function bouwProjecten() {
   const voeg = (sleutel, naam, x, station) => { if (!uit.has(sleutel)) uit.set(sleutel, { naam, start: x.startMin ?? (x.startDag ?? x.gereedDag - 30) * 1440, gereed: gereedMin(x), kosten: 0, delen: [], station, spoed: false }); const p = uit.get(sleutel); p.delen.push(x); p.kosten += x.kosten || 0; p.spoed = p.spoed || !!x.spoed; p.gereed = Math.max(p.gereed, gereedMin(x)); };
   for (const sp of spel.spoor) if (!sp.klaar && !isKlaar(sp)) voeg(sp.project || sp, sp.projectNaam || (sp.perron ? `Spoor met perron · ${sp.perron}` : 'Nieuw spoor'), sp, sp.perron);
   for (const v of spel.perronVormen || []) if (!isKlaar(v) && v.project && uit.has(v.project)) uit.get(v.project).delen.push(v);
-  for (const h of spel.haltes) if (!isKlaar(h)) voeg(h, `Station ${h.naam}${h.eigen ? '' : ' (ProRail)'}`, h, h.naam);
+  for (const h of spel.haltes) if (!isKlaar(h)) voeg(h.project || h, `Station ${h.naam}${h.eigen ? '' : ' (ProRail)'}`, h, h.naam);
   return [...uit.values()].sort((a, b) => a.gereed - b.gereed);
 }
 function voortgang(p, i) {
@@ -1820,6 +1839,13 @@ function voortgang(p, i) {
     <p class="klein">Klaar om ${S.klok((Math.round(p.gereed) + 300) % 1440)}${Math.floor((p.gereed + 300) / 1440) - 0 > spel.dag + (spel.tijd >= 1440 ? 1 : 0) ? ' (later)' : ''}: nog ${rest >= 90 ? `${komma(rest / 60)} speluur` : `${Math.ceil(rest)} spelminuten`} (≈ ${echt} bij ${snelheid}×)${p.spoed ? ' · versneld' : ''}</p>
     ${i != null && !p.spoed && p.delen.some(x => x.eigen !== false && x.eigenaar !== 'prorail') ? `<button class="knop klein" data-actie="spoed" data-i="${i}">Versneld bouwen (${S.euroKort(Math.round((p.kosten || 2e6) * 0.4 / 1e5) * 1e5)})</button>` : ''}</div>`;
 }
+// ontwerp van een nieuw station (sporen en perrons) voor het paneel; tekent het voorstel op de kaart
+function stationOntwerp(d) {
+  const o = ontwerpStation(net, D.perrons, d.x, d.y, spel.jaar, { sporen: d.sporen || 0, doorgaand: !!d.doorgaand, kant: d.kant || 1 });
+  if (o) voorstelTekenen({ ...o, vlakken: o.vlakken });
+  return o;
+}
+const stationKosten = o => Math.round((2e6 + o.lengte * 2500 + o.vlakken.reduce((a, v, i) => a + 2e6, 0) + o.eilanden * 1e6) / 1e5) * 1e5;
 function perronVoorstelWissen() { perronOntwerp = null; kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [] }); }
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
   let beste = null, bd = maxPx;
