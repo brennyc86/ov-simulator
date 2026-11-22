@@ -752,6 +752,19 @@ async function halteWeghalen(l, i) {
   if (l.echt) l.aangepast = true; S.herbereken(l); l._vangst = null; l._banenVan = null; l._banen = null;
   melding(`${weg.naam} gehaald uit lijn ${l.nr}.`); ververs(); eigenNetBijwerken();
 }
+// Te vol: blijven er structureel reizigers achter op een gesubsidieerde lijn, dan waarschuwt de provincie;
+// na 7 dagen zonder verbetering vervalt de subsidie (concessie en aangeboden subsidie)
+function drukteToetsen() {
+  for (const l of spel.lijnen) {
+    const d = l.dag; l.dag = { vraag: 0, achter: 0 };
+    if (!d || d.vraag < 300 || (!l.concessie && !l.aanbod)) continue;
+    const deel = d.achter / d.vraag;
+    if (deel > 0.06) {
+      if (!l.drukSinds) { l.drukSinds = spel.dag; nieuwVerzoek(spel, { aan: 'speler', van: 'provincie', vanNaam: 'Provincie', soort: 'bericht', status: 'gelezen', lijnId: l.id, tekst: `Waarschuwing: op lijn ${l.nr} bleef gisteren ${Math.round(deel * 100)}% van de reizigers achter (${Math.round(d.achter).toLocaleString('nl-NL')} mensen). Rijd vaker, met langere treinen of grotere voertuigen. Is het over 7 dagen niet beter, dan trekken we de subsidie in.` }); melding(`Provincie: te veel reizigers blijven achter op lijn ${l.nr} (${Math.round(deel * 100)}%). Binnen 7 dagen verbeteren, anders vervalt de subsidie.`, 12000); }
+      else if (spel.dag - l.drukSinds >= 7) { l.concessie = false; if (l.aanbod) { const a = (spel.aanbiedingen || []).find(x => x.id === l.aanbod.id); if (a) aanbodLos(a); } l.drukSinds = null; melding(`De provincie heeft de subsidie van lijn ${l.nr} ingetrokken: er bleven te veel reizigers achter.`, 12000); }
+    } else if (deel < 0.03 && l.drukSinds) { l.drukSinds = null; melding(`Provincie: lijn ${l.nr} is weer op orde, de waarschuwing vervalt.`); }
+  }
+}
 function verzoekenAfhandelen() {
   const nu = spel.dag + spel.tijd / 1440;
   let iets = false;
@@ -768,7 +781,7 @@ function dagVoorbij() {
   spel.dag++;
   dienstVoorDag();
   bouwOpleveren();
-  aanbiedingenAanvullen(); aanbiedingenToetsen();
+  aanbiedingenAanvullen(); aanbiedingenToetsen(); drukteToetsen();
   bijzonderAfrekenen();
 
   // groepen vragen soms een eigen rit aan (alleen als je treinen hebt)
@@ -1187,7 +1200,7 @@ const PANELEN = {
         <tr><td>Kaartjes en boetes</td><td class="getal">${S.euro(st.kaartjes ?? st.opbrengst - (st.subsidie || 0))}</td></tr><tr><td>Subsidie${l.subsidiePerReiziger ? ` (incl. € ${l.subsidiePerReiziger.toFixed(2).replace('.', ',')}/reiziger)` : ''}</td><td class="getal">${S.euro(st.subsidie || 0)}</td></tr>
         <tr><td>Kosten</td><td class="getal">${S.euro(-st.kosten)}</td></tr>
         <tr><td><b>Resultaat</b></td><td class="getal"><b style="color:${st.opbrengst - st.kosten < 0 ? 'var(--rood)' : 'var(--groen)'}">${S.euro(st.opbrengst - st.kosten)}</b></td></tr>
-        <tr><td>Bezetting</td><td class="getal">${Math.round((l.bezetting || 0) * 100)}%</td></tr>${st.uitval > 0.5 ? `<tr><td>Uitgevallen ritten</td><td class="getal" style="color:var(--rood)">${Math.round(st.uitval)}</td></tr>` : ''}</table>` : ''}
+        <tr><td>Bezetting</td><td class="getal">${Math.round((l.bezetting || 0) * 100)}%</td></tr>${st.vraag ? `<tr><td>Achtergebleven reizigers</td><td class="getal" style="color:${st.achter / st.vraag > 0.06 ? 'var(--rood)' : 'inherit'}">${Math.round(st.achter).toLocaleString('nl-NL')} (${Math.round(st.achter / st.vraag * 100)}%)</td></tr>` : ''}${l.drukSinds ? `<tr><td colspan="2" style="color:var(--rood)">Waarschuwing van de provincie: nog ${Math.max(0, 7 - (spel.dag - l.drukSinds))} dagen om de drukte op te lossen</td></tr>` : ''}${st.uitval > 0.5 ? `<tr><td>Uitgevallen ritten</td><td class="getal" style="color:var(--rood)">${Math.round(st.uitval)}</td></tr>` : ''}</table>` : ''}
       <h3>Drukte en zwartrijden per traject</h3>${trajectTabel(l)}
       <h3>Kaartcontrole op deze lijn</h3>
       <label class="rij"><input type="checkbox" data-wijzig="conducteur" data-id="${l.id}" ${l.conducteur ? 'checked' : ''}> Conducteur op elke rit (+${S.euro(S.LOON.conducteur)} per voertuiguur)</label>
@@ -1269,7 +1282,7 @@ const PANELEN = {
     const eigen = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && basisId(id) === d.basis);
     const ombouw = d.van && spel.voertuigen[d.van] && d.van !== doelId ? ombouwKosten(serieInrichting(d.van), ink, d.basis) : 0;
     const vzOpties = Object.entries(VOORZ).filter(([v]) => voorzMag(v, d.basis) || (ink.voorz || []).includes(v));
-    return `<h2>Interieur: ${esc(b.naam)}</h2>
+    return `${d.terug ? '<p class="chip">Voor je nieuwe lijn: ontwerp het interieur, koop het aantal dat je wilt en je gaat terug naar de lijn met deze serie gekozen. <button class="knop klein" data-actie="serie-terug">Terug zonder kopen</button></p>' : ''}<h2>Interieur: ${esc(b.naam)}</h2>
       <p class="klein">Het interieur hoort bij het voertuig en deel je per wagon in. Een wagon kan in delen (bv. half 1e en half 2e klas${trein ? ', of een halve wagon beperkte restauratie' : ''}). Klassen: Premium, 1e, 2e, 3e, 4e …; met een hoger kaartje mag je lager zitten, niet andersom. Een eigen interieur wordt een eigen serie. Catering aan je plaats en openingstijden regel je per lijn.</p>
       ${ink.wagons.map(wagonRij).join('')}
       <div class="rij"><button class="knop klein" data-actie="sn-standaard">Standaardinterieur</button></div>
@@ -1309,7 +1322,9 @@ const PANELEN = {
       ${h.length ? `<h3>Resultaat per maand</h3><div style="display:flex;align-items:flex-end;gap:3px;height:90px;border-bottom:1px solid var(--lijn)">${h.map(x => `<div title="${S.euro(x.resultaat)}" style="flex:1;height:${Math.max(2, Math.abs(x.resultaat) / max * 88)}px;background:${x.resultaat < 0 ? 'var(--rood)' : 'var(--groen)'};border-radius:2px 2px 0 0"></div>`).join('')}</div>
       <p class="klein">Resultaat inclusief afschrijving van de vloot. Laatste maand: ${S.euro(h[h.length - 1].resultaat)}.</p>` : '<p class="klein">Na 30 speldagen verschijnt hier je eerste maandresultaat.</p>'}
       ${leningBlok()}
-      <h3>Klassen en toeslagen</h3><p class="klein">Prijs per klasse in % van het standaardtarief; geldt voor al je lijnen. Met een kaartje voor een hogere klasse mag je lager zitten, niet andersom.</p>
+      <h3>Klassen en toeslagen</h3><p class="klein">Prijs per klasse in % van het standaardtarief; geldt voor al je lijnen. Reizigers kiezen op prijs én comfort: een dure klasse met slecht comfort blijft leeg. Met een kaartje voor een hogere klasse mag je lager zitten, niet andersom; bij drukte kopen sommigen een duurder kaartje om te kunnen zitten.</p>
+      <label class="rij"><input type="checkbox" data-wijzig="beleid-op" ${spel.beleid?.opwaarderen ? 'checked' : ''}> Bij grote drukte mogen reizigers gratis een klasse hoger zitten (minder achterblijvers, maar klachten van wie wél betaalde)</label>
+      ${spel.beleid?.opwaarderen ? `<label class="veld">Korting voor reizigers in de hogere klasse bij drukte (%)<input type="number" min="0" max="50" step="5" value="${Math.round((spel.beleid.korting || 0) * 100)}" data-wijzig="beleid-korting"></label><p class="klein">Met ongeveer 30% korting blijven de klachten uit; het kost wel kaartopbrengst.</p>` : ''}
       <div class="raster2">${KLASSEN.map(k => `<label class="veld">${KLASSE_NAAM[k]}<input type="number" min="10" max="600" step="5" value="${Math.round(klassePrijs(k) * 100)}" data-wijzig="kprijs" data-k="${k}"></label>`).join('')}</div>
       <h3>Spel</h3><div class="rij"><button class="knop" data-actie="bewaar">Nu opslaan</button><button class="knop" data-actie="nieuw">Nieuw spel / laden</button></div>`;
   },
@@ -1457,10 +1472,11 @@ const PANELEN = {
           <label class="rij"><input type="radio" name="nl-richting" data-wijzig="nl-richting" value="beide" ${d.richting === 'beide' ? 'checked' : ''}> Heen en terug over dezelfde route</label>
           <label class="rij"><input type="radio" name="nl-richting" data-wijzig="nl-richting" value="heen" ${d.richting === 'heen' ? 'checked' : ''}> Alleen deze richting (de terugweg bouw je daarna apart, of de voertuigen rijden leeg terug)</label>
           <p class="klein">Een rondlijn maak je door als laatste weer op de eerste halte te klikken.</p></div>`}
-      <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.terugVan ? d.terugVan.nr : d.modus === 'trein' ? 'RE' + vrijNr : vrijNr)}" maxlength="8"></label>
-      <label class="veld">Naam<input id="nl-naam" value="${esc(d.rond ? 'Ring ' + d.haltes[0].naam.split(',')[0] : d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0])}" maxlength="60"></label></div>
-      <div class="veld"><label for="nl-type">Materieel</label><select id="nl-type">${typen.map(v => `<option value="${v.id}">${esc(v.naam)} · ${plaatsenVan(v.id)} pl. · ${S.euroKort(v.prijs)}${spel.voertuigen[v.id] ? ` · ${spel.voertuigen[v.id]} in bezit` : ''}</option>`).join('')}</select></div>
-      <div class="raster2"><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.modus === 'trein' ? 30 : 15}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="30" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="60" min="3"></label></div>
+      <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.nrIn ?? (d.terugVan ? d.terugVan.nr : d.modus === 'trein' ? 'RE' + vrijNr : vrijNr))}" maxlength="8"></label>
+      <label class="veld">Naam<input id="nl-naam" value="${esc(d.naamIn ?? (d.rond ? 'Ring ' + d.haltes[0].naam.split(',')[0] : d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0]))}" maxlength="60"></label></div>
+      <div class="veld"><label for="nl-type">Materieel</label><select id="nl-type" data-wijzig="nl-type">${typen.map(v => `<option value="${v.id}" ${v.id === d.typeKeuze ? 'selected' : ''}>${esc(v.naam)} · ${plaatsenVan(v.id)} pl. · ${S.euroKort(v.prijs)}${spel.voertuigen[v.id] ? ` · ${spel.voertuigen[v.id]} in bezit` : ''}</option>`).join('')}</select>
+        <button class="knop klein" data-actie="nl-interieur">Interieur aanpassen en kopen…</button></div>
+      <div class="raster2"><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="${d.dalIn ?? 30}" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="${d.avondIn ?? 60}" min="3"></label></div>
       <label class="rij"><input type="checkbox" data-wijzig="nl-bijzonder" ${d.bijzonder ? 'checked' : ''}> Eenmalige bijzondere rit (bv. stoomtrein of themarit)</label>
       ${d.bijzonder ? `<div class="raster2"><label class="veld">Over hoeveel dagen<input id="nb-dagen" type="number" min="3" max="90" value="14"></label><label class="veld">Vertrek<input id="nb-tijd" type="time" value="10:00"></label>
         <label class="veld">Prijs per persoon €<input id="nb-prijs" type="number" min="0" step="1" value="${Math.round(gewonePrijs(d.modus, d.route.lengte / 1000) * 1.8)}"></label></div>
@@ -1540,6 +1556,10 @@ function actieUit(a, d) {
       melding(`Gekocht: ${tekort.map(([c, n]) => `${n} × ${TYPE[c].naam}`).join(', ')} (${S.euroKort(kosten)}).`); ververs(); break;
     }
     case 'paneel': openPaneel(d.p); break;
+    case 'nl-interieur': { const dd = paneelData, tid = $('nl-type')?.value; if (!tid) break;
+      dd.typeKeuze = tid; dd.nrIn = $('nl-nr')?.value; dd.naamIn = $('nl-naam')?.value; dd.spitsIn = $('nl-spits')?.value; dd.dalIn = $('nl-dal')?.value; dd.avondIn = $('nl-avond')?.value;
+      terugNaarLijn = dd; openPaneel('serie', { basis: basisId(tid), van: null, ink: JSON.parse(JSON.stringify(serieInrichting(tid))), n: 2, terug: true }); break; }
+    case 'serie-terug': if (terugNaarLijn) { const t2 = terugNaarLijn; terugNaarLijn = null; openPaneel('nieuweLijn', t2); } break;
     case 'sv-zet': {
       const t = takVan(+d.ti), bv = baanvak(spel, net, t), naar = paneelData.kies ?? null, kosten = ombouwKostenStroom(bv.sys, naar, bv.lengte / 1000);
       if (!betaal(kosten, 'de ombouw van de bovenleiding')) break;
@@ -1594,6 +1614,7 @@ function actieUit(a, d) {
         if (!betaal(t.prijs * n, `${n} × ${t.naam}`)) break;
         spel.voertuigen[id] = (spel.voertuigen[id] || 0) + n;
         melding(`${n} × ${t.naam} gekocht voor ${S.euroKort(t.prijs * n)}.`);
+        if (dd.terug && terugNaarLijn) { const t2 = { ...terugNaarLijn, typeKeuze: id }; terugNaarLijn = null; openPaneel('nieuweLijn', t2); break; }
         openPaneel('serie', { ...dd, van: id }); break;
       }
       const van = dd.van; if (!van) break;
@@ -1749,6 +1770,7 @@ function wijzig(w, i) {
     case 'spitsdubbel': l.spitsDubbel = i.checked; S.herbereken(l); break;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
+    case 'nl-type': paneelData.typeKeuze = i.value; return;
     case 'ns-naam': paneelData.naam = i.value; return;
     case 'sv-kies': paneelData.kies = i.value || null; ververs(); return;
     case 'spoor-hergebruik': paneelData.hergebruik = i.checked; spoorVoorstel(paneelData); i.blur(); setTimeout(() => ververs(), 0); return;
@@ -1782,6 +1804,8 @@ function wijzig(w, i) {
       paneelData.naam = null; i.blur(); setTimeout(() => ververs(), 0); return;
     }
     case 'sv': { const vz = new Set(paneelData.ink.voorz || []); i.checked ? vz.add(i.dataset.v) : vz.delete(i.dataset.v); paneelData.ink.voorz = [...vz]; paneelData.naam = null; i.blur(); setTimeout(() => ververs(), 0); return; }
+    case 'beleid-op': spel.beleid = { ...(spel.beleid || {}), opwaarderen: i.checked }; i.blur(); setTimeout(() => ververs(), 0); return;
+    case 'beleid-korting': spel.beleid = { ...(spel.beleid || {}), korting: Math.max(0, Math.min(0.5, (+i.value || 0) / 100)) }; return;
     case 'kprijs': spel.klassePrijs = { ...(spel.klassePrijs || {}), [i.dataset.k]: Math.max(0.1, Math.min(6, (+i.value || 0) / 100)) }; zetKlassePrijzen(spel.klassePrijs); for (const l2 of spel.lijnen) l2._eff = null; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'sn-van': paneelData.van = i.value || null; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'aankomst': {
@@ -2010,7 +2034,7 @@ function kandidaten(modus) {
   for (const h of spel.haltes) if (isKlaar(h) && (h.modus === modus || (['bus', 'hov', 'belbus'].includes(modus) && ['bus', 'hov', 'belbus'].includes(h.modus)) || (modus === 'watertaxi' && h.modus === 'veer'))) uit.push({ naam: h.naam, x: h.x, y: h.y, eigen: h.id });
   return uit;
 }
-let perronOntwerp = null;
+let perronOntwerp = null, terugNaarLijn = null;
 // kosten en bouwtijd van een ontwerp: spoor per meter, perrons per stuk (eilandperron breder)
 function perronKosten(o) { return Math.round((o.lengte * 2500 + (o.vlakken || []).length * (o.vorm === 'eiland' || o.vorm === 'kop2' ? 3.5e6 : 2.5e6) + (o.vorm?.startsWith('kop') ? 150000 * o.sporen.length : 0)) / 1e5) * 1e5; }
 

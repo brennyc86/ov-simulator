@@ -174,6 +174,17 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
         globalThis.__map.vuur('click', { point: globalThis.__map.project([lo9, la9]) }); await wacht(300);
         log('na toevoegen Hilversum:', lijn.haltes.map(h => h.naam).join(' > '), Math.round(lijn.duur / 60), 'min');
         document.querySelector('[data-tool="kijk"]')?.click(); } }
+    // nieuwe lijn: interieur aanpassen en kopen, terug naar de lijn met de serie gekozen
+    { document.querySelector('[data-tool="lijn"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Trein').click();
+      for (const s2 of [a, b]) { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); }
+      await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300);
+      const nr = document.getElementById('nl-nr'); nr.value = 'IC99';
+      document.querySelector('[data-actie="nl-interieur"]')?.click(); await wacht(50);
+      log('interieur vanuit nieuwe lijn:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160));
+      document.querySelector('[data-actie="sw-splits"][data-w="0"]')?.click(); await wacht(30);
+      document.getElementById('sn-n').value = 3; document.querySelector('[data-actie="serie-koop"]')?.click(); await wacht(80);
+      const sel = document.getElementById('nl-type'); log('terug bij lijn: gekozen', sel?.value, globalThis.__ovTest.spel.series.find(x => x.id === sel?.value)?.naam, '| nr', document.getElementById('nl-nr')?.value);
+      document.querySelector('[data-actie="lijn-annuleer"]')?.click(); await wacht(30); }
     // richtingen: eenrichting Amersfoort -> Amsterdam met terugweg via Utrecht, en een rondlijn
     const u = st('Utrecht Centraal'); const klikSt = async s2 => { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); };
     if (u) {
@@ -313,6 +324,11 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(60);
     const sel = document.getElementById(`sleep-${l.id}`); if (sel) { sel.value = 'loc193'; } document.querySelector(`[data-actie="sleeploc"][data-id="${l.id}"]`)?.click(); await wacht(40);
     log('na sleeploc:', l.sleeploc, 'actief', l.actief, 'wacht', l.wacht); } }
+// drukte: provincie waarschuwt en trekt na 7 dagen de subsidie in
+{ const sp = globalThis.__ovTest.spel, l = sp.lijnen.find(x => !x.bijzonder && x.actief);
+  if (l) { l.concessie = true; const r = [];
+    for (let k = 0; k < 9; k++) { l.dag = { vraag: 2000, achter: 300 }; sp.tijd = 29 * 60; globalThis.__ovTest.dagVoorbij(); r.push(`${k}:${l.drukSinds != null ? 'w' : '-'}${l.concessie ? 'c' : 'X'}`); }
+    log('drukte', l.nr, r.join(' ')); } }
 // lening afsluiten en aflossen
 { const sp = globalThis.__ovTest.spel; const g0 = sp.geld; document.querySelector('[data-paneel="geld"]').click(); await wacht(30);
   document.querySelector('[data-actie="lenen"][data-b="10000000"]')?.click(); await wacht(20);

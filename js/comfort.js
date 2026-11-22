@@ -251,22 +251,30 @@ const BASIS_NU = { P: 0.03, 1: 0.07, 2: 0.9, 3: 0.12, 4: 0.12, 5: 0.12, 6: 0.12 
 const BASIS_AANDEEL = new Proxy({}, { get: (_, k) => (JAAR < DRIE_KLASSEN_TOT ? BASIS_OUD : BASIS_NU)[k] });
 const ELAST = { P: 0.25, 1: 0.35, 2: 0.55, 3: 0.75, 4: 0.85, 5: 0.95, 6: 1 };
 const COMFORT_VERSCHIL = { P: 4, 1: 2, 2: 0, 3: -2, 4: -3, 5: -4, 6: -5 };
+// Reizigers kiezen op prijs en comfort, niet op de naam van de klasse: een dure klasse met slecht comfort blijft leeg,
+// een goedkope klasse met veel comfort loopt vol. Drie soorten reizigers die verschillend op prijs letten.
+const SEGMENTEN = [{ deel: 0.08, prijs: 1.0 }, { deel: 0.32, prijs: 3.0 }, { deel: 0.6, prijs: 5.0 }]; // zakelijk, gemiddeld, zuinig
+const COMFORT_GEWICHT = 0.12;
+function keuze(kl, ref) {
+  const aandeel = kl.map(() => 0); let factor = 0;
+  for (const sg of SEGMENTEN) {
+    const u = kl.map(k => -sg.prijs * Math.log(Math.max(0.05, k.prijs)) + COMFORT_GEWICHT * (k.comfort - ref));
+    const mx = Math.max(...u), e = u.map(x => Math.exp(x - mx)), som = e.reduce((a, b) => a + b, 0);
+    e.forEach((x, i) => aandeel[i] += sg.deel * x / som);
+    factor += sg.deel * (mx + Math.log(som)); // 'logsum': hoe aantrekkelijk het hele aanbod is voor dit soort reiziger
+  }
+  return { aandeel, logsum: factor };
+}
 export function vraagEffect(lijn, typeId, comfortConcurrent = null) {
   const kl = klassenVan(inrichtingVan(lijn, typeId), typeId, lijn.modus);
   if (!kl.length) return { factor: 1, aandeel: [], klassen: kl, gemPrijs: 1, gemComfort: kenmerk(typeId).comfort, marktaandeel: 0.5 };
+  // referentie: het standaardinterieur van dit materieel (in dit jaar) met de standaardprijzen
   const sid = delenVan(typeId).map(basisId).find(c => TYPE[c]?.soort !== 'loc') || basisId(typeId);
-  const std = klassenVan(standaardInrichting(sid, lijn.modus), sid, lijn.modus);
-  const refK = JAAR < DRIE_KLASSEN_TOT ? '3' : '2', ref = COMFORT_VERSCHIL[refK]; // het gewone tarief: vroeger 3e, nu 2e klas
-  const stdComfort = std.find(k => k.klasse === refK)?.comfort ?? std[0]?.comfort ?? 5;
-  let som = 0;
-  const w = kl.map(k => {
-    const m = Math.pow(Math.max(0.1, k.prijs) / (STD_PRIJS[k.klasse] ?? 1), -(ELAST[k.klasse] ?? 0.8)) * Math.max(0.2, 1 + 0.07 * (k.comfort - (stdComfort + (COMFORT_VERSCHIL[k.klasse] ?? 0) - ref)));
-    const x = (BASIS_AANDEEL[k.klasse] ?? 0.1) * m; som += x; return x;
-  });
-  const basisSom = kl.reduce((a, k) => a + (BASIS_AANDEEL[k.klasse] ?? 0.1), 0);
-  const aandeel = w.map(x => x / (som || 1));
-  // minder klassen = minder keuze; de groep blijft wel reizen (normaliseren naar de standaardmix)
-  const factor = som / (basisSom || 1);
+  const std = klassenVan(standaardInrichting(sid, lijn.modus), sid, lijn.modus).map(k => ({ ...k, prijs: STD_PRIJS[k.klasse] ?? 1 }));
+  const ref = std.reduce((a, k) => a + k.comfort * (k.zit + k.sta), 0) / (std.reduce((a, k) => a + k.zit + k.sta, 0) || 1);
+  const nu = keuze(kl, ref), basis = keuze(std, ref);
+  const factor = Math.max(0.3, Math.min(2, Math.exp(0.35 * (nu.logsum - basis.logsum))));
+  const aandeel = nu.aandeel;
   const gemPrijs = kl.reduce((a, k, i) => a + aandeel[i] * k.prijs, 0);
   const gemComfort = kl.reduce((a, k, i) => a + aandeel[i] * k.comfort, 0);
   let marktaandeel = 0.5;

@@ -364,8 +364,24 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const totaalVraag = PERIODES.reduce((s, p) => s + p.vraag * (p.tot - p.van) / 60, 0);
     let reizigers = periode ? perDag * vraagFactor(spel.dag, periode) / totaalVraag : 0;
     const eh = eenheden(lijn, spel.dag, uurBegin + 30);
-    reizigers = Math.min(reizigers, ritten * capaciteit(lijn) * eh * 0.8);
     reizigers *= 0.6 + 0.4 * (spel.reputatie / 100);
+    // capaciteit per klasse (klassen van hoog naar laag): wie in zijn klasse geen plek heeft mag lager staan/zitten;
+    // bij drukte koopt een deel een duurder kaartje voor een zitplaats; met het beleid 'opwaarderen' mogen
+    // reizigers bij drukte gratis een klasse hoger zitten (minder achterblijvers, wel klachten zonder korting)
+    const vraagUur = reizigers, kl = eff.klassen.length ? eff.klassen : [{ zit: capaciteit(lijn), sta: 0, prijs: 1 }];
+    const aand = eff.aandeel.length ? eff.aandeel : [1];
+    const vrij = kl.map(k => (k.zit + k.sta) * eh * ritten * 0.8);
+    let over = 0, vervoerd = 0;
+    for (let i = 0; i < kl.length; i++) { const nodig = vraagUur * aand[i] + over, mee = Math.min(nodig, vrij[i]); vrij[i] -= mee; over = nodig - mee; vervoerd += mee; }
+    const laag = kl[kl.length - 1], pl = Math.max(0.1, laag.prijs || 1);
+    let meerPrijs = 0, opgewaardeerd = 0;
+    for (let j = kl.length - 2; j >= 0 && over > 0; j--) { // duurder kaartje om mee te kunnen of te zitten
+      const w = Math.max(0, Math.min(0.7, 1.6 - 0.6 * (kl[j].prijs || 1) / pl)), koop = Math.min(vrij[j], over * w);
+      vrij[j] -= koop; over -= koop; vervoerd += koop; meerPrijs += koop * ((kl[j].prijs || 1) - pl);
+    }
+    if (spel.beleid?.opwaarderen && over > 0) { const op = Math.min(over, vrij.reduce((a, b) => a + b, 0)); opgewaardeerd = op; over -= op; vervoerd += op; }
+    reizigers = vervoerd;
+    lijn.dag = lijn.dag || { vraag: 0, achter: 0 }; lijn.dag.vraag += vraagUur; lijn.dag.achter += over;
     const [instap, perKm] = TARIEF[lijn.modus] || TARIEF.bus;
     const ritprijs = instap + perKm * (lijn.modus === 'trein' ? Math.min(gemKm, 40) + Math.max(0, gemKm - 40) * 0.7 : gemKm);
     // zwartrijden en controle
@@ -375,7 +391,10 @@ export function verrekenUur(spel, ctx, uurBegin) {
       * (lijn.modus === 'bus' && spel.controle.chauffeur ? 0.5 : 1) * Math.exp(-pak * 6) * 1.6;
     const zwart = reizigers * zwartFractie;
     const betrapt = zwart * pak;
-    const kaartjes = (reizigers - zwart) * ritprijs * eff.gemPrijs;
+    // reizigers in een hogere klasse krijgen bij opwaarderen eventueel korting (klachten afkopen)
+    const hoger = reizigers * (1 - (aand[aand.length - 1] || 1)), korting = opgewaardeerd > 0 ? (spel.beleid?.korting || 0) : 0;
+    const kaartjes = (reizigers - zwart) * ritprijs * eff.gemPrijs + meerPrijs * ritprijs * (1 - zwartFractie) - hoger * ritprijs * eff.gemPrijs * korting;
+    if (opgewaardeerd > 0) spel.reputatie = Math.max(0, spel.reputatie - Math.min(0.3, opgewaardeerd / 4000) * (1 - Math.min(1, korting * 3)));
     const boetes = betrapt * (BOETE + ritprijs) * 0.75; // niet elke boete wordt geïnd
 
     // kosten
@@ -396,7 +415,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
     m.reizigers += reizigers; m.zwart += zwart; m.betrapt += betrapt;
     lijn.stat = lijn.stat || { reizigers: 0, opbrengst: 0, kosten: 0, ritten: 0, uitval: 0 };
     lijn.stat.vu = (lijn.stat.vu || 0) + voertuigUren; lijn.stat.subsidie = (lijn.stat.subsidie || 0) + subsidie; lijn.stat.kaartjes = (lijn.stat.kaartjes || 0) + kaartjes + boetes;
-    lijn.stat.reizigers += reizigers; lijn.stat.opbrengst += kaartjes + boetes + subsidie;
+    lijn.stat.reizigers += reizigers; lijn.stat.opbrengst += kaartjes + boetes + subsidie; lijn.stat.achter = (lijn.stat.achter || 0) + over; lijn.stat.vraag = (lijn.stat.vraag || 0) + vraagUur;
     lijn.stat.kosten += personeel + energie + gebruik; lijn.stat.ritten += ritten;
     lijn.stat.uitval += ritten / Math.max(rijdt, 0.001) - ritten;
     lijn.bezetting = ritten ? reizigers / (ritten * capaciteit(lijn)) : 0;
