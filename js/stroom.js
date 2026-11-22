@@ -33,7 +33,23 @@ export function spanningVan(spel, t) {
   if (!t) return null;
   const eigen = spel?.spanning?.[t.i];
   if (eigen !== undefined) return eigen || null;
+  if (!t.elek || !elektrischIn(t, spel?.jaar ?? 2026)) return null;
   return systeemVoor(t.elek, t.soort, t.vmax);
+}
+// Was dit spoor in dat jaar al elektrisch? Grove benadering van de geschiedenis (per lijn zijn de jaren niet bekend):
+// treinspoor vanaf 1924 in de Randstad (Amsterdam–Haarlem–Leiden–Rotterdam), vanaf 1939 het grootste deel van het midden,
+// vanaf 1956 ook noord, oost en zuid; tram elektrisch vanaf ~1900; metro vanaf 1968. Eigen spoor is altijd zoals gebouwd.
+function elektrischIn(t, jaar) {
+  if (t.i >= 1e6 || jaar >= 1980) return true;
+  const m = (t.pts.length >> 2) * 2, x = t.pts[m], y = t.pts[m + 1];
+  if (t.soort === 2) return jaar >= 1968;
+  if (t.soort === 1 || t.soort === 3) return jaar >= 1900;
+  if (jaar < 1924) return false;
+  const randstad = x < 135000 && y > 430000 && y < 495000;
+  if (jaar < 1939) return randstad;
+  const midden = x < 200000 && y > 400000 && y < 520000;
+  if (jaar < 1956) return midden;
+  return true;
 }
 // systemen die je op dit soort spoor kunt kiezen
 export const systemenVoorSoort = soort => Object.entries(SYSTEMEN).filter(([, s]) => (soort === 0 || soort >= 4) ? s.soort === 'trein' : s.soort !== 'trein').map(([k]) => k);

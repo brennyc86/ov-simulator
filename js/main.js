@@ -6,6 +6,7 @@ import { Wegen } from './wegen.js';
 import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst } from './subsidie.js';
 import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } from './gebouw.js';
 import { busstationOntwerp } from './perron.js';
+import { perronVanaf } from './correcties.js';
 import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom } from './stroom.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
@@ -207,7 +208,7 @@ function netwerkLagen() {
   const stationBij = (x, y) => { let b = null, bd = 250; for (let i = Math.floor(x / 300) - 1; i <= Math.floor(x / 300) + 1; i++) for (let j = Math.floor(y / 300) - 1; j <= Math.floor(y / 300) + 1; j++) for (const st of stRaster.get(i + ',' + j) || []) { const d = Math.hypot(st.x - x, st.y - y); if (d < bd) { bd = d; b = st; } } return b; };
   pf.features.forEach((f, i) => {
     const p = D.perrons.lijst[i], st = stationBij(p.pts[0], p.pts[1]);
-    f.properties.van = Math.max(landSinds(p.pts[0], p.pts[1]), st?.b || 0);
+    f.properties.van = Math.max(landSinds(p.pts[0], p.pts[1]), st?.b || 0, perronVanaf(D.stations, p.pts)); // historische correcties (bv. Hilversum 2007)
     f.properties.tot = st?.e && st.e > 1 ? st.e : 9999;
   });
   // stukjes van verdwenen lijnen in een raster van 250 m, om snel het dichtste spoor bij een oud station te vinden
@@ -1796,7 +1797,7 @@ function wijzig(w, i) {
     case 'ploeg-van': spel.controle.ploegen[+i.dataset.i].van = tijd(i.value); break;
     case 'ploeg-tot': spel.controle.ploegen[+i.dataset.i].tot = tijd(i.value); break;
     case 'ploeg-lijn': { const p = spel.controle.ploegen[+i.dataset.i]; p.lijnen = i.checked ? [...new Set([...p.lijnen, i.dataset.id])] : p.lijnen.filter(x => x !== i.dataset.id); break; }
-    case 'achtergrond': kaart.zetAchtergrond(i.value); jaarBijwerken(); $('bron').textContent = ACHTERGROND_KEUZE[i.value]?.bron || ''; break;
+    case 'achtergrond': spel.achtergrond = i.value; kaart.zetAchtergrond(i.value); jaarBijwerken(); $('bron').textContent = ACHTERGROND_KEUZE[i.value]?.bron || ''; break;
   }
   i.blur(); ververs(); eigenNetBijwerken();
 }
@@ -2660,6 +2661,10 @@ function begin() {
   zetPlaatsen(spel.jaar);
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
   spel._weekend = undefined; dienstVoorDag();
+  // historische jaren: standaard de echte kaart van dat jaar (Kadaster-tijdreiskaart) als ondergrond, zodat
+  // bebouwing, wegen, heide en water kloppen met de tijd; de moderne bebouwing valt eronder weg
+  const ag = spel.achtergrond || (spel.jaar < 2015 ? 'historisch' : 'eigen');
+  if (kaart.achtergrond !== ag) { kaart.zetAchtergrond(ag); $('bron').textContent = ACHTERGROND_KEUZE[ag]?.bron || ''; }
   for (const l of spel.lijnen) stroomBijwerken(l);
   for (const l of spel.lijnen) if (l.wacht === 'pad') { l.wacht = null; l.actief = true; l.paden = Math.ceil(60 / Math.min(...Object.values(l.interval))); } // spoorruimte krijg je nu altijd
   aanbiedingenAanvullen(); aanbiedingenToetsen();
