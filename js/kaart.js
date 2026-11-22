@@ -12,6 +12,9 @@ export class Kaart {
     const mapDiv = document.createElement('div');
     mapDiv.className = 'kaartlaag';
     houder.appendChild(mapDiv);
+    this.nachtlaag = document.createElement('div'); // donker 's nachts, onder de voertuigen
+    this.nachtlaag.className = 'kaartlaag nachtlaag';
+    houder.appendChild(this.nachtlaag);
     this.boven = document.createElement('canvas');
     this.boven.className = 'kaartlaag bovenlaag';
     houder.appendChild(this.boven);

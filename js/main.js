@@ -18,7 +18,7 @@ import { genereerVervoerder } from './genereer.js';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const D = { stations: [], wissels: [], plaatsen: [], veren: [], haltes: [], vervoerders: [], vliegvelden: [], dag: '', ok: {} };
-let net = new Net(null), kaart, spel = null, snelheid = 10, tool = 'kijk', slot = null, paneelSoort = null;
+let net = new Net(null), kaart, spel = null, snelheid = 5, tijdLoopt = true, tool = 'kijk', slot = null, paneelSoort = null;
 let bouw = null, selectie = null;
 
 // ---------------------------------------------------------------- data laden
@@ -451,12 +451,12 @@ function tekenBoven(ctx, k) {
 let vorige = performance.now(), hudT = 0, laatsteOnline = 0;
 function lus(nu) {
   const dt = Math.min(0.25, (nu - vorige) / 1000); vorige = nu;
-  if (spel && snelheid) {
+  if (spel && snelheid && tijdLoopt) {
     const oud = spel.tijd;
     spel.tijd += dt * snelheid / 60;
     // elk vol uur afrekenen
     for (let u = Math.floor(oud / 60) + 1; u <= Math.floor(spel.tijd / 60); u++) uurVoorbij(u * 60 - 60);
-    if (spel.tijd >= 26 * 60) dagVoorbij(); // dienstdag loopt van 05:00 tot 02:00
+    if (spel.tijd >= 29 * 60) dagVoorbij(); // speldag loopt van 05:00 tot 05:00 (nacht 00:30–05:00)
   }
   kaart.render();
   hudT += dt; if (hudT > 0.25) { hudT = 0; hud(); }
@@ -476,8 +476,9 @@ function uurVoorbij(uurBegin) {
   if (paneelSoort === 'geld' || paneelSoort === 'lijnen') ververs();
 }
 function dagVoorbij() {
-  spel.tijd -= 21 * 60; // naar 05:00 volgende dag
+  spel.tijd -= 24 * 60; // naar 05:00 volgende dag
   spel.dag++;
+  dienstVoorDag();
   // bouwprojecten opleveren
   for (const s of spel.spoor) if (!s.klaar && s.gereedDag <= spel.dag) { s.klaar = true; const t = net.voegEigenSpoorToe(s.punten.map(p => [p[0], p[1]]), s.eigenaar, s.sporen, spel.jaar); s.takId = t.i; melding(`Spoor opgeleverd: ${(t.lengte / 1000).toFixed(1).replace('.', ',')} km ${s.sporen === 2 ? 'dubbel' : 'enkel'}spoor (${s.eigenaar === 'speler' ? 'van jou' : 'ProRail'}).`); netwerkLagen(); }
   for (const h of spel.haltes) if (h.gereedDag === spel.dag) melding(`${h.naam} is klaar en kan gebruikt worden.`);
@@ -516,12 +517,32 @@ function ctx() {
 }
 
 // ---------------------------------------------------------------- HUD
+// donker en licht volgens de zonnestand; schemering tussen +2° en −10°
+function dagLicht() {
+  const h = S.zonshoogte(spel.dag, spel.tijd % 1440);
+  const donker = Math.max(0, Math.min(1, (2 - h) / 12));
+  kaart.nacht = donker;
+  kaart.nachtlaag.style.opacity = (donker * 0.62).toFixed(3);
+  kaart.nachtlaag.style.background = donker > 0 && donker < 0.6 && h > -8 ? '#3a2a5a' : '#0b1a33';
+}
+// weekend: daldienst in plaats van spitsdienst (eigen lijnen zonder echte dienstregeling)
+function dienstVoorDag() {
+  const w = S.isWeekend(spel.dag);
+  if (spel._weekend === w) return;
+  spel._weekend = w; S.zetWeekend(w);
+  for (const l of spel.lijnen) if (!l.echt?.v || l.aangepast) S.herbereken(l);
+  if (w) melding('Weekend: geen spits, wel meer reizigers overdag en \'s avonds.');
+}
 function hud() {
   if (!spel) return;
   $('b-geld').textContent = S.euroKort(spel.geld);
   $('b-geld').style.color = spel.geld < 0 ? 'var(--rood)' : '';
-  $('b-dag').textContent = `Dag ${spel.dag + 1} · ${spel.jaar}`;
+  $('b-dag').textContent = `${S.datumTekst(spel.dag, true)} ${spel.jaar}`;
+  $('b-dag').title = `Dag ${spel.dag + 1} · ${S.datumTekst(spel.dag)} ${spel.jaar}`;
   $('b-klok').textContent = S.klok(spel.tijd);
+  const m = spel.tijd % 1440, w = $('b-tijdknop').querySelector('.wijzer');
+  w.style.setProperty('--uur', `${(m / 2) % 360}deg`); w.style.setProperty('--min', `${(m % 60) * 6}deg`);
+  dagLicht();
   const open = spel.verzoeken.filter(v => (v.aan === 'speler' && v.status === 'open') || (v.status === 'tegenvoorstel' && !v.gezien) || (!v.gezien && v.status !== 'open' && v.status !== 'tegen-van-speler')).length;
   $('b-inbox').hidden = !open; $('b-inbox').textContent = open;
 }
@@ -1358,6 +1379,7 @@ function begin() {
   kaart.jaar = spel.jaar;
   zetPlaatsen(spel.jaar);
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
+  spel._weekend = undefined; dienstVoorDag();
   netwerkLagen(); hud(); laadAIinBeeld();
   if (spel.jaar < 2020) historischeAI();
   if (!spel.lijnen.length) setTimeout(() => melding('Tip: kies ＋ Lijn, dan Bus, en klik een paar plekken in een stad aan. Haltes komen er vanzelf bij.', 8000), 1200);
@@ -1426,19 +1448,21 @@ function init() {
   document.querySelectorAll('.snelheid button').forEach(b => b.addEventListener('click', () => zetSnelheid(+b.dataset.s)));
   addEventListener('keydown', e => {
     if (e.target.closest('input, select, textarea')) return;
-    if (e.key === ' ') { e.preventDefault(); zetSnelheid(snelheid ? 0 : 10); }
+    if (e.key === ' ') { e.preventDefault(); zetTijd(!tijdLoopt); }
     if (e.key === 'Escape') { zetTool('kijk'); sluitPaneel(); }
   });
   $('b-account').onclick = () => toonStart();
   $('start').addEventListener('cancel', e => { if (!spel) e.preventDefault(); });
   addEventListener('visibilitychange', () => { if (document.hidden) bewaar(); });
-  zetSnelheid(10);
+  zetSnelheid(5);
+  $('b-tijdknop').onclick = () => zetTijd(!tijdLoopt);
   Cloud.bijInlog(u => { $('b-account').textContent = u ? (u.displayName || u.email || 'Account').split(' ')[0] : 'Inloggen'; if ($('start').open) toonAccount(); });
   Cloud.start().catch(() => {});
   toonStart();
   laadData().then(() => { if ($('start').open) toonStart(); });
   requestAnimationFrame(lus);
 }
-function zetSnelheid(s) { snelheid = s; document.querySelectorAll('.snelheid button').forEach(b => b.classList.toggle('aan', +b.dataset.s === s)); }
+function zetTijd(aan) { tijdLoopt = aan; $('b-tijdknop').setAttribute('aria-pressed', String(aan)); $('b-tijdstand').textContent = aan ? '▶' : '❚❚'; }
+function zetSnelheid(s) { if (!s) return zetTijd(false); snelheid = s; zetTijd(true); document.querySelectorAll('.snelheid button').forEach(b => b.classList.toggle('aan', +b.dataset.s === s)); }
 
 init();

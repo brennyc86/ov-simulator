@@ -17,7 +17,32 @@ export const PERIODES = [
   { id: 'dal', naam: 'Dal', van: 9 * 60, tot: 16 * 60, vraag: 0.9 },
   { id: 'avondspits', naam: 'Avondspits', van: 16 * 60, tot: 18.5 * 60, vraag: 1.7 },
   { id: 'avond', naam: 'Avond', van: 18.5 * 60, tot: 24.5 * 60, vraag: 0.45 },
+  { id: 'nacht', naam: 'Nacht', van: 24.5 * 60, tot: 29 * 60, vraag: 0.04 },
 ];
+// In het weekend geen spits: later op gang, druk overdag en 's avonds (uitjes, familie, winkelen)
+export const WEEKEND_VRAAG = { vroeg: 0.2, ochtendspits: 0.55, dal: 1.15, avondspits: 0.9, avond: 0.65, nacht: 0.1 };
+// dag 0 van het spel is maandag 1 januari; een speljaar heeft 12 maanden van 30 dagen
+export const WEEKDAG = ['maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag', 'zondag'];
+export const MAAND = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+export const weekdag = dag => ((dag % 7) + 7) % 7;
+export const isWeekend = dag => weekdag(dag) >= 5;
+export const datumTekst = (dag, kort = false) => {
+  const d = ((dag % 360) + 360) % 360, w = WEEKDAG[weekdag(dag)], m = MAAND[Math.floor(d / 30)];
+  return kort ? `${w.slice(0, 2)} ${d % 30 + 1} ${m.slice(0, 3)}` : `${w} ${d % 30 + 1} ${m}`;
+};
+export const vraagFactor = (dag, periode) => periode ? (isWeekend(dag) ? WEEKEND_VRAAG[periode.id] ?? periode.vraag : periode.vraag) : 0;
+// zonshoogte (graden) in het midden van Nederland; tijd in minuten na middernacht (wintertijd, zomertijd apr–okt)
+export function zonshoogte(dag, minuten) {
+  const d = ((dag % 360) + 360) % 360, jd = d * 365 / 360;
+  const zomer = d >= 85 && d < 300 ? 60 : 0;
+  const dekl = -23.44 * Math.cos(2 * Math.PI * (jd + 10) / 365) * Math.PI / 180;
+  const uurhoek = ((minuten - zomer - 60) / 60 - 12 + 5.3 / 15) * 15 * Math.PI / 180; // klok CET, lengte 5,3°O
+  const lat = 52.2 * Math.PI / 180;
+  return Math.asin(Math.sin(lat) * Math.sin(dekl) + Math.cos(lat) * Math.cos(dekl) * Math.cos(uurhoek)) * 180 / Math.PI;
+}
+// dienstregeling: in het weekend rijden de spitsritten niet (daldienst)
+let weekendDienst = false;
+export const zetWeekend = w => { weekendDienst = w; };
 export const ZWARTRIJDEN_BASIS = { bus: 0.012, hov: 0.02, tram: 0.07, metro: 0.05, sneltram: 0.06, belbus: 0.0, trein: 0.04, veer: 0.03, watertaxi: 0, vlucht: 0 };
 
 export const euro = n => (n < 0 ? '−' : '') + '€ ' + Math.abs(Math.round(n)).toLocaleString('nl-NL');
@@ -117,7 +142,8 @@ export function vertrekken(lijn) {
     while (t <= lijn.laatste) {
       uit[r].push(t);
       const p = PERIODES.find(p => t >= p.van && t < p.tot) || PERIODES[4];
-      t += Math.max(3, lijn.interval[p.id] || 60);
+      const id = weekendDienst && (p.id === 'ochtendspits' || p.id === 'avondspits') ? 'dal' : p.id;
+      t += Math.max(3, lijn.interval[id] || lijn.interval.avond || 60);
     }
   }
   return uit;
@@ -240,7 +266,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
     // reizigers
     const { perDag, gemKm } = vraagLijn(lijn, ctx.plaatsen, ctx.concurrentie(lijn));
     const totaalVraag = PERIODES.reduce((s, p) => s + p.vraag * (p.tot - p.van) / 60, 0);
-    let reizigers = periode ? perDag * periode.vraag / totaalVraag : 0;
+    let reizigers = periode ? perDag * vraagFactor(spel.dag, periode) / totaalVraag : 0;
     reizigers = Math.min(reizigers, ritten * capaciteit(lijn) * 0.8);
     reizigers *= 0.6 + 0.4 * (spel.reputatie / 100);
     const [instap, perKm] = TARIEF[lijn.modus] || TARIEF.bus;

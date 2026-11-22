@@ -19,12 +19,15 @@
   <div class="bedrijf" id="b-bedrijf" hidden><i id="b-kleur"></i><span id="b-naam"></span></div>
   <div class="stat"><small>Kas</small><b id="b-geld">—</b></div>
   <div class="stat"><small id="b-dag">Dag 1</small><b id="b-klok">06:00</b></div>
+  <button class="klokknop" id="b-tijdknop" type="button" title="Tijd aan/uit (spatie)" aria-pressed="true"><span class="wijzer" aria-hidden="true"></span><b id="b-tijdstand">▶</b></button>
   <div class="snelheid" role="group" aria-label="Spelsnelheid">
-    <button data-s="0" title="Pauze (spatie)">❚❚</button>
     <button data-s="1" title="Echte tijd: treinen rijden op ware snelheid">1×</button>
+    <button data-s="2" title="2× zo snel: een uur duurt 30 minuten">2×</button>
+    <button data-s="5" title="5× zo snel: een uur duurt 12 minuten">5×</button>
     <button data-s="10" title="10× zo snel: een uur duurt 6 minuten">10×</button>
-    <button data-s="60" title="60× zo snel: een uur duurt 1 minuut">60×</button>
-    <button data-s="600" title="600× zo snel: een dag duurt ruim 2 minuten">600×</button>
+    <button data-s="20" title="20× zo snel: een uur duurt 3 minuten">20×</button>
+    <button data-s="50" title="50× zo snel: een dag duurt bijna een half uur">50×</button>
+    <button data-s="100" title="100× zo snel: een dag duurt 14½ minuut">100×</button>
   </div>
   <button class="account" id="b-account" type="button">Inloggen</button>
 </header>

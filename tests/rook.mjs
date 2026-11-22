@@ -120,7 +120,7 @@ if (zl.length) {
   for (const b of document.querySelectorAll('#paneel-inhoud button')) { try { b.click(); } catch (e) { fouten.push('knop ' + b.textContent + ': ' + e.stack); } await wacht(20); }
   log('alle knoppen in ritpaneel geklikt');
 }
-document.querySelector('.snelheid [data-s="60"]')?.click();
+document.querySelector('.snelheid [data-s="50"]')?.click();
 await wacht(1500);
 log('klok', document.getElementById('b-klok').textContent, 'geld', document.getElementById('b-geld').textContent);
 rafAan = false;

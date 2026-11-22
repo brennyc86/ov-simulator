@@ -39,7 +39,14 @@ button { cursor: pointer; }
 .stat { display: grid; line-height: 1.1; }
 .stat small { font: 600 11px/1 var(--f-kop); letter-spacing: .1em; text-transform: uppercase; color: var(--dof); }
 .stat b { font: 600 17px/1.2 var(--f-cijfer); font-variant-numeric: tabular-nums; }
-.snelheid { display: flex; border: 1px solid var(--lijn); border-radius: 8px; overflow: hidden; margin-left: auto; }
+.klokknop { margin-left: auto; display: flex; align-items: center; gap: 6px; background: var(--accent); color: var(--vlak); border: 0; border-radius: 8px; padding: 5px 10px 5px 6px; font: 600 13px/1 var(--f-cijfer); }
+.klokknop[aria-pressed="false"] { background: var(--sein); color: #1d2724; }
+.klokknop .wijzer { position: relative; width: 20px; height: 20px; border-radius: 50%; border: 2px solid currentColor; }
+.klokknop .wijzer::before, .klokknop .wijzer::after { content: ''; position: absolute; left: 50%; bottom: 50%; width: 2px; margin-left: -1px; background: currentColor; transform-origin: 50% 100%; border-radius: 1px; }
+.klokknop .wijzer::before { height: 5px; transform: rotate(var(--uur, 0deg)); }
+.klokknop .wijzer::after { height: 7px; transform: rotate(var(--min, 0deg)); }
+.snelheid { display: flex; border: 1px solid var(--lijn); border-radius: 8px; overflow: hidden; }
+.nachtlaag { position: absolute; inset: 0; pointer-events: none; background: #0b1a33; opacity: 0; mix-blend-mode: multiply; transition: opacity .6s linear; }
 .snelheid button { background: none; border: 0; padding: 6px 10px; font: 600 13px/1 var(--f-cijfer); }
 .snelheid button + button { border-left: 1px solid var(--lijn); }
 .snelheid button.aan { background: var(--accent); color: var(--vlak); }
@@ -128,7 +135,8 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
   .balk { gap: 8px; flex-wrap: wrap; row-gap: 4px; }
   .merk b, .bedrijf { display: none; }
   .stat b { font-size: 14px; }
-  .snelheid button { padding: 5px 7px; }
+  .snelheid button { padding: 5px 5px; font-size: 12px; }
+  .klokknop b { display: none; }
   .gereedschap { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); left: 8px; right: 8px; flex-direction: row; overflow-x: auto; }
   .gereedschap button { flex: 0 0 auto; width: 54px; }
   .gereedschap hr { border-top: 0; border-left: 1px solid var(--lijn); margin: 4px 2px; }
