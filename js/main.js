@@ -37,7 +37,7 @@ async function laadData() {
   D.perrons = new Perrons(pr);
   for (const v of spel?.perronVormen || []) D.perrons.voeg({ vlak: true, pts: v.pts, eigen: true });
   D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, b: Math.max(v.b || 0, landSinds(v.x, v.y)), landing: LANDING[v.s] ?? 60 }));
-  net = new Net(spoor);
+  net = new Net(spoor); S.zetNet(net);
   // spoor en stations in polders bestonden pas na de drooglegging
   for (const t of net.takken) {
     const m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
@@ -727,11 +727,17 @@ const PANELEN = {
     for (let i = 0; i < n - 1; i++) if (v.vertrek + t[i] / 60 + extra(i) <= nu) seg = i;
     const klaar = nu > v.vertrek + t[n - 1] / 60;
     const nuAan = !v.wacht && seg >= 0 && !klaar ? rr.segmenten[seg] : null;
+    const hT = MODI[l.modus].halteTijd;
+    const oud = l._vorigeTr?.[r];
     const rijen = volg.map((h, i) => {
-      const aan = v.vertrek + t[i] / 60, weg = aan + extra(i);
+      const verblijf = i > 0 && i < n - 1 ? hT : 0;
+      const aan = v.vertrek + (t[i] - verblijf) / 60, weg = v.vertrek + t[i] / 60 + extra(i);
       const voorbij = weg < nu, hier = aan <= nu && nu <= weg + 0.5;
       const hr = rr.haltes[i];
-      return `<tr class="${voorbij ? 'voorbij' : ''}${hier ? ' hier' : ''}"><td>${esc(h.naam)}</td><td class="getal">${i ? S.klok(Math.round(aan)) : ''}</td><td class="getal">${i < n - 1 ? S.klok(Math.round(weg)) : ''}</td>
+      const traag = eigen && i && l.trMin ? Math.round((t[i] - verblijf - l.trMin[r][i]) / 60) : 0;
+      const delta = oud && oud[i] != null ? Math.round((t[i] - oud[i]) / 60) : 0;
+      const aanVeld = !i ? '' : eigen ? `<input type="time" value="${S.klok(Math.round(aan))}" data-wijzig="aankomst" data-id="${l.id}" data-k="${r}:${i}" data-dep="${v.vertrek}" title="gewenste aankomst; later = rustiger rijden" style="width:5.6em">` : S.klok(Math.round(aan));
+      return `<tr class="${voorbij ? 'voorbij' : ''}${hier ? ' hier' : ''}"><td>${esc(h.naam)}${traag > 0 ? ` <span class="chip" title="rijdt rustiger dan het maximum">+${traag}′ rustig</span>` : ''}${delta ? ` <span class="chip let" title="verschil door je laatste wijziging">${delta > 0 ? '+' : ''}${delta}′</span>` : ''}</td><td class="getal">${aanVeld}</td><td class="getal">${i < n - 1 ? S.klok(Math.round(weg)) : ''}</td>
         <td class="getal klein">${hr.in ? '+' + hr.in : ''}${hr.uit ? ' −' + hr.uit : ''}${hr.achter ? ` <b style="color:var(--rood)" title="achtergebleven: voertuig vol">⚠${hr.achter}</b>` : ''}</td>
         <td>${eigen ? `<input type="number" min="0" max="15" value="${extra(i)}" data-wijzig="halte-wacht" data-id="${l.id}" data-k="${wachtKey(i)}" title="extra minuten wachten" style="width:3.4em">` : (i < n - 1 ? `<button class="knop klein" data-actie="rit-wacht" data-i="${i}">langer wachten</button>` : '')}</td></tr>`;
     }).join('');
@@ -1091,7 +1097,17 @@ function wijzig(w, i) {
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
-    case 'halte-wacht': { l.halteWacht = l.halteWacht || {}; const m = Math.max(0, Math.min(15, Math.round(+i.value || 0))); if (m) l.halteWacht[i.dataset.k] = m; else delete l.halteWacht[i.dataset.k]; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); setTimeout(() => ververs(), 0); break; }
+    case 'aankomst': {
+      const [rr, ii] = i.dataset.k.split(':').map(Number);
+      const gewenst = (tijd(i.value) - +i.dataset.dep) * 60, vroegst = l.trMin?.[rr]?.[ii] ?? 0;
+      l._vorigeTr = l.tr.map(x => [...x]);
+      l.aankomstWens = l.aankomstWens || {};
+      if (gewenst <= vroegst + 20) { delete l.aankomstWens[i.dataset.k]; if (gewenst < vroegst - 30) melding('Sneller kan niet: het voertuig rijdt dan al op de maximale snelheid van baanvak en materieel.'); }
+      else { if (gewenst > vroegst + 30 * 60) melding('Hooguit 30 minuten rustiger rijden per stuk.'); l.aankomstWens[i.dataset.k] = Math.round(gewenst); }
+      l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); i.blur(); setTimeout(() => ververs(), 0); break;
+    }
+    case 'halte-wacht': {
+      l._vorigeTr = l.tr.map(x => [...x]); l.halteWacht = l.halteWacht || {}; const m = Math.max(0, Math.min(15, Math.round(+i.value || 0))); if (m) l.halteWacht[i.dataset.k] = m; else delete l.halteWacht[i.dataset.k]; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); setTimeout(() => ververs(), 0); break; }
     case 'interval': l.interval[i.dataset.p] = Math.max(0, +i.value || 0) || 999; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break;
     case 'eerste': l.eerste = tijd(i.value); l.aangepast = true; S.herbereken(l); break;
     case 'laatste': l.laatste = tijd(i.value); l.aangepast = true; S.herbereken(l); break;
@@ -1472,7 +1488,7 @@ const pakPts = pts => { const v = vereenvoudig(pts, 6), u = []; let px = 0, py =
 const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; u.push(x, y); } return u; };
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
-    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
+    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };

@@ -86,6 +86,49 @@ export function maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interva
   return lijn;
 }
 
+// ---------------------------------------------------------------- baanvaksnelheden
+// Het spoornet (voor de maximumsnelheid per baanvak) wordt door main.js gezet.
+let NET = null;
+export const zetNet = n => { NET = n; };
+const STANDAARD_V = { 0: 120, 1: 80, 2: 70, 3: 50, 4: 60, 5: 80, 6: 60 };
+// stukken [{van, tot, v}] in meters langs de route, met de toegestane snelheid (km/u) per tak
+function baanProfiel(lijn, factor) {
+  const tk = lijn.route?.takken;
+  if (!NET || !tk?.length || !['trein', 'metro', 'sneltram', 'tram'].includes(lijn.modus)) return null;
+  const tak = i => i >= 1e6 ? NET.eigen[i - 1e6] : NET.takken[i];
+  const T = tk.map(tak).filter(Boolean);
+  if (!T.length) return null;
+  const totaal = (lijn.route.lengte || lijn.cum[lijn.cum.length - 1] * factor);
+  const midden = T.slice(1, -1).reduce((a, t) => a + t.lengte, 0);
+  const rand = Math.max(0, totaal - midden), randDelen = T.length > 1 ? [T[0].lengte, T[T.length - 1].lengte] : [1, 0];
+  const randSom = randDelen[0] + randDelen[1] || 1;
+  const uit = []; let s = 0;
+  T.forEach((t, k) => {
+    const len = T.length === 1 ? totaal : k === 0 ? rand * randDelen[0] / randSom : k === T.length - 1 ? rand * randDelen[1] / randSom : t.lengte;
+    let v = t.vmax || STANDAARD_V[t.soort] || 100;
+    if (!t.vmax && t.soort === 0) v = t.sporen >= 2 ? 130 : 100;
+    if (t.dienst) v = Math.min(v, 40);
+    uit.push({ van: s, tot: s + len, v }); s += len;
+  });
+  return uit;
+}
+// rijtijd (s) van a naar b (m langs de route): elk stuk op min(baanvak, materieel), plus optrekken en remmen
+function rijtijdProfiel(profiel, a, b, type) {
+  let t = 0, top = 0;
+  const vmat = type.vmax * 0.97;
+  for (const p of profiel) {
+    const lo = Math.max(a, p.van), hi = Math.min(b, p.tot);
+    if (hi <= lo) continue;
+    const v = Math.min(vmat, p.v) / 3.6;
+    t += (hi - lo) / v; top = Math.max(top, v);
+  }
+  const d = b - a, acc = type.acc || 0.5;
+  if (!top) return d / (vmat / 3.6);
+  const haalbaar = Math.sqrt(Math.max(1, d) * acc); // korte stukken halen de topsnelheid niet
+  if (haalbaar < top) return 2 * Math.sqrt(Math.max(1, d) / acc);
+  return t + top / acc; // optrekken en remmen kosten samen ~ v/a extra
+}
+
 // rijtijden per halte (sec), km per halte langs de route en de vertrektijden
 export function herbereken(lijn) {
   const type = TYPE[lijn.typeId] || TYPE.citealle;
@@ -109,11 +152,16 @@ export function herbereken(lijn) {
   const v = type.vmax / 3.6 * (lijn.modus === 'bus' || lijn.modus === 'belbus' ? 0.55 : lijn.modus === 'tram' ? 0.6 : 0.8);
   const vlucht = lijn.modus === 'vlucht';
   const extraHalte = lijn.modus === 'bus' && lijn.chauffeurControle ? 5 : 0;
+  const profiel = baanProfiel(lijn, factor);
   lijn.t = [0];
   for (let i = 1; i < lijn.haltes.length; i++) {
     const d = (lijn.km[i] - lijn.km[i - 1]) * factor;
-    const vEff = Math.min(v, Math.sqrt(Math.max(1, d) * type.acc)); // korte stukken halen de topsnelheid niet
-    const rij = vlucht ? d / v + 20 * 60 : d / Math.max(2, vEff) + vEff / type.acc; // vliegen: taxiën, opstijgen en naderen ~20 min
+    let rij;
+    if (profiel) rij = rijtijdProfiel(profiel, lijn.km[i - 1] * factor, lijn.km[i] * factor, type);
+    else {
+      const vEff = Math.min(v, Math.sqrt(Math.max(1, d) * type.acc)); // korte stukken halen de topsnelheid niet
+      rij = vlucht ? d / v + 20 * 60 : d / Math.max(2, vEff) + vEff / type.acc; // vliegen: taxiën, opstijgen en naderen ~20 min
+    }
     lijn.t.push(lijn.t[i - 1] + rij * 1.07 + (i < lijn.haltes.length - 1 ? mod.halteTijd + extraHalte : 0));
   }
   if (lijn.echt) {
@@ -121,12 +169,22 @@ export function herbereken(lijn) {
     if (lijn.echt.km && lijn.echt.km.length === lijn.haltes.length) lijn.km = lijn.echt.km;
     if (lijn.echt.t && lijn.echt.t.length === lijn.haltes.length) lijn.t = lijn.echt.t;
   }
-  // extra wachttijd bij haltes (instelbaar per richting): tr[r] = tijden in rijvolgorde van richting r
-  const n = lijn.t.length, dw = lijn.halteWacht || {};
-  const t0 = [0], t1 = [0];
-  for (let i = 1; i < n; i++) t0.push(t0[i - 1] + (lijn.t[i] - lijn.t[i - 1]) + (dw[`0:${i - 1}`] || 0) * 60);
-  for (let i = 1; i < n; i++) t1.push(t1[i - 1] + (lijn.t[n - i] - lijn.t[n - i - 1]) + (dw[`1:${i - 1}`] || 0) * 60);
-  lijn.tr = [t0, t1];
+  // per richting r in rijvolgorde: tr[r][i] = vertrek bij halte i (zonder extra wachten), trMin[r][i] = vroegst mogelijke aankomst.
+  // Extra wachttijd (halteWacht) en gewenste aankomsttijden (aankomstWens, s na vertrek bij de eerste halte):
+  // later aankomen = rustiger rijden; eerst langer wachten eet die marge op tot de maximale snelheid.
+  const n = lijn.t.length, dw = lijn.halteWacht || {}, wens = lijn.aankomstWens || {};
+  const h = mod.halteTijd + extraHalte;
+  lijn.tr = [[0], [0]]; lijn.trMin = [[0], [0]];
+  for (let r = 0; r < 2; r++) for (let i = 1; i < n; i++) {
+    const j = r ? n - i : i; // stuk in de oorspronkelijke volgorde: van j-1 naar j
+    const rit = Math.max(15, lijn.t[j] - lijn.t[j - 1] - (j < n - 1 ? h : 0));
+    const weg = lijn.tr[r][i - 1] + (dw[`${r}:${i - 1}`] || 0) * 60;
+    const vroegst = weg + rit, w = wens[`${r}:${i}`];
+    const aan = w != null ? Math.max(vroegst, Math.min(w, vroegst + 30 * 60)) : vroegst;
+    lijn.trMin[r].push(vroegst);
+    lijn.tr[r].push(aan + (i < n - 1 ? h : 0));
+  }
+  const t0 = lijn.tr[0], t1 = lijn.tr[1];
   lijn.duur = Math.max(60, t0[n - 1], t1[n - 1]);
   lijn.lengteKm = (lijn.route.lengte || cum[cum.length - 1]) / 1000;
   lijn.bbox = bboxVan(pts);

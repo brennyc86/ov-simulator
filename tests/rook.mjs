@@ -136,6 +136,10 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const sp
     if (vink) { vink.checked = !vink.checked; vink.dispatchEvent(new window.Event('change')); await wacht(100); t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('na vinkje:', t.slice(t.indexOf('Stoppen op'), t.indexOf('Stoppen op') + 400)); }
     const n0 = sp.lijnen.length; document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
     const nl = sp.lijnen[sp.lijnen.length - 1]; log('lijn gemaakt:', sp.lijnen.length > n0, nl?.naam, nl?.haltes.length, 'haltes', Math.round(nl?.duur / 60), 'min');
+    if (nl) { const S = await import('../js/spel.js'); const voor = nl.tr[0].map(x => Math.round(x / 60));
+      nl.aankomstWens = { '0:3': nl.trMin[0][3] + 300 }; nl.halteWacht = { '0:2': 2 }; S.herbereken(nl);
+      log('rijtijden heen (min) voor:', voor.join(','), '| na +5 min aankomst halte 3 en 2 min wachten halte 2:', nl.tr[0].map(x => Math.round(x / 60)).join(','));
+      log('vroegst per halte:', nl.trMin[0].map(x => Math.round(x / 60)).join(','), '| haltes', nl.haltes.map(h => h.naam).join(' > ')); }
   } else log('stations niet gevonden voor bouwtest'); }
 // heen en terug op eigen spoor? (lijnen die twee richtingen rijden)
 { const gezien = new Set();
