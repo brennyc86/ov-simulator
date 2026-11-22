@@ -105,3 +105,33 @@ export function lijnOpSpoor(net, lijn, jaar) {
   lijn.route = { ...lijn.route, pts: nieuw, lengte: cum[cum.length - 1] };
   lijn.cum = cum; lijn.km = km; lijn._spoor = true;
 }
+
+// Rijbanen voor weergave van lijnen die in twee richtingen rijden (eigen lijnen, nagebouwde lijnen):
+// heen en terug elk op het spoor rechts van hun rijrichting. De route zelf (opslag, rijtijden) blijft gelijk.
+// lijn._banen = [heen, terug], elk { route: {pts}, cum, km } met km per halte in de volgorde van die rijrichting.
+function baanVan(pts, haltes) {
+  const cum = [0];
+  for (let k = 2; k < pts.length; k += 2) cum.push(cum[cum.length - 1] + Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]));
+  const km = [];
+  let start = 0;
+  for (const h of haltes) {
+    let bd = Infinity, bi = start;
+    for (let i = start; i < cum.length; i++) {
+      const d = Math.hypot(pts[i * 2] - h.x, pts[i * 2 + 1] - h.y);
+      if (d < bd) { bd = d; bi = i; }
+      if (bd < 20 && d > bd + 300) break;
+    }
+    km.push(cum[bi]); start = bi;
+  }
+  return { route: { pts }, cum, km };
+}
+export function rijBanen(net, lijn, jaar) {
+  lijn._banenVan = lijn.route.pts; lijn._banen = null;
+  const p = lijn.route.pts;
+  if (!SOORTEN[lijn.modus] || p.length < 4 || !lijn.vertrek?.[1]?.length) return;
+  const omgekeerd = [];
+  for (let i = p.length - 2; i >= 0; i -= 2) omgekeerd.push(p[i], p[i + 1]);
+  const heen = opSpoor(net, p, lijn.modus, jaar), terug = opSpoor(net, omgekeerd, lijn.modus, jaar);
+  if (!heen || !terug) return;
+  lijn._banen = [baanVan(heen, lijn.haltes), baanVan(terug, [...lijn.haltes].reverse())];
+}

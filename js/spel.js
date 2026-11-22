@@ -133,7 +133,7 @@ export function materieelNodig(lijn) {
 }
 
 // positie langs de lijn op afstand s (m langs de route-punten)
-export function puntOp(lijn, s) {
+export function puntOp(lijn, s) { // lijn: alles met .cum en .route.pts (ook een rijbaan)
   const cum = lijn.cum, pts = lijn.route.pts;
   let lo = 0, hi = cum.length - 1;
   while (lo < hi - 1) { const m = (lo + hi) >> 1; if (cum[m] <= s) lo = m; else hi = m; }
@@ -160,6 +160,14 @@ export function voertuigenOp(lijn, tm, uit) {
       const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
       const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
       const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
+      const baan = lijn._banen?.[r];
+      if (baan && baan.km.length === n) {
+        // eigen rijbaan per richting (rechts rijden): altijd vooruit langs de baan
+        const ka = baan.km[i], kb = baan.km[i + 1];
+        const [x, y, hoek] = puntOp(baan, ka + (kb - ka) * f);
+        uit.push({ x, y, hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f, baan });
+        continue;
+      }
       const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
       const ka = lijn.km[ri], kb = lijn.km[rj];
       const [x, y, hoek] = puntOp(lijn, ka + (kb - ka) * f);

@@ -142,6 +142,31 @@ export class Net {
     }
     return beste;
   }
+  // alle rijdbare takken bij een punt (per tak het dichtste punt), tot `marge` m verder dan de dichtste
+  takkenBij(x, y, modus, jaar, max = 600, marge = 60, aantal = 8) {
+    const eerste = this.dichtsteTak(x, y, modus, jaar, max);
+    if (!eerste) return [];
+    const grens = eerste.d + marge, uit = [];
+    const ci = Math.floor(x / 1000), cj = Math.floor(y / 1000), r = Math.ceil(grens / 1000), gezien = new Set();
+    for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
+      for (const t of this.tRaster.get(i + ',' + j) || []) {
+        if (gezien.has(t)) continue; gezien.add(t);
+        if (!this.rijdbaar(t, modus, jaar)) continue;
+        const [x0, y0, x1, y1] = t.bbox;
+        if (x < x0 - grens || x > x1 + grens || y < y0 - grens || y > y1 + grens) continue;
+        const p = t.pts; let s = 0, b = null;
+        for (let k = 2; k < p.length; k += 2) {
+          const ax = p[k - 2], ay = p[k - 1], dx = p[k] - ax, dy = p[k + 1] - ay, l2 = dx * dx + dy * dy || 1e-9, l = Math.sqrt(l2);
+          const f = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+          const d = Math.hypot(x - ax - dx * f, y - ay - dy * f);
+          if (d <= grens && (!b || d < b.d)) b = { t, s: s + f * l, d };
+          s += l;
+        }
+        if (b) uit.push(b);
+      }
+    }
+    return uit.sort((a, b) => (a.d + (a.t.dienst ? 15 : 0)) - (b.d + (b.t.dienst ? 15 : 0))).slice(0, aantal);
+  }
   dichtsteKnoop(x, y, modus, jaar, max = 600) { const p = this.dichtsteTak(x, y, modus, jaar, max); return p ? p : null; }
   // punten langs tak t van afstand s0 naar s1 (mag terug lopen)
   stuk(t, s0, s1) {
@@ -158,8 +183,101 @@ export class Net {
     const v = (t.vmax || (t.soort === 3 ? 40 : 100)) / 3.6;
     return t.lengte / v * (t.dienst === 2 || t.dienst === 1 ? 3 : 1);
   }
-  // kortste reistijd over het spoor; geeft {pts:[x,y,...], lengte, takken:[...]} of null
+  // eenheidsvector waarmee tak t knoop k verlaat (de tak in), gemeten over de eerste ~25 m
+  uitRichting(t, k) {
+    if (t._rp !== t.pts) { t._rp = t.pts; t._ru = {}; }
+    const kant = k === t.a ? 'a' : 'b';
+    if (t._ru[kant]) return t._ru[kant];
+    const p = t.pts, n = p.length / 2, vooruit = kant === 'a';
+    const P = i => vooruit ? [p[i * 2], p[i * 2 + 1]] : [p[(n - 1 - i) * 2], p[(n - 1 - i) * 2 + 1]];
+    const [x0, y0] = P(0);
+    let x = x0, y = y0;
+    for (let i = 1; i < n; i++) { [x, y] = P(i); if (Math.hypot(x - x0, y - y0) >= 25) break; }
+    const l = Math.hypot(x - x0, y - y0) || 1;
+    return (t._ru[kant] = [(x - x0) / l, (y - y0) / l]);
+  }
+  // mag een trein via knoop k van tak t1 naar tak t2? Alleen als de bocht flauw genoeg is (geen 'V' over een wissel)
+  doorgaand(t1, k, t2) {
+    const [ax, ay] = this.uitRichting(t1, k), [bx, by] = this.uitRichting(t2, k);
+    return -(ax * bx + ay * by) > 0.42; // aankomstrichting is -uit(t1); cos 65°
+  }
+  // kortste reistijd over het spoor; geeft {pts:[x,y,...], lengte, takken:[...]} of null.
+  // Eerst met rijrichting (geen keren op wissels); lukt dat niet (kopstation, gat in de data), dan zonder.
   route(van, naar, modus, jaar) {
+    const R = this.routeRichting(van, naar, modus, jaar);
+    if (R && R.lengte < Math.hypot(naar[0] - van[0], naar[1] - van[1]) * 1.4 + 800) return R; // duidelijk geen omweg
+    const V = this.routeVrij(van, naar, modus, jaar);
+    // met rijrichting een enorme omweg: dan ontbreekt er een verbinding in de data, of keert de trein echt (kopmaken)
+    if (!R || (V && R.lengte > V.lengte * 1.5 + 2000)) return V;
+    return R;
+  }
+  // Dijkstra over toestanden 'tak t, aangekomen bij knoop k', zodat bij elke overgang de hoek telt
+  routeRichting(van, naar, modus, jaar) {
+    // alle sporen bij begin en eind meenemen: bij een station met meer sporen ligt het dichtste spoor
+    // niet altijd aan de goede kant (Utrecht Overvecht: sporen van Hilversum en van Amersfoort naast elkaar)
+    const As = this.takkenBij(van[0], van[1], modus, jaar), Bs = this.takkenBij(naar[0], naar[1], modus, jaar);
+    if (!As.length || !Bs.length) return null;
+    const STRAF = 0.4; // s reistijd per meter afstand tot het spoor: liever het dichtste spoor als het verder niet uitmaakt
+    const f = t => this.kosten(t) / (t.lengte || 1);
+    const doelen = new Map(Bs.map(c => [c.t, c]));
+    const sleutel = (t, k) => t.i + '>' + k;
+    const dist = new Map(), vorig = new Map(), heap = [];
+    const zet = (t, k, g, v) => { const s = sleutel(t, k); if (g < (dist.get(s) ?? Infinity)) { dist.set(s, g); vorig.set(s, v); heapPush(heap, [g, s, t, k]); } };
+    let beste = Infinity, eind = null;
+    for (const A of As) {
+      const g0 = A.d * STRAF;
+      zet(A.t, A.t.a, g0 + A.s * f(A.t), 'start:' + A.s);
+      zet(A.t, A.t.b, g0 + (A.t.lengte - A.s) * f(A.t), 'start:' + A.s);
+      const B = doelen.get(A.t); // begin en eind op dezelfde tak: rechtstreeks
+      if (B) { const g = g0 + B.d * STRAF + Math.abs(B.s - A.s) * f(A.t); if (g < beste) { beste = g; eind = { direct: A, B }; } }
+    }
+    let n = 0;
+    while (heap.length) {
+      const [g, s, t, k] = heapPop(heap);
+      if (g > (dist.get(s) ?? Infinity)) continue;
+      if (g >= beste || ++n > 400000) break;
+      for (const { t: t2, naar: k2 } of this.buren.get(k) || []) {
+        if (t2 === t || !this.doorgaand(t, k, t2)) continue;
+        const B = doelen.get(t2);
+        if (B) {
+          const tot = g + B.d * STRAF + (k === t2.a ? B.s : t2.lengte - B.s) * f(t2);
+          if (tot < beste) { beste = tot; eind = { s, k, B }; }
+        }
+        if (!this.rijdbaar(t2, modus, jaar)) continue;
+        zet(t2, k2, g + this.kosten(t2), s);
+      }
+    }
+    if (!eind) return null;
+    if (eind.direct) {
+      const { direct: A, B } = eind;
+      return { pts: [van[0], van[1], ...this.stuk(A.t, A.s, B.s), naar[0], naar[1]], lengte: Math.abs(B.s - A.s), takken: [A.t.i] };
+    }
+    // terug langs de toestanden tot de begintak
+    const reeks = [];
+    let st = eind.s;
+    while (!String(vorig.get(st)).startsWith('start:')) { reeks.push(st); st = vorig.get(st); }
+    const As0 = +vorig.get(st).slice(6);
+    const [ti0, k0] = st.split('>').map(Number);
+    const T0 = this.takKlaar(ti0);
+    reeks.reverse();
+    const pts = [van[0], van[1], ...this.stuk(T0, As0, k0 === T0.a ? 0 : T0.lengte)];
+    let lengte = k0 === T0.a ? As0 : T0.lengte - As0;
+    const takken = [T0.i];
+    for (const sk of reeks) {
+      const [ti, k] = sk.split('>').map(Number);
+      const t = this.takKlaar(ti), p = t.pts, vooruit = t.b === k;
+      takken.push(t.i);
+      for (let i = 0; i < p.length; i += 2) { const j = vooruit ? i : p.length - 2 - i; pts.push(p[j], p[j + 1]); }
+      lengte += t.lengte;
+    }
+    const B = eind.B;
+    pts.push(...this.stuk(B.t, eind.k === B.t.a ? 0 : B.t.lengte, B.s), naar[0], naar[1]);
+    lengte += eind.k === B.t.a ? B.s : B.t.lengte - B.s;
+    takken.push(B.t.i);
+    return { pts, lengte, takken };
+  }
+  takKlaar(i) { return i >= 1e6 ? this.eigen[i - 1e6] : this.takken[i]; }
+  routeVrij(van, naar, modus, jaar) {
     const A = this.dichtsteTak(van[0], van[1], modus, jaar), B = this.dichtsteTak(naar[0], naar[1], modus, jaar);
     if (!A || !B) return null;
     if (A.t === B.t) {

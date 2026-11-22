@@ -4,7 +4,7 @@ import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
 import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
 import { Perrons, ontwerpPerron, binnen, perronLangs } from './perron.js';
-import { lijnOpSpoor } from './spoorvolg.js';
+import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
@@ -368,7 +368,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen }; // voor de rook-test
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; } }; // voor tests/rook.mjs
 function tekenBoven(ctx, k) {
   if (!spel) return;
   const [x0, y0, x1, y1] = k.zicht(30);
@@ -378,10 +378,13 @@ function tekenBoven(ctx, k) {
   const vt = [];
   const tm = spel.tijd;
   let snapBudget = 1; // per beeld hooguit één lijn op het spoor leggen (kost 0,1–0,3 s)
+  // heen en terug elk op hun eigen spoor (opnieuw als de route is veranderd)
+  const banenNodig = l => l._banenVan !== l.route?.pts && r < 40 && l.vertrek?.[1]?.length && ['trein', 'metro', 'sneltram', 'tram'].includes(l.modus);
   const opSpoorNodig = l => l._spoor === undefined && r < 40 && ['trein', 'metro', 'sneltram', 'tram'].includes(l.modus) && !l.route?.takken;
   for (const l of spel.lijnen) {
     if (!l.actief || !inZicht(l)) continue;
     if (snapBudget > 0 && opSpoorNodig(l)) { snapBudget--; lijnOpSpoor(net, l, spel.jaar); if (l._spoor && l.echt) delete l.echt.km; }
+    if (snapBudget > 0 && banenNodig(l)) { snapBudget--; rijBanen(net, l, spel.jaar); }
     S.voertuigenOp(l, tm, vt);
   }
   const eigenN = vt.length;
@@ -389,6 +392,7 @@ function tekenBoven(ctx, k) {
     if (!inZicht(l)) continue;
     // routes uit de dienstregeling op het echte spoor leggen (eenmalig per lijn, een paar per beeld)
     if (snapBudget > 0 && opSpoorNodig(l)) { snapBudget--; lijnOpSpoor(net, l, spel.jaar); }
+    if (snapBudget > 0 && banenNodig(l)) { snapBudget--; rijBanen(net, l, spel.jaar); }
     if (r > 120 && l.modus !== 'trein') continue;
     if (r > 40 && (l.modus === 'bus' || l.modus === 'belbus')) continue;
     S.voertuigenOp(l, tm, vt);
@@ -844,6 +848,7 @@ function actieUit(a, d) {
       const soort = $('rv-soort').value, i = +$('rv-halte').value, min = Math.max(-15, Math.min(15, Math.round(+$('rv-min').value || 0))), geld = Math.max(0, +$('rv-geld').value || 0);
       if (!min || (soort === 'wacht' && min < 0)) { melding('Kies een aantal minuten (bij wachten: meer dan 0).'); break; }
       const h = a.haltes[i];
+      if (!h) { melding('Kies een halte.'); break; }
       nieuwVerzoek(spel, { aan: a.vervoerder, aanNaam: a.vervoerderNaam, soort: 'aanpassing', wijze: soort, aiSleutel: a.sleutel, halteIdx: i, halte: { naam: h.naam, x: h.x, y: h.y }, minuten: min, vergoeding: geld,
         tekst: `Verzoek aan ${a.vervoerderNaam}: lijn ${a.nr} ${soort === 'wacht' ? `${min} min langer laten wachten bij ${h.naam}` : (min > 0 ? `${min} min later` : `${-min} min eerder`) + ' laten rijden'}${geld ? `, tegen ${S.euro(geld)} per jaar` : ''}.` });
       melding(`Verzoek gestuurd naar ${a.vervoerderNaam}. Antwoord volgt binnen een paar dagen.`); openPaneel('verzoeken'); break;
@@ -1247,7 +1252,7 @@ const pakPts = pts => { const v = vereenvoudig(pts, 6), u = []; let px = 0, py =
 const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; u.push(x, y); } return u; };
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
-    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
+    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };

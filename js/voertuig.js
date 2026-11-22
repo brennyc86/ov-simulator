@@ -105,8 +105,8 @@ const DAK = '#a3a6a9', DAK_DD = '#b8babc', RAAM = '#1d2a33';
 
 // één voertuig ware grootte tekenen. v = {lijn, s (m langs route), r (0 heen / 1 terug)}
 export function tekenEcht(ctx, k, v, u, kleur, eigen) {
-  const lijn = v.lijn, totaal = lijn.cum[lijn.cum.length - 1];
-  const richting = v.r ? -1 : 1;
+  const lijn = v.baan || v.lijn, totaal = lijn.cum[lijn.cum.length - 1]; // rijbaan per richting: altijd vooruit
+  const richting = v.r && !v.baan ? -1 : 1;
   // de dienstregeling geeft de plek van de halte: de trein staat met zijn midden bij het perron
   const kopS = Math.max(0, Math.min(totaal, v.s + richting * (u.neus === 'boot' || u.neus === 'vlieg' ? 0 : u._l / 2)));
   const pm = 1 / k.res;                 // pixels per meter
