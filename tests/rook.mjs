@@ -133,6 +133,14 @@ if (zl.length) {
   log('ritpaneel:', t.slice(0, 220));
   for (const b of document.querySelectorAll('#paneel-inhoud button')) { try { b.click(); } catch (e) { fouten.push('knop ' + b.textContent + ': ' + e.stack); } await wacht(20); }
   log('alle knoppen in ritpaneel geklikt');
+  globalThis.__map.vuur('click', { point: { x: v.px, y: v.py } }); await wacht(100);
+  document.querySelector('[data-actie="volg"]')?.click(); await wacht(1500);
+  log('volgen: kaart op', JSON.stringify(globalThis.__map.c), 'voertuig', v.lijn.naam);
+  document.querySelector('[data-actie="sel-lijn"]')?.click(); await wacht(300);
+  log('lijnpaneel na Toon lijn:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160), '| selectie-lijnen op kaart:', globalThis.__map.src.selectie?.data?.features?.length, 'haltes:', globalThis.__map.src['selectie-haltes']?.data?.features?.length);
+  const rij = document.querySelector('[data-actie="toon-voertuig"]'); log('voertuigen in lijnpaneel:', document.querySelectorAll('[data-actie="toon-voertuig"]').length);
+  rij?.click(); await wacht(200); log('na klik op voertuig uit lijst:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 140));
+  globalThis.__map.vuur('dragstart'); await wacht(50);
 }
 document.querySelector('.snelheid [data-s="50"]')?.click();
 await wacht(1500);

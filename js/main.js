@@ -294,6 +294,13 @@ function netwerkLagen() {
     kaart.laag({ id: 'net-vlieg', type: 'symbol', source: 'vliegvelden', filter: ['any', ['==', ['get', 'groot'], 1], ['>=', ['zoom'], 8]],
       layout: { 'text-field': ['case', ['>=', ['zoom'], 9], ['concat', '✈ ', ['get', 'l']], '✈'], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [-0.4, 0] },
       paint: { 'text-color': ['case', ['==', ['get', 'mil'], 1], '#7d7a8c', '#5b4bb7'], 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
+    // geselecteerde lijn (eigen of van een ander): geel gemarkeerd met haltes
+    kaart.bron('selectie', { type: 'FeatureCollection', features: [] }); kaart.bron('selectie-haltes', { type: 'FeatureCollection', features: [] });
+    kaart.laag({ id: 'net-sel-halo', type: 'line', source: 'selectie', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#1d2724', 'line-width': zoomB(7, 9, 12), 'line-opacity': 0.35 } });
+    kaart.laag({ id: 'net-sel', type: 'line', source: 'selectie', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#f2c14e', 'line-width': zoomB(4, 5.5, 8) } });
+    kaart.laag({ id: 'net-sel-haltes', type: 'circle', source: 'selectie-haltes', paint: { 'circle-radius': 4.5, 'circle-color': '#fff', 'circle-stroke-width': 2.5, 'circle-stroke-color': '#c48a12' } });
+    kaart.laag({ id: 'net-sel-haltes-naam', type: 'symbol', source: 'selectie-haltes', minzoom: 9, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0.9, 0], 'text-anchor': 'left', 'text-optional': true },
+      paint: { 'text-color': '#1d2724', 'text-halo-color': '#fff6d6', 'text-halo-width': 2 } });
     kaart.laag({ id: 'net-eigen-haltes', type: 'circle', source: 'eigen-haltes', paint: { 'circle-radius': ['case', ['==', ['get', 'm'], 'trein'], 7, 5], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': spel?.kleur || '#c2412d', 'circle-opacity': ['case', ['==', ['get', 'klaar'], 1], 1, 0.6] } });
     kaart.laag({ id: 'net-eigen-haltes-naam', type: 'symbol', source: 'eigen-haltes', minzoom: 10, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [1, 0], 'text-anchor': 'left' }, paint: { 'text-color': KD ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
   }
@@ -346,7 +353,18 @@ function historischUiterlijk(jaar) {
     m.setFilter(l.id, geenSnelweg ? (f ? ['all', f, ['!=', ['get', 's'], 'S']] : ['!=', ['get', 's'], 'S']) : f);
   }
 }
+// alle richtingen van een lijn: bij andere vervoerders zijn heen en terug losse lijnen met hetzelfde lijnnummer
+const lijnGroep = l => !l ? [] : l.ai ? AI.lijnen.filter(x => x.vervoerder === l.vervoerder && x.lijnId === l.lijnId) : [l];
+function selectieKaart() {
+  if (!kaart?.map?.getSource?.('selectie')) return;
+  const ls = lijnGroep(selectie?.lijn).filter(l => l.route?.pts?.length >= 4);
+  kaart.bron('selectie', { type: 'FeatureCollection', features: ls.map(l => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lijnGeo(l.route.pts) } })) });
+  const gezien = new Set(), hs = [];
+  for (const l of ls) for (const h of l.haltes) if (!gezien.has(h.naam)) { gezien.add(h.naam); hs.push(h); }
+  kaart.bron('selectie-haltes', { type: 'FeatureCollection', features: hs.map(h => ({ type: 'Feature', properties: { n: h.naam }, geometry: { type: 'Point', coordinates: lonlat(h.x, h.y) } })) });
+}
 function eigenNetBijwerken() {
+  selectieKaart();
   if (!kaart?.klaar) return;
   const leeg = { type: 'FeatureCollection', features: [] };
   if (!kaart.map.getSource('perron-voorstel')) kaart.bron('perron-voorstel', leeg);
@@ -431,6 +449,9 @@ function tekenBoven(ctx, k) {
     if (r > 40 && (l.modus === 'bus' || l.modus === 'belbus')) continue;
     doeGroep(l, false);
   }
+  // volgen: de kaart schuift mee met het gevolgde voertuig
+  if (volg) { const e = vt.find(v => v.omloop === volg); if (e) { const [la, lo] = rdNaarWgs(e.x, e.y); if (zoomVolg) { zoomVolg = false; kaart.vliegNaar(e.x, e.y, Math.min(r, 3)); } else kaart.map.jumpTo({ center: [lo, la] }); } }
+  const selGroep = new Set(lijnGroep(selectie?.lijn));
   const maat = r < 3 ? 1.6 : r < 15 ? 1.25 : r < 60 ? 1 : 0.75;
   // hoek op het scherm: RD-noord valt vrijwel samen met kaart-noord in Nederland
   for (let i = vt.length - 1; i >= 0; i--) {
@@ -465,6 +486,8 @@ function tekenBoven(ctx, k) {
       ctx.font = '600 10px "Barlow Semi Condensed", sans-serif'; ctx.fillStyle = KD ? '#e6ece9' : '#1d2724';
       ctx.fillText(v.lijn.nr, px + 8, py - 7);
     }
+    if (v.omloop && (v.omloop === selectie?.voertuig || v.omloop === volg)) { ctx.beginPath(); ctx.arc(px, py, 13, 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = '#f2c14e'; ctx.stroke(); }
+    else if (selGroep.has(v.lijn) && !v.wacht) { ctx.beginPath(); ctx.arc(px, py, 9, 0, 7); ctx.lineWidth = 1.5; ctx.strokeStyle = '#c48a12'; ctx.stroke(); }
     v.px = px; v.py = py;
     zichtLijnen.push(v);
   }
@@ -483,7 +506,7 @@ function tekenBoven(ctx, k) {
 }
 
 // ---------------------------------------------------------------- spellus
-let vorige = performance.now(), hudT = 0, laatsteOnline = 0;
+let hudN = 0, vorige = performance.now(), hudT = 0, laatsteOnline = 0;
 function lus(nu) {
   const dt = Math.min(0.25, (nu - vorige) / 1000); vorige = nu;
   if (spel && snelheid && tijdLoopt) {
@@ -578,6 +601,7 @@ function hud() {
   const m = spel.tijd % 1440, w = $('b-tijdknop').querySelector('.wijzer');
   w.style.setProperty('--uur', `${(m / 2) % 360}deg`); w.style.setProperty('--min', `${(m % 60) * 6}deg`);
   dagLicht();
+  if ((paneelSoort === 'rit' || paneelSoort === 'aiLijn') && (hudN = (hudN || 0) + 1) % 8 === 0) { if (paneelSoort === 'rit') ritBijwerken(); else ververs(); }
   const open = spel.verzoeken.filter(v => (v.aan === 'speler' && v.status === 'open') || (v.status === 'tegenvoorstel' && !v.gezien) || (!v.gezien && v.status !== 'open' && v.status !== 'tegen-van-speler')).length;
   $('b-inbox').hidden = !open; $('b-inbox').textContent = open;
 }
@@ -592,6 +616,42 @@ function hint(html, knoppen = []) {
   h.innerHTML = `<span>${html}</span>`;
   for (const [tekst, f] of knoppen) { const b = document.createElement('button'); b.className = 'knop'; b.type = 'button'; b.textContent = tekst; b.onclick = f; h.appendChild(b); }
   h.hidden = false;
+}
+
+// ---------------------------------------------------------------- voertuig en lijn
+let volg = null, zoomVolg = false; // gevolgd voertuig (omloop-object)
+// ritpaneel voor een voertuigpositie (uit het beeld of uit een lijst)
+function ritData(e) {
+  const nv = e.wacht && e.volgende, l = nv ? nv.l : e.lijn;
+  return { lijn: l, vertrek: nv ? nv.dep : e.vertrek, r: nv ? nv.r : e.r, wacht: e.wacht, klaarVandaag: !!e.wacht && !nv, omloop: e.omloop, pool: e.pool, selectie: { lijn: l, voertuig: e.omloop } };
+}
+function openRit(e) { openPaneel('rit', ritData(e)); }
+// ritpaneel bijwerken met de actuele toestand van hetzelfde voertuig
+function ritBijwerken() {
+  const om = paneelData?.omloop;
+  if (!om) return ververs();
+  const e = zichtLijnen.find(v => v.omloop === om);
+  if (!e) return ververs();
+  const d = ritData(e);
+  if (selectie?.voertuig === om && selectie.lijn !== d.lijn) { selectie = d.selectie; selectieKaart(); }
+  ververs(d);
+}
+// alle voertuigen die vandaag op deze lijn (alle richtingen) rijden, met hun huidige positie
+function voertuigenVanLijn(l) {
+  const groep = lijnGroep(l), c = omlopen.get(groepSleutel(l));
+  if (!c) return [];
+  const lijst = c.om.voertuigen.filter(v => v.ritten.some(x => groep.includes(x.l)));
+  const pos = voertuigenOmloop({ voertuigen: lijst, id: c.om.id }, spel.tijd, [], opstel, lengteVan);
+  return pos.map(e => Object.assign(e, { pool: c.om.id }));
+}
+let voertuigLijst = [];
+function voertuigTabel(l) {
+  voertuigLijst = voertuigenVanLijn(l);
+  if (!voertuigLijst.length) return '<p class="klein">Nog geen voertuigen berekend; zoom in op de lijn.</p>';
+  const tekst = e => e.wacht ? ({ keren: 'keert', wacht: 'wacht', opgesteld: 'opgesteld', rangeert: 'rangeert', remise: 'in remise/stalling', instappen: 'instappen', klaar: 'klaar' }[e.wacht] + (e.volgende ? `, volgende ${S.klok(e.volgende.dep)}` : ', klaar voor vandaag'))
+    : `rijdt naar ${esc((e.r ? e.lijn.haltes[0] : e.lijn.haltes[e.lijn.haltes.length - 1]).naam)}`;
+  const groep = lijnGroep(l);
+  return `<table class="tabel">${voertuigLijst.map((e, i) => `<tr data-actie="toon-voertuig" data-i="${i}" style="cursor:pointer"><td>#${e.omloop.nr}</td><td>${tekst(e)}${groep.includes(e.wacht && e.volgende ? e.volgende.l : e.lijn) ? '' : ` <span class="klein">· nu op lijn ${esc((e.wacht && e.volgende ? e.volgende.l : e.lijn).nr || '')}</span>`}</td><td class="getal klein">${e.omloop.ritten.length} ritten</td></tr>`).join('')}</table>`;
 }
 
 // ---------------------------------------------------------------- panelen
@@ -645,7 +705,8 @@ const PANELEN = {
     return `<h2><span class="lijnnr" style="background:${esc(kleur)}">${esc(l.nr || '')}</span> ${esc(l.naam || '')}</h2>
       <p class="klein">${MODI[l.modus]?.naam || l.modus} van <b>${esc(eigenaar)}</b>${eigen ? ' (jij)' : ''} · ${esc(type?.naam || '')}${l.kop ? ` · richting ${esc(l.kop)}` : ''}</p>
       ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', remise: 'Staat in de remise/stalling tot de volgende rit', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
-      ${v.omloop ? `<p class="klein">Voertuig ${v.omloop.nr} van ${l._omloopN || '?'} op deze lijn · vandaag ${v.omloop.ritten.length} ritten: ${v.omloop.ritten.slice(0, 8).map(x => S.klok(x.dep)).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
+      ${v.omloop ? `<p class="klein">Voertuig #${v.omloop.nr} (${l._omloopN || '?'} in de pool van ${esc(eigenaar)} met dit materieel) · vandaag ${v.omloop.ritten.length} ritten${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size > 1 ? ` op ${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size} lijnen` : ''}: ${v.omloop.ritten.slice(0, 8).map(x => `${S.klok(x.dep)}${x.l.nr && x.l.nr !== l.nr ? ` (${esc(x.l.nr)})` : ''}`).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
+      <div class="rij"><button class="knop" data-actie="sel-lijn">☰ Toon lijn</button>${v.omloop ? `<button class="knop ${volg === v.omloop ? 'hoofd' : ''}" data-actie="volg">${volg === v.omloop ? '◉ Stop volgen' : '◎ Volg'}</button>` : ''}</div>
       <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volg[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volg[n - 1].naam)}.</p>
       <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
       <h3>Hoe vaak</h3>
@@ -692,6 +753,7 @@ const PANELEN = {
       <p class="klein">${MODI[l.modus].naam} · ${l.lengteKm.toFixed(1).replace('.', ',')} km · rijtijd ${Math.round(l.duur / 60)} min · ${l.vertrek[0].length + l.vertrek[1].length} ritten per dag
       ${l.concessie ? ' · <span class="chip goed">concessie</span>' : ''} ${l.wacht ? '<span class="chip let">wacht op ProRail</span>' : ''} ${!l.actief && !l.wacht ? '<span class="chip">gestopt</span>' : ''}</p>
       <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span></li>`).join('')}</ol>
+      <h3>Voertuigen op deze lijn</h3>${voertuigTabel(l)}
       <h3>Materieel</h3>
       <div class="veld"><select data-wijzig="lijn-type" data-id="${l.id}">${typen.map(v => `<option value="${v.id}" ${v.id === l.typeId ? 'selected' : ''}>${esc(v.naam)} (${v.zit + v.sta} pl.)</option>`).join('')}</select></div>
       <p>Nodig: <b>${l.nodig}</b> × ${esc(t?.naam || '')} · in bezit: <b>${spel.voertuigen[l.typeId] || 0}</b>
@@ -848,7 +910,9 @@ const PANELEN = {
     return `<h2><span class="lijnnr" style="background:${esc(a.kleur)}">${esc(a.nr)}</span> ${esc(a.vervoerderNaam)}</h2>
       <p>${esc(a.naam || '')}${a.kop ? ` · richting ${esc(a.kop)}` : ''}</p><p class="klein">${MODI[a.modus]?.naam || a.modus} · ${a.haltes.length} haltes · ${a.vertrek[0].length} ritten per dag in deze richting · goodwill ${spel.goodwill[a.vervoerder] ?? 0}</p>
       <ol class="haltelijst">${a.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(a.t[i] / 60)}′</span></li>`).join('')}</ol>
-      <p class="klein">Wil je dat deze lijn aansluit op een eigen lijn? Open je eigen lijn en kies <b>Verzoek</b> bij de gedeelde halte.</p>`;
+      ${lijnGroep(a).length > 1 ? `<p class="klein">Andere richtingen: ${lijnGroep(a).filter(x => x !== a).map(x => esc(x.kop || x.haltes[x.haltes.length - 1].naam)).join(', ')}</p>` : ''}
+      <h3>Voertuigen op deze lijn</h3>${voertuigTabel(a)}
+      <p class="klein">Deze lijn is van ${esc(a.vervoerderNaam)}. Klik op een voertuig om een verzoek te doen (eerder of later rijden, langer wachten), of open je eigen lijn en kies <b>Verzoek</b> bij een gedeelde halte.</p>`;
   },
 };
 
@@ -900,6 +964,10 @@ function actieUit(a, d) {
         tekst: `Verzoek aan ${ai.vervoerderNaam}: lijn ${ai.nr} ${beste > 0 ? beste + ' min later' : -beste + ' min eerder'} bij ${h.naam}, zodat er ${bw} overstap(pen) per uur bij komen op jouw lijn ${l.nr}.` });
       melding(`Verzoek gestuurd naar ${ai.vervoerderNaam}.`); openPaneel('verzoeken'); break;
     }
+    case 'sel-lijn': { const sl = paneelData?.lijn; if (!sl) break; const sel = { lijn: sl };
+      if (sl.ai) openPaneel('aiLijn', sl); else openPaneel('lijn', sl); selectie = sel; selectieKaart(); break; }
+    case 'volg': { const om = paneelData?.omloop; volg = volg === om ? null : om; if (volg) zoomVolg = true; ververs(); break; }
+    case 'toon-voertuig': { const e = voertuigLijst[+d.i]; if (!e) break; openRit(e); kaart.vliegNaar(e.x, e.y, Math.min(kaart.res, 4)); break; }
     case 'rit-wacht': { const sel = $('rv-soort'); if (sel) { sel.value = 'wacht'; $('rv-halte').value = d.i; $('rv-min').value = 2; $('rv-min').focus(); } break; }
     case 'rit-verzoek': {
       const v = paneelData, a = v?.lijn; if (!a?.ai) break;
@@ -1233,13 +1301,7 @@ function klik(px, py) {
   // kijken: voertuig, eigen lijn of station selecteren
   let beste = null, bd = 12;
   for (const v of zichtLijnen) { const d = Math.hypot(v.px - px, v.py - py); if (d < bd) { bd = d; beste = v; } }
-  if (beste) {
-    // stilstaand voertuig: de volgende rit tonen
-    const nv = beste.wacht && beste.volgende, l = nv ? nv.l : beste.lijn;
-    if (!l.ai) selectie = { lijn: l };
-    openPaneel('rit', { lijn: l, vertrek: nv ? nv.dep : beste.vertrek, r: nv ? nv.r : beste.r, wacht: beste.wacht, klaarVandaag: !!beste.wacht && !nv, omloop: beste.omloop, selectie: l.ai ? null : { lijn: l } });
-    return;
-  }
+  if (beste) { openRit(beste); return; }
   for (const l of spel.lijnen) {
     const pts = l.route.pts;
     for (let i = 2; i < pts.length; i += 2) {
@@ -1479,6 +1541,7 @@ function init() {
   kaart.bijKlaar = () => netwerkLagen();
   kaart.lagenBoven.push(tekenBoven);
   kaart.bijKlik = klik;
+  kaart.map.on('dragstart', () => { if (volg) { volg = null; melding('Volgen gestopt.'); if (paneelSoort === 'rit') ververs(); } });
   kaart.bijBeweeg = (px, py) => { if (bouw?.punten?.length) bouw.muis = [px, py]; };
   const oudVuil = Object.getOwnPropertyDescriptor(Kaart.prototype, 'vuil');
   void oudVuil;
