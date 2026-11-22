@@ -294,12 +294,13 @@ export function vraagLijn(lijn, plaatsen, concurrentie = 0) {
   }
   const ritten = lijn.vertrek[0].length + lijn.vertrek[1].length;
   const aanbod = 1 - Math.exp(-ritten / 50);
-  const snelheid = Math.min(1.3, Math.max(0.4, (lijn.lengteKm / (lijn.duur / 3600 || 1)) / 30));
+  const lengteKm = lijn.lengteKm ?? (lijn.route?.lengte || 0) / 1000; // lijnen van anderen hebben geen lengteKm
+  const snelheid = Math.min(1.3, Math.max(0.4, (lengteKm / (lijn.duur / 3600 || 1)) / 30));
   const schaal = { trein: 0.0016, sneltram: 0.0009, metro: 0.0012, tram: 0.0007, bus: 0.00045, hov: 0.0006, belbus: 0.00005, veer: 0.002, watertaxi: 0.0004, vlucht: 0.0003 }[lijn.modus] || 0.0005;
   const perDag = Math.sqrt(paren) * schaal * 100 * aanbod * snelheid * (1 - concurrentie * 0.5);
   // gemiddelde reisafstand: bij twee haltes de hele lijn, bij veel haltes een deel ervan
   const deel = n <= 2 ? 1 : Math.min(1, 0.38 + 0.6 / n);
-  return { perDag, gemKm: Math.max(1.5, lijn.lengteKm * deel) };
+  return { perDag: isFinite(perDag) ? perDag : 0, gemKm: Math.max(1.5, lengteKm * deel) };
 }
 
 // capaciteit per rit
