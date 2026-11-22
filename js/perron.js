@@ -278,15 +278,15 @@ export function stationDoorsnede(bestaand, sporen, doorgaand, kant = 1) {
 }
 export const doorsnedeTekst = d => d.join(' ').replace(/B/g, '═').replace(/S/g, '─').replace(/P/g, '▭');
 
-export function ontwerpStation(net, perrons, x, y, jaar, { sporen = 0, doorgaand = false, kant = 1, lengte = 220 } = {}) {
-  const raak = net.dichtsteTak(x, y, 'trein', jaar, 150);
+export function ontwerpStation(net, perrons, x, y, jaar, { sporen = 0, doorgaand = false, kant = 1, lengte = 220, modus = 'trein' } = {}) {
+  const raak = net.dichtsteTak(x, y, modus, jaar, 150);
   if (!raak) return null;
   const t = raak.t;
   const a = net.stuk(t, Math.max(0, raak.s - 40), Math.min(t.lengte, raak.s + 40));
   let ux = a[a.length - 2] - a[0], uy = a[a.length - 1] - a[1]; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
   const nx = -uy, ny = ux;
   // is er een tweede bestaand spoor naast (dubbelspoor)? aan welke kant?
-  const ander = d => { for (const l of [-60, 0, 60]) { const r = net.dichtsteTak(raak.x + ux * l + nx * d, raak.y + uy * l + ny * d, 'trein', jaar, 1.2); if (r && r.t !== t) return true; } return false; };
+  const ander = d => { for (const l of [-60, 0, 60]) { const r = net.dichtsteTak(raak.x + ux * l + nx * d, raak.y + uy * l + ny * d, modus, jaar, 1.2); if (r && r.t !== t) return true; } return false; };
   let tweede = 0;
   for (let d = 3.5; d <= 6; d += 0.5) { if (ander(d)) { tweede = d; break; } if (ander(-d)) { tweede = -d; break; } }
   const bestaand = tweede ? 2 : 1;

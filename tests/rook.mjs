@@ -166,6 +166,14 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
       nl.aankomstWens = { '0:3': nl.trMin[0][3] + 300 }; nl.halteWacht = { '0:2': 2 }; S.herbereken(nl);
       log('rijtijden heen (min) voor:', voor.join(','), '| na +5 min aankomst halte 3 en 2 min wachten halte 2:', nl.tr[0].map(x => Math.round(x / 60)).join(','));
       log('vroegst per halte:', nl.trMin[0].map(x => Math.round(x / 60)).join(','), '| haltes', nl.haltes.map(h => h.naam).join(' > ')); }
+    // station toevoegen aan een bestaande eigen lijn (Amersfoort – Amsterdam): Hilversum komt op de goede plek
+    { const lijn = sp.lijnen.filter(x => x.modus === 'trein' && x.haltes.length === 2).at(-1), hv = st('Hilversum');
+      if (lijn && hv) { document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${lijn.id}"]`)?.click(); await wacht(80);
+        document.querySelector('[data-actie="halte-erbij"]')?.click(); await wacht(30);
+        const [la9, lo9] = G.rdNaarWgs(hv.x, hv.y); globalThis.__map.easeTo({ center: [lo9, la9], zoom: 13 }); await wacht(40);
+        globalThis.__map.vuur('click', { point: globalThis.__map.project([lo9, la9]) }); await wacht(300);
+        log('na toevoegen Hilversum:', lijn.haltes.map(h => h.naam).join(' > '), Math.round(lijn.duur / 60), 'min');
+        document.querySelector('[data-tool="kijk"]')?.click(); } }
     // richtingen: eenrichting Amersfoort -> Amsterdam met terugweg via Utrecht, en een rondlijn
     const u = st('Utrecht Centraal'); const klikSt = async s2 => { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); };
     if (u) {
@@ -218,6 +226,25 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     const h0 = sp.haltes.length, s0 = sp.spoor.length; document.querySelector('[data-actie="station-zelf"]').click(); await wacht(50);
     log('gebouwd: station', sp.haltes.length - h0, 'sporen', sp.spoor.length - s0, 'perrons', (sp.perronVormen || []).filter(v => v.station === sp.haltes.at(-1)?.naam).length, '| projecten', document.getElementById('b-bouw')?.textContent);
     sp.tijd += 125; globalThis.__ovTest.bouwOpleveren(); log('na 2 uur: station klaar', !!sp.haltes.at(-1)?.opgeleverd, 'sporen klaar', sp.spoor.slice(s0).every(x => x.klaar)); }
+  document.querySelector('[data-tool="kijk"]')?.click(); }
+// nieuw station op het traject van een sprinter: daarna stopt die er; intercity's niet
+{ const sp = globalThis.__ovTest.spel, AIx = globalThis.__ovTest.ai;
+  const cand = [...sp.lijnen, ...AIx.lijnen].filter(a => a.modus === 'trein' && a.actief !== false && a.haltes.length >= 4 && /SPR|Sprinter/i.test(`${a.nr} ${a.naam}`));
+  let gedaan = false;
+  for (const a of cand.slice(0, 30)) {
+    // midden tussen halte 1 en 2, op de route
+    const pts = a.route.pts, h1 = a.haltes[1], h2 = a.haltes[2]; let bi = 0, bd = 1e9;
+    for (let k = 0; k < pts.length; k += 2) { const d = Math.abs(Math.hypot(pts[k] - h1.x, pts[k + 1] - h1.y) - Math.hypot(pts[k] - h2.x, pts[k + 1] - h2.y)) + Math.hypot(pts[k] - (h1.x + h2.x) / 2, pts[k + 1] - (h1.y + h2.y) / 2) * 0.2; if (d < bd) { bd = d; bi = k; } }
+    if (Math.hypot(h1.x - h2.x, h1.y - h2.y) < 2500) continue;
+    const G5 = await import('../js/geo.js'), [la, lo] = G5.rdNaarWgs(pts[bi], pts[bi + 1]); globalThis.__map.easeTo({ center: [lo, la], zoom: 16 }); await wacht(40);
+    document.querySelector('[data-tool="station"]').click(); globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(50);
+    const naamIn = document.getElementById('ns-naam'); if (!naamIn) continue; naamIn.value = 'Teststation Midden'; naamIn.dispatchEvent(new window.Event('change'));
+    document.querySelector('[data-actie="station-zelf"]').click(); await wacht(40);
+    const voor = a.haltes.length, ic = [...sp.lijnen, ...AIx.lijnen].filter(x => x.modus === 'trein' && !/SPR|Sprinter/i.test(`${x.nr} ${x.naam}`) && x.route?.pts && x.haltes.length >= 2);
+    sp.tijd += 125; globalThis.__ovTest.bouwOpleveren();
+    log('station op traject', a.nr, a.naam, ':', voor, '→', a.haltes.length, 'haltes; nu:', a.haltes.slice(0, 4).map(h => h.naam).join(' > '), '| intercity\'s met Teststation:', ic.filter(x => x.haltes.some(h => h.naam === 'Teststation Midden')).length, '| melding:', [...document.querySelectorAll('#meldingen *')].map(e => e.textContent).filter(t => /Teststation/.test(t)).slice(-1)[0]?.slice(0, 200));
+    gedaan = true; break; }
+  if (!gedaan) log('geen sprinter gevonden voor stationstest; kandidaten', cand.length, 'treinlijnen', AIx.lijnen.filter(a => a.modus === 'trein').length, AIx.lijnen.filter(a => a.modus === 'trein').slice(0, 5).map(a => a.nr + '/' + a.haltes.length).join(' '));
   document.querySelector('[data-tool="kijk"]')?.click(); }
 // perrons: vormen, eilandperron bouwen, voortgang, versneld bouwen; enkelspoor verdubbelen
 { const sp = globalThis.__ovTest.spel, st = globalThis.__ovTest.stations.find(x => x.n === 'Naarden-Bussum') || globalThis.__ovTest.stations.find(x => x.s === 'trein');
