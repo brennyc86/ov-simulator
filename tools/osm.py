@@ -174,6 +174,8 @@ def stationsgebouwen(bbox, uit):
                 vx, vy = x, y
             lijst.append(rij)
     print(f"  {len(lijst)} stationsgebouwen en perrongebouwtjes", flush=True)
+    if len(lijst) < 100:  # Overpass gaf (bijna) niets: vorige versie laten staan
+        raise RuntimeError("te weinig stationsgebouwen, vorige versie blijft staan")
     schrijf(uit, "stationsgebouwen.json", {"uitleg": "[x0, y0, dx, dy, ...] RD-meters, gesloten vlakken", "g": lijst})
 
 
@@ -211,6 +213,8 @@ def voorzieningen(bbox, uit):
             n += 1
         print(f"  {soort}: {n}", flush=True)
         time.sleep(5)
+    if len(lijst) < 1000:  # Overpass gaf (bijna) niets: vorige versie laten staan
+        raise RuntimeError("te weinig voorzieningen, vorige versie blijft staan")
     schrijf(uit, "voorzieningen.json", {"uitleg": "[naam, x, y, soortIdx] RD", "soorten": soorten, "v": lijst})
 
 
