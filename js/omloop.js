@@ -7,9 +7,9 @@ import { ritPositie, ritPlek, puntOp } from './spel.js';
 import { MODI } from './vloot.js';
 
 const SPOOR = ['trein', 'metro', 'sneltram', 'tram'];
-const LANG = { trein: 40, metro: 30, sneltram: 30, tram: 35 };   // langer wachten dan dit: naar het opstelspoor
+const LANG = { trein: 40, metro: 30, sneltram: 30, tram: 35, bus: 30, hov: 30, belbus: 30 }; // langer: naar opstelspoor/stalling
 const RANGEER_V = 25 / 3.6;                                       // m/s bij rangeren
-const ZOEK = { trein: 4000, metro: 4000, sneltram: 3000, tram: 3000 };
+const ZOEK = { trein: 8000, metro: 5000, sneltram: 4000, tram: 4000 };
 
 const tijden = (l, r) => l.tr?.[r] || l.t;
 const eindVan = (l, r) => { const h = l.haltes; return r ? h[0] : h[h.length - 1]; };
@@ -68,20 +68,20 @@ export class Opstel {
   plek(x, y, modus, lengte, sleutel) {
     const k = sleutel;
     if (this.cache.has(k)) return this.cache.get(k);
-    if (this.budget !== undefined && this.budget-- <= 0) return null; // later dit beeld; niet onthouden
+    if (this.budget !== undefined && this.budget-- <= 0) return undefined; // later; niet onthouden
     let uit = null;
     const net = this.net, max = ZOEK[modus] || 3000;
     const kand = [];
     const ci = Math.floor(x / 1000), cj = Math.floor(y / 1000), rr = Math.ceil(max / 1000), gezien = new Set();
     for (let i = ci - rr; i <= ci + rr; i++) for (let j = cj - rr; j <= cj + rr; j++) for (const t of net.tRaster.get(i + ',' + j) || []) {
       if (gezien.has(t)) continue; gezien.add(t);
-      if ((t.dienst !== 1 && t.dienst !== 2) || t.lengte < 60 || !net.rijdbaar(t, modus, this.jaar)) continue;
+      if ((t.dienst !== 1 && t.dienst !== 2 && t.dienst !== 3) || t.lengte < 60 || !net.rijdbaar(t, modus, this.jaar)) continue;
       const mx = t.pts[(t.pts.length >> 2) * 2], my = t.pts[(t.pts.length >> 2) * 2 + 1];
       const d = Math.hypot(mx - x, my - y);
       if (d < max) kand.push({ t, d });
     }
     kand.sort((a, b) => a.d - b.d);
-    for (const { t } of kand.slice(0, 6)) {
+    for (const { t } of kand.slice(0, 12)) {
       const al = this.bezet.get(t) || 0;
       const s = 15 + al * (lengte + 8) + lengte / 2;
       if (s + lengte / 2 > t.lengte - 5) continue;           // vol
@@ -128,7 +128,13 @@ export function voertuigenOmloop(omloop, tm, uit, opstel, lengteVan, inZicht = n
     if (!anker) continue;
     const sleutel = `${v.nr}:${omloop.id}:${Math.round(anker.x / 50)},${Math.round(anker.y / 50)}`;
     const plek = SPOOR.includes(modus) && opstel ? opstel.plek(anker.x, anker.y, modus, lengteVan(l), sleutel) : null;
-    if (!plek) { uit.push(Object.assign(anker, { staat: true, wacht: vorige ? 'wacht' : 'klaar', omloop: v, volgende })); continue; }
+    if (!plek) {
+      // geen opstelplek (of bus): in de remise/stalling; het voertuig bestaat, maar staat niet op het perron
+      if (plek === undefined || !opstel || (vorige && tm < vorige.arr + 3) || (volgende && tm > volgende.dep - 5)) {
+        uit.push(Object.assign(vorige && tm < vorige.arr + 3 ? eindPunt(vorige) : anker, { staat: true, wacht: vorige && tm < vorige.arr + 3 ? 'wacht' : volgende && tm > volgende.dep - 5 ? 'instappen' : 'remise', verborgen: plek === undefined || undefined, omloop: v, volgende }));
+      } else uit.push(Object.assign(anker, { staat: true, wacht: 'remise', verborgen: true, omloop: v, volgende }));
+      continue;
+    }
     const duurH = plek.heen.lengte / RANGEER_V / 60, duurT = plek.terug.lengte / RANGEER_V / 60;
     let baanNu, s;
     if (vorige && tm < vorige.arr + 3) { uit.push(Object.assign(eindPunt(vorige), { staat: true, wacht: 'wacht', omloop: v, volgende })); continue; }

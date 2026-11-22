@@ -90,6 +90,7 @@ await wacht(2500);
 const f0 = frame; await tot(() => frame > f0 + 30, 120000);
 const zl = globalThis.__ovTest?.zichtLijnen || [];
 log('kaart', JSON.stringify(globalThis.__map.c), 'zoom', globalThis.__map.z.toFixed(1), zl.slice(0, 3).map(v => `${v.lijn?.naam} @${v.px|0},${v.py|0}`).join(' ; '));
+log('status in beeld', JSON.stringify(zl.reduce((a, v) => (a[v.wacht || 'rijdt'] = (a[v.wacht || 'rijdt'] || 0) + 1, a), {})));
 log('frames', frame, 'voertuigen in beeld:', zl.length, [...new Set(zl.map(v => v.lijn?.naam || v.lijn?.id))].slice(0, 6).join(' | '));
 { const sp = globalThis.__ovTest.spel, tm = sp.tijd; const S = await import('../js/spel.js'); const vt = [];
   for (const l of sp.lijnen) if (l.actief) S.voertuigenOp(l, tm, vt);

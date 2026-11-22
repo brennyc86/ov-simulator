@@ -406,7 +406,7 @@ function tekenBoven(ctx, k) {
   const opSpoorNodig = l => l._spoor === undefined && r < 40 && ['trein', 'metro', 'sneltram', 'tram'].includes(l.modus) && !l.route?.takken;
   // voertuigen per omloopgroep: ze rijden, keren, wachten of staan opgesteld, maar verdwijnen nooit
   if (!opstel || opstel.net !== net || opstel.jaar !== spel.jaar) opstel = new Opstel(net, spel.jaar);
-  opstel.budget = 4; // nieuwe opstelroutes per beeld (elk ~2 ms)
+  opstel.budget = 10; // nieuwe opstelroutes per beeld (elk ~2–10 ms)
   const idx = groepIndex();
   const gedaan = new Set();
   const doeGroep = (l, eigen) => {
@@ -435,6 +435,7 @@ function tekenBoven(ctx, k) {
   // hoek op het scherm: RD-noord valt vrijwel samen met kaart-noord in Nederland
   for (let i = vt.length - 1; i >= 0; i--) {
     const v = vt[i], eigen = i < eigenN;
+    if (v.verborgen) continue; // in de remise of stalling
     const [px, py] = k.scherm(v.x, v.y);
     if (px < -20 || py < -20 || px > k.W + 20 || py > k.H + 20) continue;
     const m = v.lijn.modus;
@@ -643,7 +644,7 @@ const PANELEN = {
     const typen = eigen ? beschikbaar(spel.jaar, l.modus) : [];
     return `<h2><span class="lijnnr" style="background:${esc(kleur)}">${esc(l.nr || '')}</span> ${esc(l.naam || '')}</h2>
       <p class="klein">${MODI[l.modus]?.naam || l.modus} van <b>${esc(eigenaar)}</b>${eigen ? ' (jij)' : ''} · ${esc(type?.naam || '')}${l.kop ? ` · richting ${esc(l.kop)}` : ''}</p>
-      ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
+      ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', remise: 'Staat in de remise/stalling tot de volgende rit', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
       ${v.omloop ? `<p class="klein">Voertuig ${v.omloop.nr} van ${l._omloopN || '?'} op deze lijn · vandaag ${v.omloop.ritten.length} ritten: ${v.omloop.ritten.slice(0, 8).map(x => S.klok(x.dep)).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
       <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volg[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volg[n - 1].naam)}.</p>
       <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
