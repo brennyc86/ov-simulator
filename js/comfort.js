@@ -227,15 +227,21 @@ export function klassenVan(lijnInk, typeId, modus) {
   const li = lijnInk?.wagons ? { catering: {}, open: 0, ink: lijnInk } : lijnInk || {};
   const vz = voorzieningen(typeId);
   const restComfort = Math.max(0, ...vz.map(v => v.comfort * (v.bemand ? li.open ?? 1 : 1)));
+  // zonder doorloop tussen gekoppelde eenheden is de restauratie alleen bereikbaar voor wie in hetzelfde deel zit
+  const groepen = [], ids = delenVan(typeId);
+  ids.forEach((c, i) => { if (!i || !(doorloopVan(ids[i - 1]) && doorloopVan(c))) groepen.push([]); groepen[groepen.length - 1].push(c); });
+  const groepVan = new Map(); groepen.forEach(g => g.forEach(c => groepVan.set(c, g)));
+  const restIn = g => Math.max(0, ...g.flatMap(c => voorzieningen(c)).map(v => v.comfort * (v.bemand ? li.open ?? 1 : 1)));
   const som = new Map();
   for (const c of delenVan(typeId)) {
+    const rc = groepen.length > 1 ? restIn(groepVan.get(c) || [c]) : restComfort;
     const t = TYPE[c]; if (!t || t.soort === 'loc') continue;
     const ink = li.ink && delenVan(typeId).length === 1 ? li.ink : eigenInk(c);
     const sb = STD_BREED[t.modus] || 4, basis = kenmerk(c).comfort;
     for (const d of plaatsenPerWagon(ink, c).flat()) {
       if (d.soort !== 'zit') continue;
       const pitch = BEEN[d.been] || 80, st = STOEL[d.stoel] || STOEL.bekleed;
-      const comfort = Math.max(0, Math.min(10, basis + (sb - Math.min(d.breed, maxBreed(c))) * 0.9 + (pitch - 80) / 12 + st.comfort + (STROOM[d.stroom || '']?.comfort || 0) + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) + restComfort));
+      const comfort = Math.max(0, Math.min(10, basis + (sb - Math.min(d.breed, maxBreed(c))) * 0.9 + (pitch - 80) / 12 + st.comfort + (STROOM[d.stroom || '']?.comfort || 0) + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) + rc));
       const k = som.get(d.klasse) || { klasse: d.klasse, zit: 0, sta: 0, cw: 0, stoelen: {}, lengte: 0 };
       k.zit += d.zit; k.sta += d.sta; k.cw += comfort * Math.max(1, d.zit); k.n = (k.n || 0) + Math.max(1, d.zit); k.lengte += d.lengte || 0;
       k.stoelen[d.stoel] = (k.stoelen[d.stoel] || 0) + d.zit;

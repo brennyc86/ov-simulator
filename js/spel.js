@@ -114,6 +114,23 @@ function baanProfiel(lijn, factor) {
   });
   return uit;
 }
+// Over de weg (bus, tram op straat): binnen de bebouwde kom 50, in centra en woonwijken 30, daarbuiten 80 km/u;
+// snelbussen (HOV) halen buiten de kom 100 op autoweg/snelweg (een gewone streekbus houdt 80 aan). Plaatsen als cirkels.
+let PLAATSEN = [];
+export const zetPlaatsenVoorSnelheid = p => { PLAATSEN = (p || []).filter(x => x[3] >= 1500).map(x => ({ x: x[1], y: x[2], r: 250 + 9 * Math.sqrt(x[3]), rc: 120 + 3 * Math.sqrt(x[3]) })); };
+function wegProfiel(lijn, factor) {
+  if (!['bus', 'hov', 'belbus', 'tram'].includes(lijn.modus) || !PLAATSEN.length || lijn.route?.takken?.length) return null;
+  const pts = lijn.route.pts, cum = lijn.cum, uit = [];
+  const buiten = lijn.modus === 'hov' ? 100 : lijn.modus === 'tram' ? 70 : 80;
+  for (let i = 1; i < cum.length; i++) {
+    const x = (pts[i * 2] + pts[i * 2 - 2]) / 2, y = (pts[i * 2 + 1] + pts[i * 2 - 1]) / 2;
+    let v = buiten;
+    for (const p of PLAATSEN) { const d = Math.abs(p.x - x) + Math.abs(p.y - y); if (d > p.r * 1.5) continue; const e = Math.hypot(p.x - x, p.y - y); if (e < p.rc) { v = 30; break; } if (e < p.r) v = Math.min(v, 50); }
+    const van = cum[i - 1] * factor, tot = cum[i] * factor, l = uit[uit.length - 1];
+    if (l && l.v === v) l.tot = tot; else uit.push({ van, tot, v });
+  }
+  return uit;
+}
 // rijtijd (s) van a naar b (m langs de route): elk stuk op min(baanvak, materieel), plus optrekken en remmen
 function rijtijdProfiel(profiel, a, b, type) {
   let t = 0, top = 0;
@@ -155,7 +172,7 @@ export function herbereken(lijn) {
   const vlucht = lijn.modus === 'vlucht';
   const extraHalte = lijn.modus === 'bus' && lijn.chauffeurControle ? 5 : 0;
   lijn._halteTijd = Math.round(mod.halteTijd * haltetijdFactor(lijn.typeId)); // meer deuren: sneller in- en uitstappen
-  const profiel = baanProfiel(lijn, factor);
+  const profiel = baanProfiel(lijn, factor) || wegProfiel(lijn, factor);
   lijn.t = [0];
   for (let i = 1; i < lijn.haltes.length; i++) {
     const d = (lijn.km[i] - lijn.km[i - 1]) * factor;
@@ -399,7 +416,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
 
     // kosten
     const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(lijn, lijn.typeId);
-    const energie = km * kmKosten(type, spel.jaar) * eh;
+    const energie = km * kmKosten(type, spel.jaar) * eh * (spel._ouderdom?.[(type?.samen || [lijn.typeId])[0]] || 1); // oud materieel: duurder per km
     // spoorhuur: ProRail per treinkilometer en per stop; tram/metro en trolleybus huren baan en bovenleiding
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
       : ['tram', 'metro', 'sneltram'].includes(lijn.modus) ? (lijn.eigenSpoor ? 0 : km * 0.9)
@@ -450,6 +467,10 @@ export function pakkans(spel, lijn) {
     const dekking = pl.mensen * 2 / Math.max(1, pl.lijnen.length * Math.max(1, lijn.nodig));
     p = Math.max(p, Math.min(0.8, dekking * 0.6) * ((pl.tot - pl.van) / (19 * 60)));
   }
+  // geen doorloop tussen gekoppelde treinstellen: controleurs wisselen pas op een station van deel; met veel stops
+  // gaat dat vaak genoeg, op lange stukken zonder stop (Amersfoort–Zwolle) wordt een deel van de trein niet gecontroleerd
+  const t = TYPE[lijn.typeId];
+  if (t?.samen && t.doorloop === false) { const delen = 1 + t.samen.filter((c, i) => i > 0 && !TYPE[c]?.soort).length, stopsPerKm = (lijn.haltes?.length || 2) / Math.max(1, lijn.lengteKm || 10); p *= 1 / delen + (1 - 1 / delen) * Math.min(1, stopsPerKm * 4); }
   return Math.min(0.95, p);
 }
 
@@ -486,6 +507,22 @@ export function altDeel(spel, lijn) {
   return Math.max(0, (beschikbaarVoor(spel, lijn) - e) / lijn.nodig);
 }
 
+// Leeftijd per voertuigtype (jaren): uit de aankopen; wat al in de vloot zat bij de start telt als halverwege zijn tijd
+export function leeftijden(spel) {
+  const uit = {};
+  for (const [id, n] of Object.entries(spel.voertuigen)) {
+    if (!n) continue;
+    const t = TYPE[id]; if (!t) continue;
+    const k = (spel.aankopen || []).filter(a => a.id === id); let som = 0, m = 0;
+    for (const a of k) { const nn = Math.min(a.n, n - m); if (nn <= 0) break; som += nn * Math.max(0, spel.jaar - a.jaar + (spel.dag - a.dag) / 360 % 1); m += nn; }
+    const oud = Math.max(0, Math.min(t.leven || 30, (spel.jaar - (t.van || spel.jaar)) * 0.5)); // al in de vloot bij de start
+    som += (n - m) * oud;
+    uit[id] = { gem: som / n, leven: t.leven || 30, n };
+  }
+  return uit;
+}
+// onderhoudsfactor door ouderdom: rustig oplopend, na de levensduur flink duurder
+export const ouderdomFactor = (gem, leven) => 1 + 0.6 * Math.pow(Math.max(0, gem) / Math.max(1, leven), 2) + Math.max(0, gem - leven) * 0.05;
 export function maandAfsluiten(spel) {
   const m = spel.maand;
   // afschrijving van de vloot per maand
@@ -495,7 +532,17 @@ export function maandAfsluiten(spel) {
   }
   // vast onderhoud per voertuig (kasuitgave)
   let vast = 0;
-  for (const [id, n] of Object.entries(spel.voertuigen)) vast += n * vastOnderhoud(TYPE[id], spel.jaar);
+  const lt = leeftijden(spel); spel._ouderdom = {};
+  // stilstand: voertuigen die niet op een lijn rijden roesten (extra onderhoud bij weer in gebruik nemen)
+  const gebruikt = {}; for (const l of spel.lijnen) if (l.actief) for (const id of (TYPE[l.typeId]?.samen || [l.typeId])) gebruikt[id] = (gebruikt[id] || 0) + l.nodig;
+  let stil = 0;
+  for (const [id, n] of Object.entries(spel.voertuigen)) {
+    const f = lt[id] ? ouderdomFactor(lt[id].gem, lt[id].leven) : 1; spel._ouderdom[id] = f;
+    vast += n * vastOnderhoud(TYPE[id], spel.jaar) * f;
+    const ongebruikt = Math.max(0, n - (gebruikt[id] || 0));
+    stil += ongebruikt * vastOnderhoud(TYPE[id], spel.jaar) * 0.25;
+  }
+  m.stilstand = stil; vast += stil;
   m.overig += vast; spel.geld -= vast;
   // poortjes: onderhoud
   const poortjes = spel.controle.poortjes ? spel.haltes.filter(h => h.modus === 'trein' || h.modus === 'metro').length * 4000 : 0;

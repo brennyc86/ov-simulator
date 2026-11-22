@@ -106,7 +106,7 @@ async function laadData() {
   D.wissels = w?.wissels || [];
   D.plaatsenAlle = (pl?.plaatsen || []).filter(p => (p[5] || 'NL') === 'NL'); // Caribisch Nederland volgt met de wereldkaart
   for (const p of D.plaatsenAlle) p.land = landSinds(p[1], p[2]);
-  D.plaatsen = D.plaatsenAlle;
+  D.plaatsen = D.plaatsenAlle; S.zetPlaatsenVoorSnelheid(D.plaatsenAlle);
   D.veren = ve?.veren || [];
   D.haltes = ha?.haltes || [];
   AI.haltes = D.haltes;
@@ -1244,7 +1244,7 @@ const PANELEN = {
   vloot() {
     const nodig = {};
     for (const l of spel.lijnen) if (l.actief) for (const [c, k] of Object.entries(nodigPer(l.typeId))) nodig[c] = (nodig[c] || 0) + k * l.nodig;
-    const typen = beschikbaar(spel.jaar), los = beschikbaarLos(spel.jaar);
+    const typen = beschikbaar(spel.jaar), los = beschikbaarLos(spel.jaar), lt = S.leeftijden(spel);
     const groepen = Object.keys(MODI).map(m => {
       const lijst = typen.filter(v => v.modus === m);
       if (!lijst.length) return '';
@@ -1252,7 +1252,7 @@ const PANELEN = {
         const vz = voorzieningen(v.id);
         return `<tr><td>${serie ? '↳ ' : ''}<b>${esc(v.naam)}</b><br><span class="klein">${serie ? `interieur: ${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${STOEL[k.stoel]?.naam || ''}`).join(', ')}${vz.length ? ', ' + [...new Set(vz.map(x => x.naam))].join(', ') : ''} · ` : ''}${v.soort === 'loc' ? '' : `${zit} zit + ${sta} sta · `}${v.vmax} km/u · ${v.energie} · ${S.euroKort(v.prijs)}${serie ? '' : ' · ' + esc(v.wie)}</span>
           ${v.soort === 'loc' ? '' : `<br><a href="#" class="klein" data-actie="serie-open" data-type="${v.id}">${spel.voertuigen[v.id] ? 'interieur: nieuwe serie of verbouwen' : 'kopen met een eigen interieur'}</a>`}</td>
-        <td class="getal">${spel.voertuigen[v.id] || 0}${nodig[v.id] ? `<br><span class="klein" style="color:${(spel.voertuigen[v.id] || 0) < nodig[v.id] ? 'var(--rood)' : 'inherit'}">nodig ${nodig[v.id]}</span>` : ''}</td>
+        <td class="getal">${spel.voertuigen[v.id] || 0}${lt[v.id] ? `<br><span class="klein" title="gemiddelde leeftijd / levensduur">${Math.round(lt[v.id].gem)}/${lt[v.id].leven} jr${S.ouderdomFactor(lt[v.id].gem, lt[v.id].leven) > 1.15 ? ' ⚠' : ''}</span>` : ''}${(spel.voertuigen[v.id] || 0) > (nodig[v.id] || 0) && spel.voertuigen[v.id] ? `<br><span class="klein">${spel.voertuigen[v.id] - (nodig[v.id] || 0)} staan stil</span>` : ''}${nodig[v.id] ? `<br><span class="klein" style="color:${(spel.voertuigen[v.id] || 0) < nodig[v.id] ? 'var(--rood)' : 'inherit'}">nodig ${nodig[v.id]}</span>` : ''}</td>
         <td><div class="rij" style="flex-wrap:nowrap"><button class="knop" data-actie="koop" data-type="${v.id}" data-n="1" title="Kopen">＋</button><button class="knop" data-actie="verkoop" data-type="${v.id}" title="Verkopen voor 45% van de nieuwprijs" ${spel.voertuigen[v.id] ? '' : 'disabled'}>−</button></div></td></tr>`; };
       const tabel = l2 => `<table class="tabel">${l2.map(v => rij(v) + (spel.series || []).filter(x => x.basis === v.id && TYPE[x.id]).map(x => rij(TYPE[x.id], true)).join('')).join('')}</table>`;
       const locs = m === 'trein' ? los.filter(v => v.soort === 'loc') : [], rijt = m === 'trein' ? los.filter(v => v.soort !== 'loc') : [];
@@ -1326,7 +1326,7 @@ const PANELEN = {
     return `<h2>Financiën</h2><p>Kas: <b>${S.euro(spel.geld)}</b> · reputatie <b>${Math.round(spel.reputatie)}</b>/100</p>
       <h3>Lopende maand (dag ${spel.dag % 30 + 1} van 30)</h3><table class="tabel">
       ${rij('Kaartjes', m.kaartjes)}${rij('Boetes zwartrijders', m.boetes)}${rij('Subsidie (concessies)', m.subsidie)}
-      ${rij('Personeel', m.personeel, true)}${rij('Energie en onderhoud', m.energie, true)}${rij('Spoorhuur (ProRail, baan en bovenleiding)', m.gebruik, true)}${m.overig ? rij('Overig / afspraken', m.overig, true) : ''}${spel.lening ? rij('Rente lening (aan het eind van de maand)', spel.lening * leningRente() / 12, true) : ''}
+      ${rij('Personeel', m.personeel, true)}${rij('Energie en onderhoud', m.energie, true)}${rij('Spoorhuur (ProRail, baan en bovenleiding)', m.gebruik, true)}${m.overig ? rij('Overig / afspraken / onderhoud', m.overig, true) : ''}${spel.lening ? rij('Rente lening (aan het eind van de maand)', spel.lening * leningRente() / 12, true) : ''}
       <tr><th>Reizigers</th><th class="getal">${Math.round(m.reizigers).toLocaleString('nl-NL')}</th></tr></table>
       ${h.length ? `<h3>Resultaat per maand</h3><div style="display:flex;align-items:flex-end;gap:3px;height:90px;border-bottom:1px solid var(--lijn)">${h.map(x => `<div title="${S.euro(x.resultaat)}" style="flex:1;height:${Math.max(2, Math.abs(x.resultaat) / max * 88)}px;background:${x.resultaat < 0 ? 'var(--rood)' : 'var(--groen)'};border-radius:2px 2px 0 0"></div>`).join('')}</div>
       <p class="klein">Resultaat inclusief afschrijving van de vloot. Laatste maand: ${S.euro(h[h.length - 1].resultaat)}.</p>` : '<p class="klein">Na 30 speldagen verschijnt hier je eerste maandresultaat.</p>'}
