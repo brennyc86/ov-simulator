@@ -126,4 +126,11 @@ export const LIJNJAREN = {
   'Oosterheemlijn': 2007, 'Beneluxlijn': 2002, 'Westelijke Ringspoorbaan': 1986, 'Zuidelijke Ringspoorbaan': 1993,
   'Utrechtboog': 2006, 'Hemboog': 2003, 'Schipholboog': 1986, 'Nootdorpboog': 2006, 'Ringlijn': 1997, 'Oostlijn': 1977,
   'Amstelveenlijn': 1990, 'Nieuwegeinlijn': 1983, 'RandstadRail': 2006,
+  // Flevolijn-omgeving: spoorbrug naast de Hollandse Brug en bogen kwamen met de Flevolijn (1987);
+  // de Gooiboog (Naarden-Bussum – Almere) opende pas op 14 december 2003
+  'Hollandse Brug': 1987, 'Zandhazenbrug': 1987, 'Almereboog': 1987, 'Gooiboog': 2003,
 };
+// delen van een lijn die later zijn doorgetrokken: [naam, test op het middelpunt (RD), jaar]
+export const LIJNJAREN_DEEL = [
+  ['Flevolijn', (x, y) => x > 152500 || y > 492000, 1988], // Almere Buiten – Lelystad
+];

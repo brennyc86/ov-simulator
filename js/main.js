@@ -15,7 +15,7 @@ import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
-import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN } from './historie.js';
+import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN, LIJNJAREN_DEEL } from './historie.js';
 import { genereerVervoerder } from './genereer.js';
 
 const $ = id => document.getElementById(id);
@@ -49,13 +49,22 @@ async function laadData() {
     const m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
     if (!t.start) {
       // lijnen zonder startdatum in OSM: openingsjaar uit de lijst, metro en sneltram naar hun stad
-      const nj = LIJNJAREN[net.namen[t.naam]];
+      let nj = LIJNJAREN[net.namen[t.naam]];
       const x = t.pts[m], y = t.pts[m + 1];
+      for (const [naam, test, jaar] of LIJNJAREN_DEEL) if (net.namen[t.naam] === naam && test(x, y)) nj = jaar;
       if (nj) t.start = nj;
       else if (t.soort === 2) t.start = x > 80000 && x < 105000 && y > 425000 && y < 450000 ? 1968 : 1977;
       else if (t.soort === 1) t.start = x > 125000 && x < 145000 && y > 440000 && y < 460000 ? 1983 : x > 70000 && x < 100000 ? 2006 : 1990;
     }
     if (land > (t.start || 0)) t.start = land;
+    // in Flevoland (drooggevallen 1957/1968) kwam het eerste spoor pas met de Flevolijn
+    if (land >= 1950 && t.soort === 0) t.start = Math.max(t.start || 0, 1987);
+  }
+  // naamloze stukjes (wissels, overloopjes, opstelsporen) zonder jaar die alleen aan jonger spoor vastzitten: zelfde jaar
+  for (let ronde = 0; ronde < 4; ronde++) for (const t of net.takken) {
+    if (t.start || t.soort > 4) continue;
+    const buren = [...(net.buren.get(t.a) || []), ...(net.buren.get(t.b) || [])].filter(b => b.t !== t).map(b => b.t);
+    if (buren.length && buren.every(b => b.start)) t.start = Math.min(...buren.map(b => b.start));
   }
   // verdwenen lijnen (OpenHistoricalMap) berijdbaar maken in hun eigen jaren
   net.voegHistorischToe((D.historisch.l || []).map(r => ({ soort: r[0], van: r[1] || 1800, tot: r[2], pts: ontpak(r.slice(4)) })));

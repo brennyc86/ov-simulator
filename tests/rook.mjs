@@ -104,6 +104,12 @@ if (process.env.DETAIL) { const sp = globalThis.__ovTest.spel;
 if (process.env.VRAAG) { const S = await import('../js/spel.js'); const sp = globalThis.__ovTest.spel; let tot = 0; const r = [];
   for (const l of sp.lijnen) { const v = S.vraagLijn(l, globalThis.__ovTest.plaatsen, 0); tot += v.perDag; r.push([Math.round(v.perDag), l.naam, l.vertrek[0].length + l.vertrek[1].length]); }
   r.sort((a, b) => b[0] - a[0]); console.log('vraag per dag totaal eigen lijnen', Math.round(tot), 'lijnen', sp.lijnen.length, JSON.stringify(r.slice(0, 8))); }
+if (process.env.JAARCHECK) { const net = globalThis.__ovTest.net, j = +process.env.JAARCHECK; const tel = {};
+  for (const t of net.takken) { const x = t.pts[0], y = t.pts[1]; if (x < 131000 || x > 160000 || y < 474000 || y > 500000 || t.soort !== 0) continue;
+    const k = (net.namen[t.naam] || '(naamloos)') + (net.bestaat(t, j) ? ' BESTAAT' : ' nog niet'); tel[k] = (tel[k] || 0) + 1;
+    if (!net.namen[t.naam] && net.bestaat(t, j)) (tel._plek ||= []).push(Math.round(x / 1000) + ',' + Math.round(y / 1000) + (t.start ? '@' + t.start : '')); }
+  if (tel._plek) tel._plek = [...new Set(tel._plek)].join(' ');
+  console.log('spoor rond Almere/Weesp in', j, JSON.stringify(tel)); }
 // omlopen: elk voertuig bestaat op elk moment van de dag precies één keer
 { const O = await import('../js/omloop.js'); let groepen = 0, voertuigen = 0, fout = 0; const st = {};
   for (const [g, c] of globalThis.__ovTest.omlopen) { groepen++; voertuigen += c.om.voertuigen.length;
