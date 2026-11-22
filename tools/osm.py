@@ -193,6 +193,17 @@ out body geom;"""
         eind = jaar(t.get("end_date") or t.get("closing_date") or t.get("abandoned:date")
                     or t.get("razed:date"))
         naam = t.get("name", "")
+        # hoogte: -1 ondergronds (tunnel, layer<0, location=underground), 1 verhoogd (brug/viaduct), 0 maaiveld
+        try:
+            laag = int(t.get("layer", "0") or 0)
+        except ValueError:
+            laag = 0
+        if t.get("tunnel", "no") not in ("no", "") or t.get("location") == "underground" or laag < 0:
+            hoogte = -1
+        elif t.get("bridge", "no") not in ("no", "") or t.get("location") == "overground" or laag > 0:
+            hoogte = 1
+        else:
+            hoogte = 0
         pts = [rd_int(p["lat"], p["lon"]) for p in w["geometry"]]
         ids = w["nodes"]
         # splitsen op knooppunten (eindpunten en gedeelde nodes)
@@ -213,7 +224,7 @@ out body geom;"""
                     takken.append({"a": a, "b": b, "soort": soort, "dienst": dienst,
                                    "gebruik": gebr, "sporen": sporen_tag, "vmax": vmax,
                                    "elek": elek, "start": start, "eind": eind,
-                                   "naam": naam, "pts": vs, "tussen": tussen})
+                                   "naam": naam, "pts": vs, "tussen": tussen, "hoogte": hoogte})
                 begin = i
 
     schat_sporen(takken)
@@ -226,10 +237,10 @@ out body geom;"""
             naam_idx[n] = len(namen)
             namen.append(n)
         rij.append([tk["a"], tk["b"], tk["soort"], tk["dienst"], tk["gebruik"], tk["sporen"],
-                    tk["vmax"], tk["elek"], tk["start"], tk["eind"], naam_idx[n], tk["tussen"]])
+                    tk["vmax"], tk["elek"], tk["start"], tk["eind"], naam_idx[n], tk["tussen"], tk["hoogte"]])
     schrijf(uit, "spoor.json", {
         "uitleg": "takken: [knoopA, knoopB, soort, dienst, gebruik, sporen, vmax, elek, "
-                  "startjaar, eindjaar, naamIdx, tussenpunten(delta vanaf A)]",
+                  "startjaar, eindjaar, naamIdx, tussenpunten(delta vanaf A), hoogte(-1 tunnel, 1 viaduct)]",
         "soorten": list(SOORT.keys()), "diensten": list(DIENST.keys()),
         "gebruik": list(GEBRUIK.keys()),
         "knopen": knopen, "namen": namen, "takken": rij})
@@ -500,6 +511,39 @@ def schrijf(uit, naam, obj):
     print(f"  → {pad} ({os.path.getsize(pad) / 1e6:.2f} MB)", flush=True)
 
 
+# --------------------------------------------------------------------------- trolleybus
+def trolley(bbox, uit):
+    """Trolleybuslijnen (route=trolleybus) en wegen met bovenleiding (trolley_wire=yes)."""
+    voor, g = gebied(bbox)
+    q = f"""[out:json][timeout:300];{voor}
+(relation{g}["route"="trolleybus"];way{g}["trolley_wire"~"^(yes|forward|backward|both)$"];);
+(._;>;);
+out body geom;"""
+    print("trolleybus ophalen…", flush=True)
+    res = overpass(q)
+    lijnen, gezien = [], set()
+    ways = {e["id"]: e for e in res["elements"] if e["type"] == "way" and e.get("geometry")}
+    namen = {}
+    for e in res["elements"]:
+        if e["type"] == "relation":
+            for m in e.get("members", []):
+                if m["type"] == "way":
+                    namen.setdefault(m["ref"], set()).add(e.get("tags", {}).get("ref", ""))
+    for wid, w in ways.items():
+        t = w.get("tags", {})
+        if wid not in namen and t.get("trolley_wire", "no") == "no":
+            continue
+        if not t.get("highway") and wid not in namen:
+            continue
+        pts = vereenvoudig([rd_int(p["lat"], p["lon"]) for p in w["geometry"]], 3.0)
+        d = [pts[0][0], pts[0][1]]
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            d += [x1 - x0, y1 - y0]
+        lijnen.append({"d": d, "l": sorted(x for x in namen.get(wid, []) if x)})
+    print(f"  {len(lijnen)} wegen met bovenleiding", flush=True)
+    schrijf(uit, "trolley.json", {"uitleg": "d = [x0, y0, dx, dy, ...] RD; l = lijnnummers", "w": lijnen})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bbox", default="", help="zuid,west,noord,oost (voor testen)")
@@ -507,6 +551,14 @@ def main():
     ap.add_argument("--alleen", default="", help="bijv. perrons: alleen dat onderdeel")
     a = ap.parse_args()
     os.makedirs(a.uit, exist_ok=True)
+    if a.alleen == "spoor":
+        takken = spoor(a.bbox, a.uit)
+        time.sleep(20)
+        stations(a.bbox, a.uit, takken)
+        return
+    if a.alleen == "trolley":
+        trolley(a.bbox, a.uit)
+        return
     if a.alleen == "perrons":
         os.makedirs(a.uit, exist_ok=True)
         perrons(a.bbox, a.uit)
@@ -522,6 +574,10 @@ def main():
     veren(a.bbox, a.uit, rest)
     vliegvelden(a.bbox, a.uit, rest)
     historie(a.uit)
+    try:
+        trolley(a.bbox, a.uit)
+    except Exception as e:  # noqa: BLE001
+        print("trolleybus mislukt:", e, flush=True)
 
 
 if __name__ == "__main__":

@@ -110,10 +110,11 @@ export function beschikbaar(jaar, modus) {
 }
 // Welk materieel een bestaande vervoerder waarschijnlijk inzet voor een modus
 export function standaardType(vervoerder, modus, jaar = 2026) {
-  const lijst = beschikbaar(jaar, modus);
+  // trolleybussen alleen waar bovenleiding hangt (bepaald door de kaart), niet als standaardtype
+  const lijst = beschikbaar(jaar, modus).filter(v => v.energie !== 'bovenleiding');
   if (!lijst.length) {
     // geen type uit precies dit jaar: neem het type van deze modus dat er het dichtst bij zit
-    const zelfde = VLOOT.filter(v => v.modus === modus);
+    const zelfde = VLOOT.filter(v => v.modus === modus && v.energie !== 'bovenleiding');
     return zelfde.sort((a, b) => Math.max(a.van - jaar, jaar - a.tot, 0) - Math.max(b.van - jaar, jaar - b.tot, 0))[0] || VLOOT[0];
   }
   const n = (vervoerder || '').toLowerCase();

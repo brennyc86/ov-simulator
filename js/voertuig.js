@@ -75,6 +75,7 @@ function hash(s) { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCod
 export function typeVoor(lijn, jaar, standaardType) {
   if (lijn.typeId) return lijn.typeId;
   if (lijn._typ) return lijn._typ;
+  if (lijn._trolley && jaar >= 2001) return (lijn._typ = 'trolley');
   let id;
   const n = `${lijn.nr || ''} ${lijn.naam || ''}`.toLowerCase();
   const ns = lijn.modus === 'trein' && /^ns\b|nederlandse spoorwegen/i.test(lijn.vervoerderNaam || '');

@@ -122,9 +122,12 @@ export function netKleuren() {
 
 // Ver ingezoomd: elk OSM-spoor (in Nederland is elk spoor apart ingetekend) als echt spoortje
 // met ballastbed, dwarsliggers en twee staven (normaalspoor 1435 mm). Tram ligt in de straat.
-export const SPOOR_UIT = ['interpolate', ['linear'], ['zoom'], 14.6, 1, 15.6, 0];
+// ondergronds spoor (tunnel) licht en half doorzichtig; op elke uitkomst van een zoom-interpolatie toegepast
+export const TUNNEL = (v, f = 0.3) => ['*', v, ['case', ['==', ['coalesce', ['get', 'h'], 0], -1], f, 1]];
+const metTunnel = (expr, f) => expr.map((x, i) => i >= 4 && i % 2 === 0 ? TUNNEL(x, f) : x);
+export const SPOOR_UIT = metTunnel(['interpolate', ['linear'], ['zoom'], 14.6, 1, 15.6, 0], 0.35);
 export function spoorLagen() {
-  const in_ = ['interpolate', ['linear'], ['zoom'], 14.6, 0, 15.4, 1];
+  const in_ = metTunnel(['interpolate', ['linear'], ['zoom'], 14.6, 0, 15.4, 1], 0.18);
   const geenTram = ['!=', ['get', 'k'], 'tram'];
   const lay = { 'line-cap': 'butt', 'line-join': 'round' };
   const L = (id, filter, paint) => ({ id, type: 'line', source: 'spoor', minzoom: 14.6, filter, layout: lay, paint: { 'line-opacity': in_, ...paint } });
@@ -141,5 +144,8 @@ export function spoorLagen() {
       'line-width': meters(['match', ['get', 'k'], 'smal', 1.8, 2.6], 0), 'line-dasharray': [0.1, 0.14],
     }),
     staaf(-1), staaf(1),
+    // viaduct/brug: de randen van de bak langs het spoor
+    { id: 'spoor-viaduct', type: 'line', source: 'spoor', minzoom: 12, filter: ['==', ['coalesce', ['get', 'h'], 0], 1], layout: lay,
+      paint: { 'line-color': '#4a4f52', 'line-width': meters(0.45, 0.9), 'line-gap-width': meters(['match', ['get', 'k'], ['h2', 'h3', 'metro', 'snel'], 9, 5.5], 3.2) } },
   ];
 }

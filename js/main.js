@@ -31,7 +31,11 @@ async function json(pad) {
 async function laadData() {
   const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(json));
-  const [po, hs] = await Promise.all(['data/polders.json', 'data/historisch.json'].map(json));
+  const [po, hs, tr] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json'].map(json));
+  // bovenleiding voor trolleybussen: lijnen + raster (50 m) om bussen op die wegen te herkennen
+  D.trolley = (tr?.w || []).map(w => ontpakDelta(w.d));
+  D.trolleyRaster = new Set();
+  for (const p of D.trolley) for (let k = 0; k < p.length - 2; k += 2) { const n = Math.ceil(Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]) / 25); for (let q = 0; q <= n; q++) { const x = p[k] + (p[k + 2] - p[k]) * q / n, y = p[k + 1] + (p[k + 3] - p[k + 1]) * q / n; D.trolleyRaster.add(Math.floor(x / 50) + ',' + Math.floor(y / 50)); } }
   D.polders = (po?.p || []).map(p => ({ ...p, ringen: p.r.map(ontpak) }));
   D.historisch = hs || { l: [], s: [], n: [] };
   D.perrons = new Perrons(pr);
@@ -110,6 +114,15 @@ const lijnGeo = pts => { const c = []; for (let k = 0; k < pts.length; k += 2) c
 const NK = netKleuren();
 const KD = false; // de kaart heeft één thema, ook in donkere modus
 let wegen = null;
+const ontpakDelta = d => { const u = [d[0], d[1]]; let x = d[0], y = d[1]; for (let k = 2; k < d.length; k += 2) { x += d[k]; y += d[k + 1]; u.push(x, y); } return u; };
+// rijdt deze buslijn grotendeels onder de bovenleiding? Dan is het een trolleylijn
+function isTrolley(l) {
+  if (l._trolley !== undefined) return l._trolley;
+  if (l.modus !== 'bus' || !D.trolleyRaster?.size) return (l._trolley = false);
+  const p = l.route.pts; let n = 0, raak = 0;
+  for (let k = 0; k < p.length; k += 2 * Math.max(1, Math.floor(p.length / 120))) { n++; if (D.trolleyRaster.has(Math.floor(p[k] / 50) + ',' + Math.floor(p[k + 1] / 50))) raak++; }
+  return (l._trolley = n > 4 && raak / n > 0.7);
+}
 
 function klasseVan(t) {
   if (t.soort === 5 || t.soort === 6) return 'oud';
@@ -137,10 +150,11 @@ function netwerkLagen() {
   const sporen = { type: 'FeatureCollection', features: net.takken.filter(t => !t.weg).map(t => {
     const j = jaarVan(t), m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
     if (land > j.van) j.van = land; // in een polder: pas na de drooglegging
-    return { type: 'Feature', properties: { k: klasseVan(t), ...j, n: t.sporen }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } };
+    return { type: 'Feature', properties: { k: klasseVan(t), ...j, n: t.sporen, h: t.hoogte || 0 }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } };
   }) };
   // (verdwenen lijnen uit OpenHistoricalMap zitten als takken in het net en worden hierboven al meegenomen)
   kaart.bron('spoor', sporen);
+  kaart.bron('trolley', { type: 'FeatureCollection', features: (D.trolley || []).map(p => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lijnGeo(p) } })) });
   kaart.bron('veren', { type: 'FeatureCollection', features: D.veren.map(v => ({ type: 'Feature', properties: { n: v.n }, geometry: { type: 'LineString', coordinates: lijnGeo(v.c) } })) });
   const w = D.wissels, wf = [];
   for (let i = 0; i < w.length; i += 2) wf.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: lonlat(w[i], w[i + 1]) } });
@@ -265,6 +279,8 @@ function netwerkLagen() {
     const zoomB = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 6, a, 11, b, 16, c];
     const k = c => ['==', ['get', 'k'], c];
     lijn('net-veer', 'veren', null, NK.veer, zoomB(1, 1.6, 2.5), { 'line-dasharray': [3, 2.5] });
+    // bovenleiding trolleybus: twee dunne draden boven de weg
+    kaart.laag({ id: 'net-trolley', type: 'line', source: 'trolley', minzoom: 12, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#3c4147', 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.5, 17, 1.2], 'line-gap-width': ['interpolate', ['exponential', 2], ['zoom'], 12, 0.6, 17, 3, 20, 20], 'line-opacity': 0.75 } });
     lijn('net-oud', 'spoor', ['all', k('oud'), jaarFilter(jaar)], NK.oud, zoomB(0.8, 1.4, 2), { 'line-dasharray': [3, 2] });
     lijn('net-zij', 'spoor', ['all', k('zij'), jaarFilter(jaar)], NK.zij, zoomB(0, 0.6, 1.4), {});
     lijn('net-tram', 'spoor', ['all', k('tram'), jaarFilter(jaar)], NK.tram, zoomB(0.4, 1.2, 2.2));
@@ -389,6 +405,36 @@ function stationZichtbaar(s, jaar) {
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
 globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; } }; // voor tests/rook.mjs
+// ---------------------------------------------------------------- tunnels
+// per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
+let tunnelBudget = 0;
+function tunnelStukken(pad, modus) {
+  if (pad._tunnelVan !== pad.route.pts) { pad._tunnel = undefined; pad._tunnelVan = pad.route.pts; }
+  if (pad._tunnel !== undefined) return pad._tunnel;
+  if (tunnelBudget-- <= 0) return null;
+  const pts = pad.route.pts, cum = pad.cum, uit = [];
+  let open = null, laatste = -1e9;
+  for (let i = 0; i < cum.length; i++) {
+    if (cum[i] - laatste < 40 && i < cum.length - 1) continue;
+    laatste = cum[i];
+    const d = net.dichtsteTak(pts[i * 2], pts[i * 2 + 1], modus, spel.jaar, 25);
+    const onder = d?.t.hoogte === -1;
+    if (onder && open === null) open = cum[i];
+    if (!onder && open !== null) { uit.push(open, cum[i]); open = null; }
+  }
+  if (open !== null) uit.push(open, cum[cum.length - 1]);
+  pad._tunnel = uit.length ? uit : 0;
+  return pad._tunnel;
+}
+function ondergronds(v) {
+  if (!['trein', 'metro', 'sneltram', 'tram'].includes(v.lijn.modus)) return false;
+  const pad = v.baan || v.lijn;
+  const st = tunnelStukken(pad, v.lijn.modus);
+  if (!st) return false;
+  for (let i = 0; i < st.length; i += 2) if (v.s >= st[i] && v.s <= st[i + 1]) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------- omlopen
 let opstel = null, groepIdx = null, groepIdxSig = '';
 const omlopen = new Map();
@@ -396,7 +442,7 @@ function groepIndex() {
   const sig = spel.lijnen.length + ':' + AI.lijnen.length;
   if (groepIdx && sig === groepIdxSig) return groepIdx;
   groepIdx = new Map(); groepIdxSig = sig;
-  for (const l of [...spel.lijnen, ...AI.lijnen]) { const g = groepSleutel(l); if (!groepIdx.has(g)) groepIdx.set(g, []); groepIdx.get(g).push(l); }
+  for (const l of [...spel.lijnen, ...AI.lijnen]) { if (isTrolley(l) && l._typ !== 'trolley') l._typ = undefined; const g = groepSleutel(l); if (!groepIdx.has(g)) groepIdx.set(g, []); groepIdx.get(g).push(l); }
   return groepIdx;
 }
 // omloop opnieuw als een dienstregeling, route of actief-status van een lijn in de groep veranderd is
@@ -452,12 +498,14 @@ function tekenBoven(ctx, k) {
   }
   // volgen: de kaart schuift mee met het gevolgde voertuig
   if (volg) { const e = vt.find(v => v.omloop === volg); if (e) { const [la, lo] = rdNaarWgs(e.x, e.y); if (zoomVolg) { zoomVolg = false; kaart.vliegNaar(e.x, e.y, Math.min(r, 3)); } else kaart.map.jumpTo({ center: [lo, la] }); } }
+  tunnelBudget = 2;
   const selGroep = new Set(lijnGroep(selectie?.lijn));
   const maat = r < 3 ? 1.6 : r < 15 ? 1.25 : r < 60 ? 1 : 0.75;
   // hoek op het scherm: RD-noord valt vrijwel samen met kaart-noord in Nederland
   for (let i = vt.length - 1; i >= 0; i--) {
     const v = vt[i], eigen = i < eigenN;
     if (v.verborgen) continue; // in de remise of stalling
+    ctx.globalAlpha = r < 60 && ondergronds(v) ? 0.38 : 1; // onder de grond: licht
     const [px, py] = k.scherm(v.x, v.y);
     if (px < -20 || py < -20 || px > k.W + 20 || py > k.H + 20) continue;
     const m = v.lijn.modus;
@@ -472,6 +520,10 @@ function tekenBoven(ctx, k) {
     if (u._l / r >= lang && m !== 'vlucht') {
       // ingezoomd: ware lengte en bovenaanzicht
       tekenEcht(ctx, k, v, u, kleur, eigen);
+      if (tid === 'trolley') { // stroomafnemers: twee stangen schuin naar achteren naar de bovenleiding
+        const pm = 1 / r; ctx.save(); ctx.translate(px, py); ctx.rotate(-v.hoek); ctx.strokeStyle = '#2b2f33'; ctx.lineWidth = Math.max(1, 0.12 * pm);
+        ctx.beginPath(); for (const z of [-0.35, 0.35]) { ctx.moveTo(-1 * pm, z * pm); ctx.lineTo(-6.5 * pm, z * 1.6 * pm); } ctx.stroke(); ctx.restore();
+      }
     } else {
       const breed = (m === 'trein' ? 4.5 : 4) * maat;
       ctx.save(); ctx.translate(px, py); ctx.rotate(-v.hoek);
@@ -492,6 +544,7 @@ function tekenBoven(ctx, k) {
     v.px = px; v.py = py;
     zichtLijnen.push(v);
   }
+  ctx.globalAlpha = 1;
   // bouwgereedschap: lijn of spoor in wording
   if (bouw?.punten?.length) {
     const sp = bouw.punten.map(p => k.scherm(p.x, p.y));
@@ -1488,7 +1541,7 @@ const pakPts = pts => { const v = vereenvoudig(pts, 6), u = []; let px = 0, py =
 const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; u.push(x, y); } return u; };
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
-    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
+    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };

@@ -32,7 +32,7 @@ export class Net {
     this.knopen = spoor ? Float64Array.from(spoor.knopen) : new Float64Array();
     this.namen = spoor?.namen || [];
     this.takken = (spoor?.takken || []).map((t, i) => {
-      const [a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, tussen] = t;
+      const [a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, tussen, hoogte = 0] = t;
       let pts = [this.knopen[a * 2], this.knopen[a * 2 + 1]];
       let x = pts[0], y = pts[1];
       for (let k = 0; k < tussen.length; k += 2) { x += tussen[k]; y += tussen[k + 1]; pts.push(x, y); }
@@ -43,7 +43,7 @@ export class Net {
         if (k) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
         x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]);
       }
-      return { i, a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, pts, lengte, bbox: [x0, y0, x1, y1], eigenaar: 'prorail' };
+      return { i, a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, hoogte, pts, lengte, bbox: [x0, y0, x1, y1], eigenaar: 'prorail' };
     });
     this.eigen = []; // door spelers aangelegd spoor
     this.bouwBuren();
