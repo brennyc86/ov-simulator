@@ -75,17 +75,22 @@ export function spanningenVan(typeId) {
 export const kanOp = (typeId, sys) => { const s = spanningenVan(typeId); return s === null || (!!sys && s.includes(sys)); };
 
 // controle van een lijn: op welke stukken kan het materieel niet rijden? (sleeploc lost het op als die kan)
+// Korte gaten zonder (passende) spanning zijn geen probleem zolang de trein er niet stopt: elke elektrische trein
+// rolt met vaart door een spanningssluis (op de HSL tot ~650 m, bron: ProRail-quickscan spanningssluizen).
+export const UITROL_M = 650;
 export function stroomCheck(spel, net, lijn, typeId = lijn.typeId) {
   const tk = lijn.route?.takken; if (!tk?.length || !['trein', 'metro', 'sneltram', 'tram'].includes(lijn.modus)) return { ok: true, probleem: [] };
+  const takVan = i => i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i];
+  const fout = i => { const t = takVan(i); if (!t || t.dienst) return null; const sys = spanningVan(spel, t); if (kanOp(typeId, sys) || (lijn.sleeploc && kanOp(lijn.sleeploc, sys))) return null; return sys || 'geen'; };
+  // stukken achter elkaar langs de route groeperen
+  const stukken = []; let cur = null;
+  for (const i of tk) { const f = fout(i); if (f) { if (!cur) { cur = { takken: [], lengte: 0, sys: new Set() }; stukken.push(cur); } if (!cur.takken.includes(i)) { cur.takken.push(i); cur.lengte += takVan(i)?.lengte || 0; } cur.sys.add(f); } else cur = null; }
+  const halteOp = st => lijn.haltes.some(h => st.takken.some(i => { const t = takVan(i); if (!t) return false; const p = t.pts; for (let k = 0; k < p.length; k += 2) if (Math.hypot(p[k] - h.x, p[k + 1] - h.y) < 120) return true; return false; }));
+  const echt = stukken.filter(st => st.lengte > UITROL_M || halteOp(st));
   const per = new Map();
-  for (const i of new Set(tk)) {
-    const t = i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i]; if (!t || t.dienst) continue;
-    const sys = spanningVan(spel, t);
-    if (kanOp(typeId, sys)) continue;
-    if (lijn.sleeploc && kanOp(lijn.sleeploc, sys)) continue;
-    const k = sys || 'geen'; per.set(k, (per.get(k) || 0) + t.lengte);
-  }
-  return { ok: !per.size, probleem: [...per].map(([sys, m]) => ({ sys, km: m / 1000, naam: sys === 'geen' ? 'geen bovenleiding' : SYSTEMEN[sys]?.naam || sys })) };
+  for (const st of echt) for (const sys of st.sys) { const x = per.get(sys) || { km: 0, takken: [] }; x.km += st.lengte / 1000; x.takken.push(...st.takken); per.set(sys, x); }
+  const kort = stukken.length - echt.length;
+  return { ok: !per.size, kort, probleem: [...per].map(([sys, x]) => ({ sys, km: x.km, takken: x.takken, naam: sys === 'geen' ? 'geen bovenleiding' : SYSTEMEN[sys]?.naam || sys })) };
 }
 // baanvak rond een tak: doorlopen langs knopen met precies twee takken van dezelfde soort en hetzelfde systeem
 export function baanvak(spel, net, t0, max = 40000) {

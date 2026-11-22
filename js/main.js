@@ -1177,8 +1177,11 @@ const PANELEN = {
       <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span>${l.bijzonder ? '' : ` <button class="knop klein" data-actie="halte-weg" data-id="${l.id}" data-i="${i}" title="halte uit de lijn halen">✕</button>`}</li>`).join('')}</ol>
       ${l.bijzonder ? '' : `<button class="knop klein" data-actie="halte-erbij" data-id="${l.id}">＋ Station/halte toevoegen</button>`}
       ${richtingBlok(l)}
-      ${(() => { const c = l._stroom || ((l.echt && !l.aangepast) ? null : stroomCheck(spel, net, l)); if (!c || (c.ok && !l.sleeploc)) return ''; return c.ok ? `<p class="chip">Sleeploc: ${esc(TYPE[l.sleeploc]?.naam || '')} over de stukken waar het eigen materieel niet kan <button class="knop klein" data-actie="sleeploc-weg" data-id="${l.id}">weg</button></p>`
-        : `<div class="kaartje"><b style="color:var(--rood)">Kan niet rijden:</b> ${esc(TYPE[l.typeId]?.naam || '')} kan niet op ${c.probleem.map(p => `${p.naam} (${komma(p.km)} km)`).join(', ')}.<br>Kies hieronder ander materieel (bv. een meersysteemtrein), of ${sleeplocKnoppen(l, c.probleem[0].sys === 'geen' ? null : c.probleem[0].sys) || 'een diesel-sleeploc'}</div>`; })()}
+      ${(() => { const c = (l.echt && !l.aangepast) ? null : stroomCheck(spel, net, l); if (!c || (c.ok && !l.sleeploc)) return ''; return c.ok ? `<p class="chip">Sleeploc: ${esc(TYPE[l.sleeploc]?.naam || '')} over de stukken waar het eigen materieel niet kan <button class="knop klein" data-actie="sleeploc-weg" data-id="${l.id}">weg</button></p>`
+        : `<div class="kaartje"><b style="color:var(--rood)">Kan niet rijden:</b> ${esc(TYPE[l.typeId]?.naam || '')} kan niet op ${c.probleem.map(p => `${p.naam} (${komma(p.km)} km)`).join(', ')}.
+          <div class="rij"><button class="knop klein" data-actie="stroom-toon" data-id="${l.id}">Toon op de kaart</button>${aanlegKnop(l, c)}</div>
+          ${c.probleem.some(p => p.sys !== 'geen') ? '<p class="klein">Op een andere spanning omschakelen kan gevolgen hebben voor andere treinen: klik op het spoor om te zien welke.</p>' : ''}
+          Of kies hieronder ander materieel (bv. een meersysteemtrein), of ${sleeplocKnoppen(l, c.probleem[0].sys === 'geen' ? null : c.probleem[0].sys) || 'een diesel-sleeploc'}</div>`; })()}
       ${l.aanbod ? (() => { const a = (spel.aanbiedingen || []).find(x => x.id === l.aanbod.id); const t = a ? toetsEisen(l, a) : { ok: false, redenen: ['aanbieding bestaat niet meer'] };
         return `<p class="chip ${t.ok ? 'goed' : 'fout'}">Subsidie ${a ? `${esc(a.a.naam)} – ${esc(a.b.naam)}: ${vergoedingTekst(a.vergoeding)}` : ''} · ${t.ok ? 'voldoet aan de eisen' : 'wordt niet uitbetaald: ' + esc(t.redenen.join('; '))}</p>`; })() : ''}
       <h3>Voertuigen op deze lijn</h3>${voertuigTabel(l)}
@@ -1573,6 +1576,14 @@ function actieUit(a, d) {
       spel.voertuigen[id] = (spel.voertuigen[id] || 0) + tekort; l.sleeploc = id; stroomBijwerken(l);
       melding(`Lijn ${l.nr} krijgt een ${TYPE[id].naam} als sleeploc over de stukken waar het eigen materieel niet kan${tekort ? ` (${tekort} gekocht)` : ''}.`, 8000); ververs(); break;
     }
+    case 'stroom-toon': { const c = stroomCheck(spel, net, l); const ts = [...new Set(c.probleem.flatMap(p => p.takken))].map(takVan).filter(Boolean); if (!ts.length) break;
+      kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: ts.map(t => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } })) });
+      const bb = ts.reduce((b, t) => [Math.min(b[0], t.bbox[0]), Math.min(b[1], t.bbox[1]), Math.max(b[2], t.bbox[2]), Math.max(b[3], t.bbox[3])], [1e9, 1e9, -1e9, -1e9]);
+      kaart.vliegNaar((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(1.5, Math.max(bb[2] - bb[0], bb[3] - bb[1]) / Math.min(kaart.W, kaart.H) * 1.6)); melding('De stukken waar de trein niet kan rijden zijn gestippeld. Klik op het spoor voor de spanning en om om te bouwen.', 7000); break; }
+    case 'stroom-aanleg': { const c = stroomCheck(spel, net, l), p = aanlegPlan(l, c); if (!p.takken.length || !betaal(p.kosten, 'de bovenleiding')) break;
+      spel.spanning = spel.spanning || {}; for (const t of p.takken) spel.spanning[t.i] = p.sys;
+      for (const x of spel.lijnen) stroomBijwerken(x); perronVoorstelWissen();
+      melding(`Bovenleiding aangelegd: ${komma(p.km)} km ${SYSTEMEN[p.sys].naam} (${S.euroKort(p.kosten)}).`, 7000); ververs(); break; }
     case 'sleeploc-weg': l.sleeploc = null; stroomBijwerken(l); ververs(); break;
     case 'kruising-bouw': { const g = paneelData, kosten = d.s === 'flyover' ? 60e6 : 90e6; if (!betaal(kosten, d.s === 'flyover' ? 'de flyover' : 'de dive-under')) break;
       spel.kruisingen = spel.kruisingen || []; spel.kruisingen.push({ x: g.x, y: g.y, soort: d.s, ...bouwKlaar(), kosten, projectNaam: d.s === 'flyover' ? 'Flyover' : 'Dive-under' });
@@ -2197,6 +2208,17 @@ function lijnenOpBaanvak(takken) {
   }
   return uit;
 }
+// bovenleiding aanleggen waar die ontbreekt (geen spanning = niemand heeft er last van; diesel rijdt ook onder draad)
+function aanlegPlan(l, c) {
+  const sys = (spanningenVan(l.typeId) || []).find(x => systemenVoorSoort(0).includes(x) === (l.modus === 'trein')) || (l.modus === 'trein' ? '1500DC' : l.modus === 'metro' ? '750DC3' : '600DC');
+  const takken = [...new Set(c.probleem.filter(p => p.sys === 'geen').flatMap(p => p.takken))].map(takVan).filter(Boolean);
+  const km = takken.reduce((a, t) => a + t.lengte, 0) / 1000;
+  return { sys, takken, km, kosten: ombouwKostenStroom(null, sys, km) };
+}
+function aanlegKnop(l, c) {
+  if (!c.probleem.some(p => p.sys === 'geen')) return '';
+  const p = aanlegPlan(l, c); return `<button class="knop klein hoofd" data-actie="stroom-aanleg" data-id="${l.id}">Overal bovenleiding aanleggen: ${komma(p.km)} km ${SYSTEMEN[p.sys]?.naam || p.sys} (${S.euroKort(p.kosten)})</button>`;
+}
 // sleeplocs die dit systeem aankunnen (diesel kan altijd), om ongeschikt materieel over het stuk te slepen
 function sleeplocKnoppen(l, sys) {
   const locs = [...beschikbaarLos(spel.jaar), ...VLOOT.filter(v => v.soort === 'loc' && spel.voertuigen[v.id])].filter((v, i, a) => v.soort === 'loc' && a.indexOf(v) === i && kanOp(v.id, sys));
@@ -2206,7 +2228,7 @@ function sleeplocKnoppen(l, sys) {
 function stroomBijwerken(l) {
   if (!l || l.ai || l.bijzonder || (l.echt && !l.aangepast)) return;
   const c = stroomCheck(spel, net, l); l._stroom = c;
-  if (!c.ok && l.actief) { l.actief = false; l.wacht = 'stroom'; melding(`Lijn ${l.nr} kan niet rijden: ${TYPE[l.typeId]?.naam || ''} kan niet op ${c.probleem.map(p => `${p.naam} (${komma(p.km)} km)`).join(', ')}. Kies ander materieel of een sleeploc.`, 10000); }
+  if (!c.ok && l.actief) { l.actief = false; l.wacht = 'stroom'; melding(`Lijn ${l.nr} kan niet rijden: ${TYPE[l.typeId]?.naam || ''} kan niet op ${c.probleem.map(p => `${p.naam} (${komma(p.km)} km)`).join(', ')}. Open de lijn om de stukken te tonen of er bovenleiding aan te leggen.`, 10000); }
   if (c.ok && l.wacht === 'stroom') { l.actief = true; l.wacht = null; melding(`Lijn ${l.nr} rijdt weer.`); }
 }
 // ---------------------------------------------------------------- busstation

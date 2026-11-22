@@ -324,6 +324,20 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(60);
     const sel = document.getElementById(`sleep-${l.id}`); if (sel) { sel.value = 'loc193'; } document.querySelector(`[data-actie="sleeploc"][data-id="${l.id}"]`)?.click(); await wacht(40);
     log('na sleeploc:', l.sleeploc, 'actief', l.actief, 'wacht', l.wacht); } }
+// bovenleiding: kort gat (uitrollen) is geen probleem; lang stuk zonder wel, en 'overal aanleggen' lost het op
+{ const sp = globalThis.__ovTest.spel, net = globalThis.__ovTest.net;
+  const l = sp.lijnen.find(x => !x.bijzonder && x.modus === 'trein' && x.route?.takken?.length > 20 && x.actief);
+  if (l) { const S1 = await import('../js/stroom.js'); const tk = l.route.takken.map(i => i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i]).filter(t => t && !t.dienst);
+    const kort = tk.find(t => t.lengte > 80 && t.lengte < 400 && !l.haltes.some(h => Math.hypot(t.pts[0] - h.x, t.pts[1] - h.y) < 600)), lang = []; let m = 0;
+    for (const t of tk.slice(5)) { if (m > 2000) break; lang.push(t); m += t.lengte; }
+    sp.spanning = sp.spanning || {}; if (kort) sp.spanning[kort.i] = 0;
+    log('kort gat', kort ? Math.round(kort.lengte) + ' m' : '-', '→', JSON.stringify(S1.stroomCheck(sp, net, l)).slice(0, 120));
+    for (const t of lang) sp.spanning[t.i] = 0; l.echt = null; l.aangepast = true;
+    document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(80);
+    const t1 = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('lang stuk:', t1.match(/Kan niet rijden.{0,220}/)?.[0]);
+    document.querySelector(`[data-actie="stroom-toon"][data-id="${l.id}"]`)?.click(); await wacht(30); log('gestippeld:', globalThis.__map.src['perron-voorstel']?.data?.features?.length);
+    document.querySelector(`[data-actie="stroom-aanleg"][data-id="${l.id}"]`)?.click(); await wacht(40);
+    log('na aanleg:', JSON.stringify(S1.stroomCheck(sp, net, l)).slice(0, 80), 'actief', l.actief, l.wacht); } }
 // drukte: provincie waarschuwt en trekt na 7 dagen de subsidie in
 { const sp = globalThis.__ovTest.spel, l = sp.lijnen.find(x => !x.bijzonder && x.actief);
   if (l) { l.concessie = true; const r = [];
