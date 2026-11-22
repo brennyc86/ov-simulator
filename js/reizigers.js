@@ -2,7 +2,7 @@
 // en hoeveel reizigers hebben een kaartje. Afgeleid van de dagvraag van de lijn (spel.vraagLijn):
 // verdeeld over dagdeel/weekdag, dan over de ritten van dat uur, dan over herkomst-bestemmingsparen
 // tussen haltes (inwoners in de buurt × afstandsverval). Deterministisch per rit en dag.
-import { vraagLijn, vangst, vraagFactor, PERIODES, ZWARTRIJDEN_BASIS, pakkans, eenheden } from './spel.js';
+import { halteFactor, vraagLijn, vangst, vraagFactor, PERIODES, ZWARTRIJDEN_BASIS, pakkans, eenheden } from './spel.js';
 import { MODI, TYPE } from './vloot.js';
 import { inrichtingVan, klassenVan, vraagEffect, klassePrijs } from './comfort.js';
 
@@ -29,7 +29,7 @@ export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
     const volg = r ? [...lijn.haltes].reverse() : lijn.haltes;
     return { haltes: volg.map((h, i) => ({ naam: h.naam, in: i ? 0 : mee, uit: i === n - 1 ? mee : 0, achter: 0 })), segmenten: volg.slice(1).map(() => ({ aanBoord: mee, metKaartje: mee })), cap, klassen, totaal: mee, achter: 0 };
   }
-  if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(ctx.plaatsen, h.x, h.y, mod.bereik));
+  if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(ctx.plaatsen, h.x, h.y, mod.bereik) * halteFactor(h, lijn));
   const n = lijn.haltes.length;
   const volg = r ? [...lijn.haltes].reverse() : lijn.haltes;
   const V = r ? [...lijn._vangst].reverse() : lijn._vangst;

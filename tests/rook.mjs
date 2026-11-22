@@ -246,6 +246,20 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     gedaan = true; break; }
   if (!gedaan) log('geen sprinter gevonden voor stationstest; kandidaten', cand.length, 'treinlijnen', AIx.lijnen.filter(a => a.modus === 'trein').length, AIx.lijnen.filter(a => a.modus === 'trein').slice(0, 5).map(a => a.nr + '/' + a.haltes.length).join(' '));
   document.querySelector('[data-tool="kijk"]')?.click(); }
+// stationsgebouw plaatsen
+{ const sp = globalThis.__ovTest.spel, st = globalThis.__ovTest.stations.find(x => x.n === 'Naarden-Bussum') || globalThis.__ovTest.stations.find(x => x.s === 'trein');
+  const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  const G6 = await import('../js/geo.js'), [la, lo] = G6.rdNaarWgs(st.x + 40, st.y + 40); globalThis.__map.easeTo({ center: [lo, la], zoom: 16 }); await wacht(40);
+  globalThis.__map.vuur('click', { point: globalThis.__map.project(G6.rdNaarWgs(st.x, st.y).reverse()) }); await wacht(60);
+  document.querySelector('[data-actie="gebouw-kies"]')?.click(); await wacht(40);
+  log('gebouwpaneel:', tekst().slice(0, 400));
+  const r = [...document.querySelectorAll('[data-wijzig="gb-stijl"]')].at(-1); if (r) { r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(30); }
+  document.querySelector('[data-actie="gebouw-plaats"]')?.click(); await wacht(30);
+  globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(60);
+  document.querySelector('[data-actie="gebouw-draai"]')?.click(); await wacht(30);
+  document.querySelector('[data-actie="gebouw-bouw"]')?.click(); await wacht(40);
+  sp.tijd += 125; globalThis.__ovTest.bouwOpleveren();
+  log('gebouw:', JSON.stringify((sp.gebouwen || []).map(g => [g.station, g.stijl, g.grootte, g.pts.length, g.opgeleverd]))); }
 // lening afsluiten en aflossen
 { const sp = globalThis.__ovTest.spel; const g0 = sp.geld; document.querySelector('[data-paneel="geld"]').click(); await wacht(30);
   document.querySelector('[data-actie="lenen"][data-b="10000000"]')?.click(); await wacht(20);

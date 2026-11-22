@@ -4,6 +4,7 @@ import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
 import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
 import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst } from './subsidie.js';
+import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } from './gebouw.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
@@ -284,6 +285,9 @@ function netwerkLagen() {
     kaart.laag({ id: 'perron-rand', type: 'line', source: 'perrons', minzoom: 14, filter: ['all', ['==', ['get', 'v'], 1], jaarFilter(jaar)], paint: { 'line-color': PERRONRAND, 'line-width': meters(0.4, 0.6) } });
     kaart.laag({ id: 'perron-lijn', type: 'line', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 0], layout: { 'line-cap': 'butt' }, paint: { 'line-color': PERRON, 'line-width': meters(4.5, 1.2) } });
     kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': spel?.kleur || '#c2412d' } });
+    if (!kaart.map.getSource('gebouwen')) kaart.bron('gebouwen', { type: 'FeatureCollection', features: [] });
+    kaart.laag({ id: 'gebouw-vlak', type: 'fill', source: 'gebouwen', minzoom: 12, paint: { 'fill-color': ['get', 'k'], 'fill-opacity': ['case', ['==', ['get', 'klaar'], 1], 0.95, 0.45] } });
+    kaart.laag({ id: 'gebouw-rand', type: 'line', source: 'gebouwen', minzoom: 13, paint: { 'line-color': '#4a3b30', 'line-width': 1 } });
     kaart.laag({ id: 'perron-voorstel', type: 'fill', source: 'perron-voorstel', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': 'rgba(255,255,255,.75)', 'fill-outline-color': '#111' } });
     kaart.laag({ id: 'perron-voorstel-spoor', type: 'line', source: 'perron-voorstel', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#111', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
     kaart.laag({ id: 'hist-water', type: 'fill', source: 'polders', filter: ['>', ['get', 'j'], jaar], paint: { 'fill-color': THEMA.water } });
@@ -401,6 +405,8 @@ function eigenNetBijwerken() {
   const leeg = { type: 'FeatureCollection', features: [] };
   if (!kaart.map.getSource('perron-voorstel')) kaart.bron('perron-voorstel', leeg);
   if (!spel) { kaart.bron('eigen-spoor', leeg); kaart.bron('eigen-lijnen', leeg); kaart.bron('eigen-haltes', leeg); kaart.bron('eigen-perrons', leeg); return; }
+  const vl = v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return c; };
+  if (kaart.map.getSource('gebouwen')) kaart.bron('gebouwen', { type: 'FeatureCollection', features: (spel.gebouwen || []).flatMap(g => g.pts.map(v => ({ type: 'Feature', properties: { k: STIJLEN.find(x => x.id === g.stijl)?.kleur || '#999', klaar: isKlaar(g) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [vl(v)] } }))) });
   kaart.bron('eigen-perrons', { type: 'FeatureCollection', features: (spel.perronVormen || []).map(v => {
     const c = []; for (let i = 0; i < v.pts.length; i += 2) c.push(lonlat(v.pts[i], v.pts[i + 1]));
     return { type: 'Feature', properties: { klaar: isKlaar(v) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
@@ -618,6 +624,7 @@ function bouwOpleveren() {
     h.opgeleverd = true;
     if (h.startMin != null) { iets = true; const op = stationInStoptreinen(h); melding(`${h.naam} is klaar${op.length ? ` en wordt nu bediend door ${op.slice(0, 6).join(', ')}${op.length > 6 ? ' …' : ''}` : ''}.`, 9000); }
   }
+  for (const g of spel.gebouwen || []) if (!g.opgeleverd && isKlaar(g)) { g.opgeleverd = true; iets = true; for (const l of [...spel.lijnen, ...AI.lijnen]) l._vangst = null; melding(`Het stationsgebouw van ${g.station} is klaar.`); }
   if (iets) { netwerkLagen(); eigenNetBijwerken(); if (paneelSoort === 'bouw' || paneelSoort === 'station') ververs(); }
 }
 // ---------------------------------------------------------------- stations in lijnen
@@ -747,7 +754,7 @@ function dagVoorbij() {
   // vergoedingen die je per jaar betaalt of ontvangt
   for (const a of spel.afspraken || []) { spel.geld += a.bedrag / 365; spel.maand.overig -= a.bedrag / 365; }
   if (spel.dag % 30 === 0) {
-    spel.lening_rente = leningRente(); S.maandAfsluiten(spel);
+    spel.lening_rente = leningRente(); gebouwenMaand(); S.maandAfsluiten(spel);
     const m = spel.historie[spel.historie.length - 1];
     melding(`Maand afgesloten: resultaat ${S.euro(m.resultaat)}, ${Math.round(m.reizigers).toLocaleString('nl-NL')} reizigers.`, 6000);
     if (spel.dag % 360 === 0) { spel.jaar++; jaarBijwerken(); melding(`Gelukkig nieuwjaar: het is nu ${spel.jaar}.`); }
@@ -1291,7 +1298,10 @@ const PANELEN = {
   station(s) {
     return `<h2>${esc(s.naam)}</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''}${spel.perrons?.[s.naam] ? ` · ${spel.perrons[s.naam]} extra perron(s) van jou` : ''}</p>
       ${bouwProjecten().filter(p => p.station === s.naam).map(p => voortgang(p)).join('')}
-      <button class="knop hoofd" data-actie="perron-ontwerp" data-naam="${esc(s.naam)}" data-x="${s.x}" data-y="${s.y}">＋ Spoor met perron ontwerpen</button>`;
+      ${(spel.gebouwen || []).filter(g => g.station === s.naam).map(g => `<p class="chip">Stationsgebouw: ${esc(STIJLEN.find(x => x.id === g.stijl)?.naam || '')}, ${GROOTTE[g.grootte].naam}${isKlaar(g) ? '' : ' (in aanbouw)'}</p>`).join('')}
+      ${stationGebouwNodig(s.naam) ? `<p class="klein" style="color:var(--rood)">Zonder stationsgebouw is er geen loket: in ${spel.jaar} kopen reizigers hun kaartje aan het loket, dus komen er hier minder.</p>` : ''}
+      <div class="rij"><button class="knop hoofd" data-actie="perron-ontwerp" data-naam="${esc(s.naam)}" data-x="${s.x}" data-y="${s.y}">＋ Spoor met perron ontwerpen</button>
+      <button class="knop" data-actie="gebouw-kies" data-naam="${esc(s.naam)}" data-x="${s.x}" data-y="${s.y}">＋ Stationsgebouw</button></div>`;
   },
   perronVoorstel(o) {
     const kosten = perronKosten(o);
@@ -1311,6 +1321,17 @@ const PANELEN = {
       <div class="rij"><button class="knop hoofd" data-actie="perron-bouw">Bouwen</button>
       <button class="knop" data-actie="perron-kant">Andere kant</button>${o.vorm.startsWith('kop') ? '<button class="knop" data-actie="perron-eind">Wissel aan het andere eind</button>' : ''}
       <button class="knop" data-actie="perron-stop">Annuleren</button></div>`;
+  },
+  gebouw(d) {
+    const stijlen = stijlenVoor(spel.jaar), st = STIJLEN.find(x => x.id === d.stijl) || stijlen[0];
+    const groottes = Object.keys(GROOTTE).filter(g => !st.min || Object.keys(GROOTTE).indexOf(g) >= Object.keys(GROOTTE).indexOf(st.min));
+    const gr = groottes.includes(d.grootte) ? d.grootte : groottes[0], G = GROOTTE[gr];
+    return `<h2>Stationsgebouw · ${esc(d.station)}</h2>
+      <div class="veld"><label>Stijl (wat er in ${spel.jaar} gebouwd kan worden)</label>${stijlen.map(x => `<label class="rij"><input type="radio" name="gb-stijl" data-wijzig="gb-stijl" value="${x.id}" ${x.id === st.id ? 'checked' : ''}><span style="display:inline-block;width:12px;height:12px;background:${x.kleur};border:1px solid #444;margin-right:4px"></span> ${x.naam}</label>`).join('')}</div>
+      <div class="veld"><label>Grootte</label><select data-wijzig="gb-grootte">${groottes.map(g => `<option value="${g}" ${g === gr ? 'selected' : ''}>${GROOTTE[g].naam} · ${G.l && GROOTTE[g].l}×${GROOTTE[g].b} m</option>`).join('')}</select></div>
+      <p>Bouwsom <b>${S.euroKort(gebouwPrijs(st, gr))}</b>, 2 speluren · onderhoud ${S.euro(G.onderhoud)}/maand${winkelHuur(gr, spel.jaar) ? ` · winkelhuur ${S.euro(winkelHuur(gr, spel.jaar))}/maand` : ''} · ${Math.round((G.bonus + (st.extra || 0)) * 100)}% meer reizigers${spel.jaar < 1990 ? ' (en een loket: zonder gebouw verkoop je hier veel minder kaartjes)' : ''}.</p>
+      ${d.plek ? `<div class="rij"><button class="knop hoofd" data-actie="gebouw-bouw">Bouwen</button><button class="knop" data-actie="gebouw-draai">↻ Draaien</button><button class="knop" data-actie="gebouw-plaats">Andere plek</button><button class="knop" data-actie="perron-stop">Annuleren</button></div>`
+        : `<button class="knop hoofd" data-actie="gebouw-plaats">Plaats op de kaart</button>`}`;
   },
   bouw() {
     const pr = bouwProjecten();
@@ -1445,6 +1466,19 @@ function actieUit(a, d) {
       melding(`Gekocht: ${tekort.map(([c, n]) => `${n} × ${TYPE[c].naam}`).join(', ')} (${S.euroKort(kosten)}).`); ververs(); break;
     }
     case 'paneel': openPaneel(d.p); break;
+    case 'gebouw-kies': openPaneel('gebouw', { station: d.naam, x: +d.x, y: +d.y, stijl: stijlenVoor(spel.jaar)[spel.jaar < 1940 ? 0 : stijlenVoor(spel.jaar).length - 1]?.id, grootte: 'middel' }); break;
+    case 'gebouw-plaats': { const g = paneelData; tool = 'gebouw'; bouw = { gebouw: g }; perronVoorstelWissen(); kaart.vliegNaar(g.x, g.y, 0.8);
+      hint(`Klik waar het stationsgebouw van ${g.station} moet komen (aan de straatkant van het spoor).`, [['Stoppen', () => { zetTool('kijk'); openPaneel('gebouw', g); }]]); break; }
+    case 'gebouw-draai': { const g = paneelData; if (!g.plek) break; g.plek.hoek = (g.plek.hoek || 0) + Math.PI / 2; gebouwVoorstel(g); break; }
+    case 'gebouw-bouw': {
+      const g = paneelData, st = STIJLEN.find(x => x.id === g.stijl) || stijlenVoor(spel.jaar)[0], gr = g.grootte, kosten = gebouwPrijs(st, gr);
+      if (!g.plek || !betaal(kosten, 'het stationsgebouw')) break;
+      spel.gebouwen = spel.gebouwen || [];
+      spel.gebouwen.push({ id: S.nieuwId('g'), station: g.station, stijl: st.id, grootte: gr, pts: gebouwVorm(g), x: g.plek.x, y: g.plek.y, ...bouwKlaar(), kosten, projectNaam: `Stationsgebouw ${g.station}` });
+      for (const l of [...spel.lijnen, ...AI.lijnen]) l._vangst = null;
+      melding(`Bouw van het stationsgebouw van ${g.station} gestart (${S.euroKort(kosten)}), klaar over 2 speluren.`);
+      perronVoorstelWissen(); sluitPaneel(); eigenNetBijwerken(); hud(); break;
+    }
     case 'lenen': { const b = Math.min(+d.b, leningMax() - (spel.lening || 0)); if (b <= 0) break; spel.lening = (spel.lening || 0) + b; spel.geld += b; melding(`${S.euroKort(b)} geleend. Rente ${komma(leningRente() * 100)}% per jaar.`); ververs(); hud(); break; }
     case 'aflossen': { const b = Math.min(+d.b, spel.lening || 0); if (b <= 0 || spel.geld - b < -20e6) { melding('Niet genoeg geld om af te lossen.'); break; } spel.lening -= b; spel.geld -= b; melding(`${S.euroKort(b)} afgelost.`); ververs(); hud(); break; }
     case 'serie-koop': case 'serie-verbouw': {
@@ -1603,6 +1637,8 @@ function wijzig(w, i) {
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
     case 'ns-naam': paneelData.naam = i.value; return;
+    case 'gb-stijl': paneelData.stijl = i.value; if (paneelData.plek) gebouwVoorstel(paneelData); ververs(); return;
+    case 'gb-grootte': paneelData.grootte = i.value; if (paneelData.plek) gebouwVoorstel(paneelData); i.blur(); setTimeout(() => ververs(), 0); return;
     case 'ns-soort': paneelData.soort = i.value; ververs(); return;
     case 'ns-combi': paneelData.combi = i.checked; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'ns-sporen': paneelData.sporen = +i.value; i.blur(); setTimeout(() => ververs(), 0); return;
@@ -1934,6 +1970,7 @@ function bouwProjecten() {
   const voeg = (sleutel, naam, x, station) => { if (!uit.has(sleutel)) uit.set(sleutel, { naam, start: x.startMin ?? (x.startDag ?? x.gereedDag - 30) * 1440, gereed: gereedMin(x), kosten: 0, delen: [], station, spoed: false }); const p = uit.get(sleutel); p.delen.push(x); p.kosten += x.kosten || 0; p.spoed = p.spoed || !!x.spoed; p.gereed = Math.max(p.gereed, gereedMin(x)); };
   for (const sp of spel.spoor) if (!sp.klaar && !isKlaar(sp)) voeg(sp.project || sp, sp.projectNaam || (sp.perron ? `Spoor met perron · ${sp.perron}` : 'Nieuw spoor'), sp, sp.perron);
   for (const v of spel.perronVormen || []) if (!isKlaar(v) && v.project && uit.has(v.project)) uit.get(v.project).delen.push(v);
+  for (const g of spel.gebouwen || []) if (!isKlaar(g)) voeg(g, g.projectNaam, g, g.station);
   for (const h of spel.haltes) if (!isKlaar(h)) voeg(h.project || h, `Station ${h.naam}${h.eigen ? '' : ' (ProRail)'}`, h, h.naam);
   return [...uit.values()].sort((a, b) => a.gereed - b.gereed);
 }
@@ -1964,6 +2001,28 @@ function leningBlok() {
     <p class="klein">De bank leent tot € 20 mln plus 80% van de waarde van je materieel en eigen spoor. Hoe meer je leent, hoe hoger de rente.</p>
     <div class="rij">${[1e6, 5e6, 10e6, 25e6, 100e6].filter(b => b <= ruimte).map(b => `<button class="knop klein" data-actie="lenen" data-b="${b}">＋ ${S.euroKort(b)} lenen</button>`).join('')}</div>
     ${l ? `<div class="rij">${[1e6, 5e6, 10e6].filter(b => b <= l).map(b => `<button class="knop klein" data-actie="aflossen" data-b="${b}">− ${S.euroKort(b)} aflossen</button>`).join('')}<button class="knop klein" data-actie="aflossen" data-b="${l}">Alles aflossen</button></div>` : ''}`;
+}
+// ---------------------------------------------------------------- stationsgebouwen
+const gebouwVorm = g => { const st = STIJLEN.find(x => x.id === g.stijl) || STIJLEN[0], gr = (st.min === 'middel' && g.grootte === 'klein') ? 'middel' : g.grootte; return plattegrond(st, gr, g.plek.x, g.plek.y, Math.cos(g.plek.hoek), Math.sin(g.plek.hoek)); };
+function gebouwVoorstel(g) { voorstelTekenen({ sporen: [], vlakken: gebouwVorm(g) }); openPaneel('gebouw', g); }
+// heeft een eigen station (nog) geen gebouw terwijl dat in dit jaar nodig is voor het loket?
+function stationGebouwNodig(naam) {
+  if (spel.jaar >= 1990) return false;
+  const h = spel.haltes.find(x => x.naam === naam && x.modus === 'trein' && x.eigen);
+  return !!h && h.soort !== 'halte' ? !(spel.gebouwen || []).some(g => g.station === naam && isKlaar(g)) : false;
+}
+// effect op het aantal reizigers per halte: gebouw = bonus, eigen station zonder loket (vóór 1990) = minder
+S.zetHalteFactor(h => {
+  if (!spel) return 1;
+  const g = (spel.gebouwen || []).find(x => isKlaar(x) && Math.hypot(x.x - h.x, x.y - h.y) < 600 && x.station === h.naam) || (spel.gebouwen || []).find(x => isKlaar(x) && Math.hypot(x.x - h.x, x.y - h.y) < 300);
+  if (g) return 1 + GROOTTE[g.grootte].bonus + (STIJLEN.find(x => x.id === g.stijl)?.extra || 0);
+  return stationGebouwNodig(h.naam) ? 0.7 : 1;
+});
+// maandelijks: onderhoud en winkelhuur
+function gebouwenMaand() {
+  let saldo = 0;
+  for (const g of spel.gebouwen || []) if (isKlaar(g)) saldo += winkelHuur(g.grootte, spel.jaar) - GROOTTE[g.grootte].onderhoud;
+  if (saldo) { spel.geld += saldo; spel.maand.overig -= saldo; }
 }
 function perronVoorstelWissen() { perronOntwerp = null; kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [] }); }
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
@@ -2111,6 +2170,9 @@ function klik(px, py) {
   }
   if (tool === 'spoor' && bouw) { bouw.punten.push({ x, y }); return; }
   if (tool === 'verdubbel') { verdubbelOntwerpen(x, y); return; }
+  if (tool === 'gebouw' && bouw?.gebouw) { const g = bouw.gebouw; const r = net.dichtsteTak(x, y, 'trein', spel.jaar, 300);
+    let ux = 1, uy = 0; if (r) { const a = net.stuk(r.t, Math.max(0, r.s - 30), Math.min(r.t.lengte, r.s + 30)); ux = a[a.length - 2] - a[0]; uy = a[a.length - 1] - a[1]; const l2 = Math.hypot(ux, uy) || 1; ux /= l2; uy /= l2; }
+    g.plek = { x, y, hoek: Math.atan2(uy, ux) }; zetTool('kijk'); gebouwVoorstel(g); return; }
   if (tool === 'lijnhalte' && bouw?.lijnId) { const l = lijnVan(bouw.lijnId), c = l && dichtsteKandidaat(l.modus, px, py); if (!c) { melding('Hier is geen station of halte van deze soort.'); return; } halteToevoegen(l, c); return; }
   // kijken: voertuig, eigen lijn of station selecteren
   let beste = null, bd = 12;

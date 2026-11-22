@@ -295,9 +295,12 @@ export function vangst(plaatsen, x, y, bereik) {
   return som;
 }
 
+// factor op het verzorgingsgebied van een halte (stationsgebouw, loket): door main.js gezet
+export let halteFactor = () => 1;
+export const zetHalteFactor = f => { halteFactor = f; };
 export function vraagLijn(lijn, plaatsen, concurrentie = 0) {
   const mod = MODI[lijn.modus];
-  if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(plaatsen, h.x, h.y, mod.bereik));
+  if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(plaatsen, h.x, h.y, mod.bereik) * halteFactor(h, lijn));
   const V = lijn._vangst, n = V.length;
   let paren = 0;
   for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
