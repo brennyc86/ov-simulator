@@ -88,7 +88,7 @@ export function typeVoor(lijn, jaar, standaardType) {
 }
 
 export function uiterlijk(typeId, modus) {
-  const u = U[typeId] || STANDAARD[modus] || STANDAARD.bus;
+  const u = U[typeId] || U[TYPE[typeId]?.basis] || STANDAARD[modus] || STANDAARD.bus; // een serie ziet eruit als zijn basistype
   if (!u._l) {
     const tussen = u.gel ? 0.3 : 0.9;
     u._l = u.bakken.reduce((a, b) => a + b, 0) + tussen * (u.bakken.length - 1);

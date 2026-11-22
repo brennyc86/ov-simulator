@@ -196,12 +196,31 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
       const omp = O.maakOmloop([heen, terug].map(x => (x.actief = true, x)), true); heen.paar = terug.id; S0.herbereken(heen); log('heen + aparte terugweg:', omp.voertuigen.length, 'voertuigen, lege ritten', omp.voertuigen.reduce((n, v) => n + v.ritten.filter(x => x.leeg).length, 0));
     }
   } else log('stations niet gevonden voor bouwtest'); }
-// inrichting: premium-klasse erbij, prijs aanpassen, ombouwen
-{ const t0 = document.querySelector('[data-actie="ink-erbij"]');
-  if (t0) { t0.click(); await wacht(100); const prijs = document.querySelector('[data-veld="prijs"]'); if (prijs) { prijs.value = 300; prijs.dispatchEvent(new window.Event('change')); await wacht(50); }
-    let t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('inrichting ontwerp:', t.slice(t.indexOf('Totaal'), t.indexOf('Totaal') + 200));
-    document.querySelector('[data-actie="ink-ombouw"]')?.click(); await wacht(100);
-    t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('na ombouw:', t.slice(t.indexOf('Inrichting en prijzen'), t.indexOf('Inrichting en prijzen') + 160)); } else log('geen inrichtingsknop gevonden'); }
+// interieur: nieuwe serie met premium (massagestoelen) en restauratie kopen, lijn erop zetten, catering en restauratie per lijn, verbouwen
+{ const sp = globalThis.__ovTest.spel, l = sp.lijnen.filter(x => !x.bijzonder && x.modus === 'trein').at(-1);
+  if (l) { const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+    const basis = (await import('../js/comfort.js')).basisId(l.typeId); sp.voertuigen[basis] = Math.max(4, sp.voertuigen[basis] || 0);
+    document.querySelector('[data-paneel="vloot"]').click(); await wacht(50);
+    document.querySelector(`[data-actie="serie-open"][data-type="${basis}"]`).click(); await wacht(50);
+    log('serie-paneel:', tekst().slice(0, 160));
+    document.querySelector('[data-actie="sn-erbij"]').click(); await wacht(30);
+    const r = document.querySelector('[data-wijzig="sn-rest"]'); r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(30);
+    const deel = document.querySelector('[data-wijzig="sn"][data-i="0"][data-veld="deel"]'); deel.value = 20; deel.dispatchEvent(new window.Event('change')); await wacht(30);
+    log('ontwerp:', tekst().match(/Totaal.{0,60}/)?.[0], '|', tekst().match(/Naam van de nieuwe serie/)?.[0], document.getElementById('sn-naam')?.value);
+    document.querySelector('[data-actie="serie-koop"]').click(); await wacht(50);
+    const serie = sp.series.at(-1); log('gekocht:', serie?.naam, sp.voertuigen[serie?.id], '| vloot heeft rij:', (document.querySelector('[data-paneel="vloot"]').click(), await wacht(30), tekst().includes(serie?.naam)));
+    // verbouwen: 2 standaard naar de nieuwe serie
+    document.querySelector(`[data-actie="serie-open"][data-type="${serie.id}"]`).click(); await wacht(30);
+    const vs = document.querySelector('[data-wijzig="sn-van"]'); vs.value = basis; vs.dispatchEvent(new window.Event('change')); await wacht(30);
+    document.getElementById('sn-n').value = 2; document.querySelector('[data-actie="serie-verbouw"]')?.click(); await wacht(50);
+    log('na verbouwen:', basis, sp.voertuigen[basis], serie.naam, sp.voertuigen[serie.id]);
+    // lijn op de serie zetten, catering en restauratie deels open
+    l.typeId = serie.id; (await import('../js/spel.js')).herbereken(l);
+    document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(100);
+    const c = document.querySelector('[data-wijzig="lcatering"][data-k="1"]'); if (c) { c.value = '2'; c.dispatchEvent(new window.Event('change')); await wacht(30); }
+    const rs = document.querySelector('[data-wijzig="lrest"][data-veld="soort"]'); if (rs) { rs.value = 'deel'; rs.dispatchEvent(new window.Event('change')); await wacht(30); }
+    const t = tekst(); log('prijzen en catering:', t.slice(t.indexOf('Prijzen en catering'), t.indexOf('Prijzen en catering') + 600));
+    log('capaciteit', (await import('../js/spel.js')).capaciteit(l), 'catering', JSON.stringify(l.catering), 'restauratie', JSON.stringify(l.restauratie)); } }
 // heen en terug op eigen spoor? (lijnen die twee richtingen rijden)
 { const gezien = new Set();
   for (const l of [...zl.map(v => v.lijn), ...globalThis.__ovTest.spel.lijnen]) { if (gezien.has(l) || !l._banen) continue; gezien.add(l);

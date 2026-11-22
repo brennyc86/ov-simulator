@@ -64,7 +64,8 @@ export function nieuwSpel({ naam, kleur, jaar, start, vervoerder, kapitaal }) {
     versie: 1, naam, kleur, jaar, start, vervoerder: vervoerder || null,
     dag: 0, tijd: 6 * 60, // minuten sinds middernacht
     geld: kapitaal, historie: [], maand: nieuweMaand(),
-    voertuigen: {}, // typeId -> aantal in bezit
+    voertuigen: {}, // typeId -> aantal in bezit (ook eigen series)
+    series: [], // eigen interieurs: {id, basis, naam, ink}
     lijnen: [], haltes: [], // eigen haltes/stations {id, naam, modus, x, y, perrons, eigen}
     controle: { steekproef: 0, poortjes: false, chauffeur: true, ploegen: [] },
     berichten: [], verzoeken: [], goodwill: {}, spoor: [], prorail: [], volgendeAI: 2 * 1440,
@@ -374,7 +375,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const boetes = betrapt * (BOETE + ritprijs) * 0.75; // niet elke boete wordt geïnd
 
     // kosten
-    const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(inrichtingVan(lijn, lijn.typeId));
+    const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(lijn, lijn.typeId);
     const energie = km * kmKosten(type, spel.jaar) * eh;
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
       : lijn.modus === 'vlucht' ? ritten * (lijn.haltes.length - 1) * landingsgeld(lijn, type) : 0;

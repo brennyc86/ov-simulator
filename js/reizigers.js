@@ -19,7 +19,7 @@ const cache = new Map();
 
 // geeft { haltes:[{naam, in, uit, achter}], segmenten:[{aanBoord, metKaartje}], cap, klassen, ... } in rijvolgorde
 export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
-  const sleutel = `${spel.dag}:${lijn.sleutel || lijn.id}:${r}:${Math.round(dep)}:${typeId}:${lijn.inrichting ? JSON.stringify(lijn.inrichting) : ''}`;
+  const sleutel = `${spel.dag}:${lijn.sleutel || lijn.id}:${r}:${Math.round(dep)}:${typeId}:${JSON.stringify([lijn.prijzen, lijn.catering, lijn.restauratie])}`;
   if (cache.has(sleutel)) return cache.get(sleutel);
   if (cache.size > 4000) cache.clear();
   const mod = MODI[lijn.modus] || MODI.bus;
