@@ -196,6 +196,13 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
       const omp = O.maakOmloop([heen, terug].map(x => (x.actief = true, x)), true); heen.paar = terug.id; S0.herbereken(heen); log('heen + aparte terugweg:', omp.voertuigen.length, 'voertuigen, lege ritten', omp.voertuigen.reduce((n, v) => n + v.ritten.filter(x => x.leeg).length, 0));
     }
   } else log('stations niet gevonden voor bouwtest'); }
+// nieuwe bushalte: echte naam (halte uit de dienstregeling in de buurt, of straat uit de kaart)
+{ const sp = globalThis.__ovTest.spel; globalThis.__map.querySourceFeatures = (src, o) => o.sourceLayer === 'transportation_name' ? [{ properties: { name: 'Stationsplein', class: 'minor' }, geometry: { type: 'LineString', coordinates: [[globalThis.__map.c.lng - 0.001, globalThis.__map.c.lat], [globalThis.__map.c.lng + 0.001, globalThis.__map.c.lat]] } }] : [];
+  const G2 = await import('../js/geo.js'), [bla, blo] = G2.rdNaarWgs(153760, 462290);
+  for (const [lng, lat] of [[5.3880, 52.1550], [5.4012, 52.1601], [blo, bla]]) { globalThis.__map.easeTo({ center: [lng, lat], zoom: 16 }); await wacht(50);
+    document.querySelector('[data-tool="halte"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Bushalte').click();
+    globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(50); log('nieuwe bushalte:', sp.haltes.at(-1)?.naam); }
+  delete globalThis.__map.querySourceFeatures; document.querySelector('[data-tool="kijk"]')?.click(); }
 // interieur: nieuwe serie met premium (massagestoelen) en restauratie kopen, lijn erop zetten, catering en restauratie per lijn, verbouwen
 { const sp = globalThis.__ovTest.spel, l = sp.lijnen.filter(x => !x.bijzonder && x.modus === 'trein').at(-1);
   if (l) { const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');

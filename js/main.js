@@ -1565,15 +1565,38 @@ function nieuweHalte(x, y, modus, stil) {
   if (modus === 'tram' && net.dichtsteKnoop(x, y, 'tram', spel.jaar, 60) == null) { melding('Een tramhalte moet aan tramspoor liggen. Klik dichter bij een tramlijn.'); return null; }
   const kosten = HALTEKOSTEN[modus] ?? 15000;
   if (!betaal(kosten, 'een halte')) return null;
-  const pl = plaatsNaam(x, y);
-  const n = spel.haltes.filter(h => h.naam.startsWith(pl)).length + 1;
-  const h = { id: S.nieuwId('h'), naam: `${pl}, ${modus === 'veer' || modus === 'watertaxi' ? 'Steiger' : 'Halte'} ${n}`, modus, x, y, eigen: true, gereedDag: spel.dag };
+  const h = { id: S.nieuwId('h'), naam: halteNaam(x, y, modus), modus, x, y, eigen: true, gereedDag: spel.dag };
   spel.haltes.push(h);
   if (!stil) melding(`${h.naam} geplaatst (${S.euro(kosten)}).`);
   eigenNetBijwerken();
   return h;
 }
 
+// naam voor een nieuwe halte: de echte halte op die plek (dienstregeling of kaart), anders de straat, anders een nummer
+function halteNaam(x, y, modus) {
+  const pl = plaatsNaam(x, y), steiger = modus === 'veer' || modus === 'watertaxi';
+  let naam = null, bd = 200;
+  for (const h of D.haltes) { const d = Math.abs(h[1] - x) + Math.abs(h[2] - y); if (d < bd * 1.5) { const e = Math.hypot(h[1] - x, h[2] - y); if (e < bd) { bd = e; naam = h[0]; } } }
+  if (!naam && kaart?.map?.querySourceFeatures) {
+    const [lo, la] = lonlat(x, y), mx = 111320 * Math.cos(la * Math.PI / 180), afst = c => Math.hypot((c[0] - lo) * mx, (c[1] - la) * 111320);
+    const dichtst = (laag, filter, max) => { let beste = null, b2 = max;
+      let fs = []; try { fs = kaart.map.querySourceFeatures('osm', { sourceLayer: laag }) || []; } catch { fs = []; }
+      for (const f of fs) { const nm = f.properties?.['name:nl'] || f.properties?.name; if (!nm || !filter(f.properties)) continue;
+        const g = f.geometry, lijnen = g.type === 'Point' ? [[g.coordinates]] : g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : [];
+        for (const l of lijnen) for (const c of l) { const d = afst(c); if (d < b2) { b2 = d; beste = nm; } } }
+      return beste; };
+    // haltepunt uit de kaart (OpenStreetMap), anders de dichtstbijzijnde straat met een naam
+    naam = dichtst('poi', p => steiger ? /ferry/.test(p.subclass || p.class) : /bus|tram/.test(p.class) || /stop|platform/.test(p.subclass || ''), 120);
+    if (!naam) { const straat = dichtst('transportation_name', p => p.class !== 'motorway' && p.class !== 'rail', 150); if (straat) naam = straat; }
+    if (naam && !naam.includes(',')) naam = `${pl}, ${naam}`;
+  }
+  if (!naam) return `${pl}, ${steiger ? 'Steiger' : 'Halte'} ${spel.haltes.filter(h => h.naam.startsWith(pl)).length + 1}`;
+  if (!naam.includes(',') && !naam.startsWith(pl)) naam = `${pl}, ${naam}`;
+  // dezelfde naam aan de overkant van de straat is prima (één knooppunt); verder weg krijgt een volgnummer
+  let n = naam, k = 2;
+  while (spel.haltes.some(h => h.naam === n && Math.hypot(h.x - x, h.y - y) > 250)) n = `${naam} (${k++})`;
+  return n;
+}
 // welke bestaande haltes en stations passen bij een modus
 function kandidaten(modus) {
   const uit = [];
@@ -1841,6 +1864,12 @@ async function bewaar(hand) {
 async function laadSpel(data, nieuwSlot) {
   spel = data; slot = nieuwSlot;
   spel.series = spel.series || []; registreerSeries(spel.series);
+  // oude genummerde haltes ("Plaats, Halte 3") krijgen hun echte naam, ook in de lijnen die er stoppen
+  for (const h of spel.haltes || []) {
+    if (!/, (Halte|Steiger) \d+$/.test(h.naam)) continue;
+    const oud = h.naam; h.naam = '~'; const nieuw = halteNaam(h.x, h.y, h.modus); h.naam = /, (Halte|Steiger) \d+$/.test(nieuw) ? oud : nieuw;
+    if (h.naam !== oud) for (const l of spel.lijnen) for (const lh of l.haltes) if (lh.naam === oud && Math.hypot(lh.x - h.x, lh.y - h.y) < 30) lh.naam = h.naam;
+  }
   for (const l of spel.lijnen) {
     if (l.inrichting) { // oude opslag: interieur stond bij de lijn; prijzen en catering blijven daar, het interieur hoort nu bij het materieel
       l.prijzen = Object.fromEntries(l.inrichting.map(k => [k.klasse, k.prijs ?? 1]));
