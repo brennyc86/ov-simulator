@@ -2,7 +2,7 @@
 // en hoeveel reizigers hebben een kaartje. Afgeleid van de dagvraag van de lijn (spel.vraagLijn):
 // verdeeld over dagdeel/weekdag, dan over de ritten van dat uur, dan over herkomst-bestemmingsparen
 // tussen haltes (inwoners in de buurt × afstandsverval). Deterministisch per rit en dag.
-import { vraagLijn, vangst, vraagFactor, PERIODES, ZWARTRIJDEN_BASIS, pakkans } from './spel.js';
+import { vraagLijn, vangst, vraagFactor, PERIODES, ZWARTRIJDEN_BASIS, pakkans, eenheden } from './spel.js';
 import { MODI, TYPE } from './vloot.js';
 import { inrichtingVan, klassenVan, vraagEffect } from './comfort.js';
 
@@ -45,7 +45,8 @@ export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
   const w = [];
   let som = 0;
   for (let i = 0; i < n; i++) { w.push(new Float64Array(n)); for (let j = i + 1; j < n; j++) { const d = Math.abs(km[j] - km[i]) / 1000; const x = V[i] * V[j] / Math.pow(d + 2, 1.3) * (0.6 + 0.8 * hash(dep, i, j)); w[i][j] = x; som += x; } }
-  const klassen = indeling(typeId, lijn.modus, lijn).map((k, i) => ({ ...k, aandeel: eff?.aandeel?.[i] }));
+  const eh = eenheden(lijn, spel.dag, dep); // spits: gekoppelde eenheden, dubbele capaciteit
+  const klassen = indeling(typeId, lijn.modus, lijn).map((k, i) => ({ ...k, zit: k.zit * eh, sta: k.sta * eh, aandeel: eff?.aandeel?.[i] }));
   const cap = klassen.reduce((s, k) => s + k.zit + k.sta, 0);
   // halte voor halte
   const uit = new Float64Array(n), haltes = [], segmenten = [];
@@ -71,7 +72,7 @@ export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
     haltes.push({ naam: volg[i].naam, in: Math.round(instap), uit: Math.round(af), achter: Math.round(achter) });
     if (i < n - 1) segmenten.push({ aanBoord: Math.round(aanBoord), metKaartje: Math.round(aanBoord - zwart) });
   }
-  const res = { haltes, segmenten, cap, klassen, totaal: Math.round(haltes.reduce((s, h) => s + h.in, 0)), achter: haltes.reduce((s, h) => s + h.achter, 0) };
+  const res = { haltes, segmenten, cap, klassen, eenheden: eh, totaal: Math.round(haltes.reduce((s, h) => s + h.in, 0)), achter: haltes.reduce((s, h) => s + h.achter, 0) };
   cache.set(sleutel, res);
   return res;
 }

@@ -209,11 +209,14 @@ export function vertrekken(lijn) {
   return uit;
 }
 
+// eenheden per rit: in de spits (werkdagen) rijden treinen met 'spitsDubbel' gekoppeld (2 eenheden)
+export const isSpits = (dag, minuten) => !isWeekend(dag) && ((minuten >= 7 * 60 && minuten < 9 * 60) || (minuten >= 16 * 60 && minuten < 18.5 * 60));
+export const eenheden = (lijn, dag, dep) => lijn.modus === 'trein' && (lijn.spitsDubbel ?? !!lijn.ai) && isSpits(dag, dep) ? 2 : 1;
 export function materieelNodig(lijn) {
   // drukste uur: ritten (beide richtingen) × (rijtijd + keertijd) / 60
   const mod = MODI[lijn.modus];
   const perUur = new Array(30).fill(0);
-  for (const r of lijn.vertrek) for (const v of r) perUur[Math.min(29, Math.floor(v / 60))]++;
+  for (const r of lijn.vertrek) for (const v of r) perUur[Math.min(29, Math.floor(v / 60))] += eenheden(lijn, 0, v); // dag 0 = werkdag
   const piek = Math.max(...perUur);
   return Math.max(1, Math.ceil(piek * (lijn.duur / 60 + mod.keer) / 60));
 }
@@ -346,7 +349,8 @@ export function verrekenUur(spel, ctx, uurBegin) {
     perDag *= eff.factor * (1 - conc * (1 - eff.marktaandeel));
     const totaalVraag = PERIODES.reduce((s, p) => s + p.vraag * (p.tot - p.van) / 60, 0);
     let reizigers = periode ? perDag * vraagFactor(spel.dag, periode) / totaalVraag : 0;
-    reizigers = Math.min(reizigers, ritten * capaciteit(lijn) * 0.8);
+    const eh = eenheden(lijn, spel.dag, uurBegin + 30);
+    reizigers = Math.min(reizigers, ritten * capaciteit(lijn) * eh * 0.8);
     reizigers *= 0.6 + 0.4 * (spel.reputatie / 100);
     const [instap, perKm] = TARIEF[lijn.modus] || TARIEF.bus;
     const ritprijs = instap + perKm * (lijn.modus === 'trein' ? Math.min(gemKm, 40) + Math.max(0, gemKm - 40) * 0.7 : gemKm);
@@ -362,7 +366,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
 
     // kosten
     const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(inrichtingVan(lijn, lijn.typeId));
-    const energie = km * kmKosten(type, spel.jaar);
+    const energie = km * kmKosten(type, spel.jaar) * eh;
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
       : lijn.modus === 'vlucht' ? ritten * (lijn.haltes.length - 1) * landingsgeld(lijn, type) : 0;
     // subsidie: per dienstregelingsuur (plus extra afgesproken met de provincie) en eventueel per reiziger

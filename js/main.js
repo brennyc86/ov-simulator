@@ -528,7 +528,9 @@ function tekenBoven(ctx, k) {
       const d = v.lijn._altD ?? (v.lijn._altD = S.altDeel(spel, v.lijn));
       if (d && Math.abs(Math.round(v.vertrek * 7 + v.r * 3)) % 100 < d * 100) tid = v.lijn.altTypeId;
     }
-    const u = uiterlijk(tid, m);
+    let u = uiterlijk(tid, m);
+    const dep = v.wacht && v.volgende ? v.volgende.dep : v.vertrek, eh = S.eenheden(v.lijn, spel.dag, dep);
+    if (eh > 1) u = { ...u, bakken: [...u.bakken, ...u.bakken], _l: u._l * 2 + (u._tussen || 1) }; // gekoppeld in de spits
     const kleur = eigen ? spel.kleur : huiskleur(v.lijn, u);
     const lang = schemaLengte(u._l) * Math.min(maat, 1.25);
     if (u._l / r >= lang && m !== 'vlucht') {
@@ -736,7 +738,7 @@ function reizigersBlok(rr, nuAan, v) {
   if (nuAan) {
     const kl = bezettingKlassen(nuAan.aanBoord, rr.klassen);
     const zwart = nuAan.aanBoord - nuAan.metKaartje;
-    html += `<p>Nu aan boord: <b>${nuAan.aanBoord}</b> van ${rr.cap} plaatsen (${pct(nuAan.aanBoord)}%) · met kaartje <b>${nuAan.metKaartje}</b>${zwart > 0 ? ` · <span style="color:var(--rood)">~${zwart} zonder</span>` : ''}</p>
+    html += `<p>${rr.eenheden > 1 ? '<span class="chip">spits: 2 eenheden gekoppeld</span> ' : ''}Nu aan boord: <b>${nuAan.aanBoord}</b> van ${rr.cap} plaatsen (${pct(nuAan.aanBoord)}%) · met kaartje <b>${nuAan.metKaartje}</b>${zwart > 0 ? ` · <span style="color:var(--rood)">~${zwart} zonder</span>` : ''}</p>
       <table class="tabel"><tr><th>Klasse</th><th class="getal">zitten</th><th class="getal">staan</th></tr>${kl.map(k => `<tr><td>${k.klasse}e klas</td><td class="getal">${k.zit} / ${k.zitMax}</td><td class="getal">${k.staMax ? `${k.sta} / ${k.staMax}` : '—'}</td></tr>`).join('')}</table>`;
   } else html += `<p class="klein">${v.wacht ? 'Het voertuig rijdt nu geen rit; hieronder de verwachting voor de rit.' : 'De rit is nog niet vertrokken of al aangekomen.'}</p>`;
   const vol = Math.max(0, ...rr.segmenten.map(x => x.aanBoord));
@@ -951,6 +953,7 @@ const PANELEN = {
       <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span></li>`).join('')}</ol>
       <h3>Voertuigen op deze lijn</h3>${voertuigTabel(l)}
       <h3>Materieel</h3>
+      ${l.modus === 'trein' ? `<label class="rij"><input type="checkbox" data-wijzig="spitsdubbel" data-id="${l.id}" ${l.spitsDubbel ? 'checked' : ''}> In de spits gekoppeld rijden (2 eenheden: dubbele capaciteit, meer materieel nodig)</label>` : ''}
       <div class="veld"><select data-wijzig="lijn-type" data-id="${l.id}">${typen.map(v => `<option value="${v.id}" ${v.id === l.typeId ? 'selected' : ''}>${esc(v.naam)} (${v.zit + v.sta} pl.)</option>`).join('')}</select></div>
       <p>Nodig: <b>${l.nodig}</b> × ${esc(t?.naam || '')} · in bezit: <b>${spel.voertuigen[l.typeId] || 0}</b>
       ${S.beschikbaarVoor(spel, l) < l.nodig ? `<br><button class="knop hoofd" data-actie="koop" data-type="${l.typeId}" data-n="${l.nodig - S.beschikbaarVoor(spel, l)}">Koop ${l.nodig - S.beschikbaarVoor(spel, l)} erbij (${S.euroKort((l.nodig - S.beschikbaarVoor(spel, l)) * (t?.prijs || 0))})</button>` : ''}</p>
@@ -1279,6 +1282,7 @@ function wijzig(w, i) {
   const l = i.dataset.id ? lijnVan(i.dataset.id) : null;
   const tijd = v => { const [h, m] = v.split(':').map(Number); let t = h * 60 + m; if (t < 4 * 60) t += 1440; return t; };
   switch (w) {
+    case 'spitsdubbel': l.spitsDubbel = i.checked; S.herbereken(l); break;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
@@ -1785,6 +1789,7 @@ async function nieuwSpelStarten() {
       const l = { haltes: [], route: null };
       vulVanAI(l, a, lijnen);
       const lijn = S.maakLijn(spel, { nr: a.nr, naam: a.naam, modus, typeId: typeVoor({ ...a, typeId: null, _typ: null }, spel.jaar, standaardType) || S.standaardTypeVoor(spel, modus), haltes: l.haltes, route: l.route, concessie: true });
+      if (modus === 'trein') { lijn.spitsDubbel = true; S.herbereken(lijn); } // zoals in het echt: in de spits gekoppeld
       lijn.echt = l.echt; lijn.bron = { vervoerder: vervoerder.id, lijnId: a.lijnId }; lijn.paden = 99; S.herbereken(lijn);
     }
     for (const l of spel.lijnen) spel.voertuigen[l.typeId] = (spel.voertuigen[l.typeId] || 0) + Math.ceil(l.nodig * 1.08);
