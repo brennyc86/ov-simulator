@@ -159,3 +159,11 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
 
 /* versie van het spel, rechtsonder */
 .versie { position: fixed; right: 6px; bottom: 4px; font-size: 11px; color: #555; background: rgba(255,255,255,.75); padding: 1px 6px; border-radius: 4px; z-index: 5; pointer-events: auto; }
+
+/* voertuig samenstellen: kaarten naast elkaar, naar rechts scrollen */
+.bouwrij { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px; align-items: stretch; }
+.bouwkaart { flex: 0 0 230px; border: 1px solid var(--lijn, #ccc); border-radius: 8px; padding: 6px; background: #fff; display: flex; flex-direction: column; gap: 4px; }
+.bouwkaart select { width: 100%; }
+.bouwkaart .foto { height: 120px; display: flex; align-items: center; justify-content: center; background: #f2f2f0; border-radius: 6px; overflow: hidden; }
+.bouwkaart .foto img { max-width: 100%; max-height: 120px; object-fit: cover; }
+.bouw-erbij { flex: 0 0 44px; font-size: 22px; }

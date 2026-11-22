@@ -8,10 +8,11 @@
 // Een SAMENSTELLING (per lijn) is een loc + losse rijtuigen (+ stuurstandrijtuig), of gekoppelde treinstellen.
 import { TYPE } from './vloot.js';
 import { bakkenVan } from './voertuig.js';
+import { prestaties, doorloop as doorloopVan, massa as massaVan, vermogen as vermogenVan } from './techniek.js';
 
 // basiscomfort en deuren (1 = gewoon, >1 = sneller in- en uitstappen, <1 = trager)
 const KENMERK = {
-  stoom3700: [3, 0.7], mat36: [5, 0.8], hondekop: [6, 0.8], planv: [5, 0.9], sgm: [4, 1.3], icm: [7, 0.85], ddr: [6, 0.9], ddz: [6.5, 1.0],
+  stoom3700: [3, 0.7], mat36: [5, 0.8], hondekop: [6, 0.8], planv: [5, 0.9], sgm: [4, 1.3], icm: [7, 0.85], icmm: [7.5, 0.85], mddm4: [6, 0.9], mddm6: [6, 0.9], ddr: [6, 0.9], ddz: [6.5, 1.0],
   virm6: [6.5, 0.95], icng5: [7.5, 1.0], slt6: [4.5, 1.4], sng4: [5, 1.35], flirt4: [5.5, 1.25], gtw: [5, 1.1], wink: [5.5, 1.1], lint41: [5, 1.0],
   buffel: [5, 1.0], ice3: [8.5, 0.8],
   coupe: [2.5, 1.3], staalrijtuig: [4, 0.8], plane: [5, 0.8], planw: [6, 0.75], icr: [7, 0.8], icrbvk: [7, 0.8], ddm1: [6, 0.9], ddm1bvk: [6, 0.9], viaggio: [8, 0.8], viaggiobvk: [8, 0.8],
@@ -332,6 +333,7 @@ export function registreerSeries(series = []) {
 // korte naam van een type voor seriebenamingen (ICM, VIRM6, SLT6 ...)
 export function kortNaam(typeId) {
   const t = TYPE[basisId(typeId)]; if (!t) return String(typeId).toUpperCase();
+  if (t.soort === 'loc') { const m = t.naam.match(/NS \d+|TRAXX|Vectron/); if (m) return m[0]; }
   const k = t.naam.split(/ \(| "|,/)[0].replace(/^Materieel /, 'Mat').replace(/^(Rijtuig|Intercityrijtuig|Dubbeldeksrijtuig) /, '').trim();
   return k.length <= 12 ? k.replace(/\s+/g, '') : t.id.toUpperCase();
 }
@@ -356,8 +358,12 @@ export function samenstelling(ids) {
   const acc = locs.length ? Math.min(...locs.map(l => l.acc)) * Math.min(1.25, Math.sqrt(6 * locs.length / Math.max(1, getrokken + units.length * 4)))
     : Math.min(...d.map(x => x.acc || 1));
   const stuur = d.some(x => x.soort === 'stuurstand') || locs.length >= 2 || (!locs.length && units.length > 0) || d[d.length - 1]?.soort === 'loc' && d[0]?.soort === 'loc';
-  const t = { id, samen: ids, modus: 'trein', naam: ids.map(c => kortNaam(c)).join(' + '), zit: d.reduce((a, x) => a + x.zit, 0), sta: d.reduce((a, x) => a + x.sta, 0),
-    vmax: Math.min(...d.map(x => x.vmax)), acc, prijs: d.reduce((a, x) => a + x.prijs, 0), km: d.reduce((a, x) => a + x.km, 0),
+  // prestaties uit vermogen en gewicht: topsnelheid (bouw en vermogen) en optrekken met dit gewicht
+  const p = prestaties(ids.map(c => ({ id: c })), c => bakkenVan(c, 'trein'));
+  const naamDelen = []; for (const c of ids) { const k = kortNaam(c), l = naamDelen[naamDelen.length - 1]; if (l && l.k === k) l.n++; else naamDelen.push({ k, n: 1 }); }
+  const t = { id, samen: ids, modus: 'trein', naam: naamDelen.map(x => (x.n > 1 ? x.n + '× ' : '') + x.k).join(' + '), zit: d.reduce((a, x) => a + x.zit, 0), sta: d.reduce((a, x) => a + x.sta, 0),
+    vmax: p.kw ? Math.round(p.vmax) : Math.min(...d.map(x => x.vmax)), acc: p.kw ? p.acc : acc, kw: p.kw, ton: p.ton, vmaxVermogen: p.vmaxVermogen,
+    doorloop: ids.every((c, i) => i === 0 || (doorloopVan(ids[i - 1]) && doorloopVan(c))), prijs: d.reduce((a, x) => a + x.prijs, 0), km: d.reduce((a, x) => a + x.km, 0),
     energie: (locs[0] || units[0] || d[0]).energie, pers: Math.max(1, ...d.map(x => x.pers || 0)), leven: Math.min(...d.map(x => x.leven)),
     van: Math.max(...d.map(x => x.van)), tot: Math.min(...d.map(x => x.tot)), wie: '', keerExtra: stuur ? 0 : 15, zonderTrekkracht: !locs.length && !units.length };
   TYPE[id] = t;

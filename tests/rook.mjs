@@ -179,11 +179,11 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
       for (const s2 of [a, b]) { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); }
       await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300);
       const nr = document.getElementById('nl-nr'); nr.value = 'IC99';
-      document.querySelector('[data-actie="nl-interieur"]')?.click(); await wacht(50);
+      document.querySelector('[data-actie="nl-bouwer"]')?.click(); await wacht(50);
       log('interieur vanuit nieuwe lijn:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160));
-      document.querySelector('[data-actie="sw-splits"][data-w="0"]')?.click(); await wacht(30);
-      document.getElementById('sn-n').value = 3; document.querySelector('[data-actie="serie-koop"]')?.click(); await wacht(80);
-      const sel = document.getElementById('nl-type'); log('terug bij lijn: gekozen', sel?.value, globalThis.__ovTest.spel.series.find(x => x.id === sel?.value)?.naam, '| nr', document.getElementById('nl-nr')?.value);
+      const e0 = document.querySelector('[data-wijzig="bw-type"][data-i="0"]'); e0.value = [...e0.options].find(o => /SNG|FLIRT|ICNG/.test(o.textContent))?.value || e0.options[1].value; e0.dispatchEvent(new window.Event('change')); await wacht(40);
+      document.getElementById('bw-aantal').value = 3; document.querySelector('[data-actie="bw-koop"]')?.click(); await wacht(80);
+      const sel = document.getElementById('nl-type'); log('terug bij lijn: gekozen', sel?.value, '| nr', document.getElementById('nl-nr')?.value, '|', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').match(/Rijtijd.{0,140}/)?.[0]);
       document.querySelector('[data-actie="lijn-annuleer"]')?.click(); await wacht(30); }
     // richtingen: eenrichting Amersfoort -> Amsterdam met terugweg via Utrecht, en een rondlijn
     const u = st('Utrecht Centraal'); const klikSt = async s2 => { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); };
@@ -338,6 +338,22 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     document.querySelector(`[data-actie="stroom-toon"][data-id="${l.id}"]`)?.click(); await wacht(30); log('gestippeld:', globalThis.__map.src['perron-voorstel']?.data?.features?.length);
     document.querySelector(`[data-actie="stroom-aanleg"][data-id="${l.id}"]`)?.click(); await wacht(40);
     log('na aanleg:', JSON.stringify(S1.stroomCheck(sp, net, l)).slice(0, 80), 'actief', l.actief, l.wacht); } }
+// voertuig samenstellen: loc + 3 dubbeldeksrijtuigen + stuurstand (1990), kopen, kopiëren
+{ const sp = globalThis.__ovTest.spel, tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  document.querySelector('[data-paneel="vloot"]').click(); await wacht(30);
+  document.querySelector('[data-actie="bouwer-open"][data-m="trein"]')?.click(); await wacht(30);
+  const zet = async (i, v) => { const e = document.querySelector(`[data-wijzig="bw-type"][data-i="${i}"]`); if (!e) { log('geen kaart', i); return; } e.value = v; e.dispatchEvent(new window.Event('change')); await wacht(30); };
+  const los = (await import('../js/vloot.js')).beschikbaarLos(sp.jaar), loc = los.find(x => x.soort === 'loc'), rt = los.find(x => x.soort === 'rijtuig'), st = los.find(x => x.soort === 'stuurstand');
+  if (loc && rt) { await zet(0, loc.id); document.querySelector('[data-actie="bw-erbij"]').click(); await wacht(30); await zet(1, rt.id); await zet(2, st ? st.id : loc.id);
+    const n = document.querySelector('[data-wijzig="bw-n"][data-i="1"]'); n.value = 3; n.dispatchEvent(new window.Event('change')); await wacht(30);
+    log('bouwer:', tekst().slice(tekst().indexOf('Topsnelheid') - 120, tekst().indexOf('Topsnelheid') + 260));
+    log('foto/tekening kaart 0:', document.querySelector('.bouwkaart .foto')?.innerHTML.slice(0, 60));
+    document.querySelector('[data-actie="bw-ink"][data-i="1"]')?.click(); await wacht(30); log('interieur in bouwer:', tekst().slice(0, 100));
+    document.querySelector('[data-actie="sw-splits"][data-w="0"]')?.click(); await wacht(20); document.querySelector('[data-actie="serie-kies"]')?.click(); await wacht(30);
+    log('na interieur: kaart 1 =', sp.series.find(x => x.id === document.querySelector('[data-wijzig="bw-type"][data-i="1"]')?.value)?.naam);
+    sp.geld += 100e6; document.getElementById('bw-aantal').value = 2; document.querySelector('[data-actie="bw-koop"]')?.click(); await wacht(40);
+    log('gekocht samenstelling:', JSON.stringify(sp.samenstellingen), '| vloot:', tekst().match(/Samengestelde treinen.{0,160}/)?.[0]);
+    document.querySelector('[data-actie="bouwer-open"][data-type]')?.click(); await wacht(30); log('kopie:', tekst().match(/Topsnelheid.{0,80}/)?.[0]); } }
 // drukte: provincie waarschuwt en trekt na 7 dagen de subsidie in
 { const sp = globalThis.__ovTest.spel, l = sp.lijnen.find(x => !x.bijzonder && x.actief);
   if (l) { l.concessie = true; const r = [];
