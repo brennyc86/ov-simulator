@@ -348,10 +348,12 @@ export class Net {
     }
     return m === 9 ? 2 : m;
   }
-  voegEigenSpoorToe(punten, eigenaar, sporen, jaar) {
+  voegEigenSpoorToe(punten, eigenaar, sporen, jaar, soort = 0, dienst = 0) {
+    // soort: 0 = trein, 2 = metro, 3 = tram; dienst 1 = opstelspoor (voor omlopen, geen doorgaand verkeer)
+    const modus = soort === 2 ? 'metro' : soort === 3 ? 'tram' : 'trein';
     // begin en eind worden aan het dichtstbijzijnde spoor gekoppeld (binnen 250 m), anders losse eindpunten
     const koppel = (p) => {
-      const d = this.dichtsteTak(p[0], p[1], 'trein', jaar, 250);
+      const d = this.dichtsteTak(p[0], p[1], modus, jaar, 250);
       if (d) {
         if (d.s < 5) return d.t.a;
         if (d.t.lengte - d.s < 5) return d.t.b;
@@ -367,7 +369,7 @@ export class Net {
     pts.push(this.knoopX(b), this.knoopY(b));
     let lengte = 0;
     for (let k = 2; k < pts.length; k += 2) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
-    const t = { i: 1e6 + this.eigen.length, a, b, soort: 0, dienst: 0, gebruik: 0, sporen, vmax: 140, elek: 1,
+    const t = { i: 1e6 + this.eigen.length, a, b, soort, dienst, gebruik: 0, sporen, vmax: dienst ? 30 : soort === 3 ? 50 : soort === 2 ? 80 : 140, elek: 1,
       start: jaar, eind: 0, naam: 0, pts, lengte, bbox: bboxVan(pts), eigenaar };
     this.eigen.push(t);
     this.bouwBuren();

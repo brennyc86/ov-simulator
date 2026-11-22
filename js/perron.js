@@ -173,12 +173,14 @@ export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250
   const naastPerron = r.soort === 'perron';
   if ((vorm === 'langs' || vorm === 'kopLangs') && !naastPerron) vorm = vorm === 'langs' ? 'zij' : 'kop';
   const T = teken, D1 = spoorD, pa = raak.s - lengte / 2, pb = raak.s + lengte / 2;
-  const kop = vorm.startsWith('kop');
+  const kop = vorm.startsWith('kop') || vorm.startsWith('opstel');
   // kopspoor: wissel aan één eind (eind = 1: aan de 'voor'-kant), stootjuk aan het andere eind van het perron
   const [ka, kb, bA, bB] = !kop ? [s0, s1, true, true] : eind > 0 ? [pa, s1, false, true] : [s0, pb, true, false];
   const sporen = [], vlakken = [];
   const bE = 8, bZ = breedte; // breedte eilandperron en zijperron
-  if (vorm === 'zij' || vorm === 'kop') { sporen.push(spoorOp(D1, ka, kb, bA, bB)); vlakken.push(perronOp(D1 + T * 1.65, D1 + T * (1.65 + bZ), pa, pb)); }
+  if (vorm === 'opstel') sporen.push(spoorOp(D1, ka, kb, bA, bB));
+  else if (vorm === 'opstel2') sporen.push(spoorOp(D1, ka, kb, bA, bB), spoorOp(D1 + T * 4.5, ka, kb, bA, bB));
+  else if (vorm === 'zij' || vorm === 'kop') { sporen.push(spoorOp(D1, ka, kb, bA, bB)); vlakken.push(perronOp(D1 + T * 1.65, D1 + T * (1.65 + bZ), pa, pb)); }
   else if (vorm === 'langs' || vorm === 'kopLangs') sporen.push(spoorOp(D1, ka, kb, bA, bB));
   else if (vorm === 'eiland' || vorm === 'kop2') {
     const D2 = D1 + T * (3.3 + bE);
@@ -195,21 +197,23 @@ export function ontwerpVerdubbeling(net, perrons, x, y, jaar, kant = 0) {
   const raak = net.dichtsteTak(x, y, 'trein', jaar, 150);
   if (!raak) return { fout: 'Hier ligt geen spoor.' };
   const t = raak.t;
-  if ((t.sporen || 1) >= 2) return { fout: 'Dit stuk is al dubbelspoor.' };
-  if (t.lengte < 150) return { fout: 'Dit stuk spoor is te kort om te verdubbelen (minder dan 150 m tussen twee wissels).' };
+  if (t.lengte < 150) return { fout: 'Dit stuk spoor is te kort voor een extra spoor (minder dan 150 m tussen twee wissels).' };
+  if ((t.sporen || 1) >= 6) return { fout: 'Hier liggen al zes sporen naast elkaar.' };
   let as = herbemonster(net.stuk(t, 0, t.lengte), 10);
   const n = as.length / 2, cum = [0];
   for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(as[i * 2] - as[i * 2 - 2], as[i * 2 + 1] - as[i * 2 - 1]));
   const normaal = i => { const j = Math.min(n - 1, i + 1), h = Math.max(0, i - 1); let lx = as[j * 2] - as[h * 2], ly = as[j * 2 + 1] - as[h * 2 + 1]; const ll = Math.hypot(lx, ly) || 1; return [lx / ll, ly / ll]; };
-  // welke kant is vrij? tel obstakels (ander spoor, perrons) op 4,5 m
-  const obstakels = tk => { let k = 0; for (let i = 0; i < n; i += 3) { const [lx, ly] = normaal(i), px = as[i * 2] - ly * 4.5 * tk, py = as[i * 2 + 1] + lx * 4.5 * tk; const d = net.dichtsteTak(px, py, 'trein', jaar, 2); if ((d && d.t !== t) || perrons.op(px, py)) k++; } return k; };
-  const tk = kant || (obstakels(1) <= obstakels(-1) ? 1 : -1);
+  // welke kant is vrij? tel obstakels (ander spoor, perrons) op afstand D; bij dubbelspoor eerst voorbij de bestaande sporen
+  const obstakels = (tk, D) => { let k = 0; for (let i = 0; i < n; i += 3) { const [lx, ly] = normaal(i), px = as[i * 2] - ly * D * tk, py = as[i * 2 + 1] + lx * D * tk; const d = net.dichtsteTak(px, py, 'trein', jaar, 2); if ((d && d.t !== t) || perrons.op(px, py)) k++; } return k; };
+  const vrijeAfstand = tk => { for (let D = 4.5; D <= 27; D += 4.5) if (obstakels(tk, D) <= Math.ceil(n / 3 * 0.1)) return D; return 27; };
+  const dL = vrijeAfstand(1), dR = vrijeAfstand(-1);
+  const tk = kant || (dL < dR ? 1 : dR < dL ? -1 : obstakels(1, 4.5) <= obstakels(-1, 4.5) ? 1 : -1), Dv = tk > 0 ? dL : dR;
   const boog = Math.min(120, t.lengte / 3), L = cum[n - 1], punten = [];
   for (let i = 0; i < n; i++) {
     const f = Math.min(1, cum[i] / boog, (L - cum[i]) / boog), g = f * f * (3 - 2 * f), [lx, ly] = normaal(i);
-    punten.push([Math.round((as[i * 2] - ly * 4.5 * tk * g) * 10) / 10, Math.round((as[i * 2 + 1] + lx * 4.5 * tk * g) * 10) / 10]);
+    punten.push([Math.round((as[i * 2] - ly * Dv * tk * g) * 10) / 10, Math.round((as[i * 2 + 1] + lx * Dv * tk * g) * 10) / 10]);
   }
-  return { punten, sporen: [punten], vlakken: [], perron: null, kant: tk, lengte: L, tak: t.i, vrij: obstakels(tk) === 0 };
+  return { punten, sporen: [punten], vlakken: [], perron: null, kant: tk, lengte: L, tak: t.i, vrij: obstakels(tk, Dv) === 0, bestaand: Math.max(t.sporen || 1, Math.round(Dv / 4.5)), afstand: Dv };
 }
 
 // Een eenvoudig perron langs een spoorlijn (voor oude stations zonder ingetekend perron).

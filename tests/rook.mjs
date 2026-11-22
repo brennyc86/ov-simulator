@@ -269,6 +269,27 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   const h0 = sp.haltes.length; document.querySelector('[data-actie="bus-bouw"]')?.click(); await wacht(30);
   sp.tijd += 125; globalThis.__ovTest.bouwOpleveren();
   log('busstation:', sp.haltes.slice(h0).map(h => h.naam).join(', '), '| perrons', (sp.perronVormen || []).filter(v => v.bus).length); }
+// spoor tekenen: automatisch tracé om de bebouwing heen, bestaand spoor hergebruiken, soorten
+{ const sp = globalThis.__ovTest.spel, tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  const G7 = await import('../js/geo.js'), klikRD = async (x, y) => { const [la, lo] = G7.rdNaarWgs(x, y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(30); };
+  const spoorTest = async (soort, punten, label) => {
+    globalThis.__map.easeTo({ center: G7.rdNaarWgs(...punten[0]).reverse(), zoom: 9 }); await wacht(30);
+    document.querySelector('[data-tool="spoor"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === soort).click();
+    for (const p of punten) await klikRD(...p);
+    [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(80);
+    log(label, '→', tekst().slice(0, 260));
+    return sp.spoor.length; };
+  // Amersfoort -> Harderwijk-achtig, via weiland (2 klikken)
+  await spoorTest('Treinspoor', [[155000, 463000], [172000, 482000]], 'auto-tracé');
+  log('ankers', globalThis.__ovTest.paneel?.ankers?.length);
+  sp.geld += 300e6; const s0 = sp.spoor.length; document.querySelector('[data-actie="spoor-zelf"]')?.click(); await wacht(40); log('aangelegd: stukken', sp.spoor.length - s0, 'soort', sp.spoor.at(-1)?.soort);
+  // langs bestaand spoor Amersfoort - Baarn: moet grotendeels hergebruikt worden
+  const am = globalThis.__ovTest.stations.find(x => x.n === 'Amersfoort Centraal'), ba = globalThis.__ovTest.stations.find(x => x.n === 'Baarn');
+  if (am && ba) { await spoorTest('Treinspoor', [[am.x, am.y], [(am.x + ba.x) / 2, (am.y + ba.y) / 2], [ba.x, ba.y]], 'langs bestaand'); document.querySelector('[data-actie="spoor-stop"]')?.click(); }
+  await spoorTest('Tramspoor', [[121000, 487000], [123000, 489000]], 'tram'); document.querySelector('[data-actie="spoor-stop"]')?.click();
+  await spoorTest('Trolleybus-bovenleiding', [[190000, 444000], [192000, 446000]], 'trolley'); document.querySelector('[data-actie="spoor-zelf"]')?.click(); await wacht(30);
+  sp.tijd += 125; globalThis.__ovTest.bouwOpleveren(); log('na 2 uur: bovenleiding klaar', (sp.bovenleiding || []).every(b => b.klaar), 'spoor klaar', sp.spoor.slice(s0).every(x => x.klaar));
+  document.querySelector('[data-tool="kijk"]')?.click(); }
 // lening afsluiten en aflossen
 { const sp = globalThis.__ovTest.spel; const g0 = sp.geld; document.querySelector('[data-paneel="geld"]').click(); await wacht(30);
   document.querySelector('[data-actie="lenen"][data-b="10000000"]')?.click(); await wacht(20);
@@ -289,7 +310,7 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   // verdubbelen: een stuk enkelspoor zoeken
   const t = globalThis.__ovTest.net.takken.find(x => x.sporen === 1 && x.dienst === 0 && x.soort === 0 && x.lengte > 2000 && x.lengte < 6000 && !x.eind);
   if (t) { const m = t.pts.length >> 1 & ~1; const [la2, lo2] = G3.rdNaarWgs(t.pts[m], t.pts[m + 1]); globalThis.__map.easeTo({ center: [lo2, la2], zoom: 15 }); await wacht(50);
-    document.querySelector('[data-tool="spoor"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Enkelspoor verdubbelen').click();
+    document.querySelector('[data-tool="spoor"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Spoor erbij (2e, 3e, 4e spoor)').click();
     globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(60); log('verdubbelvoorstel:', tekst().slice(0, 260));
     document.querySelector('[data-actie="perron-bouw"]')?.click(); await wacht(40);
     const t0 = sp.tijd; sp.tijd += 130; globalThis.__ovTest.bouwOpleveren(); globalThis.__ovTest.hud();
