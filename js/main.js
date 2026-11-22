@@ -747,7 +747,7 @@ function dagVoorbij() {
   // vergoedingen die je per jaar betaalt of ontvangt
   for (const a of spel.afspraken || []) { spel.geld += a.bedrag / 365; spel.maand.overig -= a.bedrag / 365; }
   if (spel.dag % 30 === 0) {
-    S.maandAfsluiten(spel);
+    spel.lening_rente = leningRente(); S.maandAfsluiten(spel);
     const m = spel.historie[spel.historie.length - 1];
     melding(`Maand afgesloten: resultaat ${S.euro(m.resultaat)}, ${Math.round(m.reizigers).toLocaleString('nl-NL')} reizigers.`, 6000);
     if (spel.dag % 360 === 0) { spel.jaar++; jaarBijwerken(); melding(`Gelukkig nieuwjaar: het is nu ${spel.jaar}.`); }
@@ -1262,10 +1262,11 @@ const PANELEN = {
     return `<h2>Financiën</h2><p>Kas: <b>${S.euro(spel.geld)}</b> · reputatie <b>${Math.round(spel.reputatie)}</b>/100</p>
       <h3>Lopende maand (dag ${spel.dag % 30 + 1} van 30)</h3><table class="tabel">
       ${rij('Kaartjes', m.kaartjes)}${rij('Boetes zwartrijders', m.boetes)}${rij('Subsidie (concessies)', m.subsidie)}
-      ${rij('Personeel', m.personeel, true)}${rij('Energie en onderhoud', m.energie, true)}${rij('Spoorhuur (ProRail, baan en bovenleiding)', m.gebruik, true)}${m.overig ? rij('Overig / afspraken', m.overig, true) : ''}
+      ${rij('Personeel', m.personeel, true)}${rij('Energie en onderhoud', m.energie, true)}${rij('Spoorhuur (ProRail, baan en bovenleiding)', m.gebruik, true)}${m.overig ? rij('Overig / afspraken', m.overig, true) : ''}${spel.lening ? rij('Rente lening (aan het eind van de maand)', spel.lening * leningRente() / 12, true) : ''}
       <tr><th>Reizigers</th><th class="getal">${Math.round(m.reizigers).toLocaleString('nl-NL')}</th></tr></table>
       ${h.length ? `<h3>Resultaat per maand</h3><div style="display:flex;align-items:flex-end;gap:3px;height:90px;border-bottom:1px solid var(--lijn)">${h.map(x => `<div title="${S.euro(x.resultaat)}" style="flex:1;height:${Math.max(2, Math.abs(x.resultaat) / max * 88)}px;background:${x.resultaat < 0 ? 'var(--rood)' : 'var(--groen)'};border-radius:2px 2px 0 0"></div>`).join('')}</div>
       <p class="klein">Resultaat inclusief afschrijving van de vloot. Laatste maand: ${S.euro(h[h.length - 1].resultaat)}.</p>` : '<p class="klein">Na 30 speldagen verschijnt hier je eerste maandresultaat.</p>'}
+      ${leningBlok()}
       <h3>Klassen en toeslagen</h3><p class="klein">Prijs per klasse in % van het standaardtarief; geldt voor al je lijnen. Met een kaartje voor een hogere klasse mag je lager zitten, niet andersom.</p>
       <div class="raster2">${KLASSEN.map(k => `<label class="veld">${KLASSE_NAAM[k]}<input type="number" min="10" max="600" step="5" value="${Math.round(klassePrijs(k) * 100)}" data-wijzig="kprijs" data-k="${k}"></label>`).join('')}</div>
       <h3>Spel</h3><div class="rij"><button class="knop" data-actie="bewaar">Nu opslaan</button><button class="knop" data-actie="nieuw">Nieuw spel / laden</button></div>`;
@@ -1396,7 +1397,7 @@ function koppel(el) {
 }
 const lijnVan = id => spel.lijnen.find(l => l.id === id);
 function betaal(bedrag, wat) {
-  if (spel.geld - bedrag < -20e6) { melding(`Te weinig geld voor ${wat}. Je kunt maximaal € 20 mln rood staan.`); return false; }
+  if (spel.geld - bedrag < -20e6) { melding(`Te weinig geld voor ${wat}. Je kunt maximaal € 20 mln rood staan. Sluit een lening af bij Geld → Lening.`, 8000); return false; }
   spel.geld -= bedrag; spel.maand.overig += 0; return true;
 }
 function actie(a, d) {
@@ -1444,6 +1445,8 @@ function actieUit(a, d) {
       melding(`Gekocht: ${tekort.map(([c, n]) => `${n} × ${TYPE[c].naam}`).join(', ')} (${S.euroKort(kosten)}).`); ververs(); break;
     }
     case 'paneel': openPaneel(d.p); break;
+    case 'lenen': { const b = Math.min(+d.b, leningMax() - (spel.lening || 0)); if (b <= 0) break; spel.lening = (spel.lening || 0) + b; spel.geld += b; melding(`${S.euroKort(b)} geleend. Rente ${komma(leningRente() * 100)}% per jaar.`); ververs(); hud(); break; }
+    case 'aflossen': { const b = Math.min(+d.b, spel.lening || 0); if (b <= 0 || spel.geld - b < -20e6) { melding('Niet genoeg geld om af te lossen.'); break; } spel.lening -= b; spel.geld -= b; melding(`${S.euroKort(b)} afgelost.`); ververs(); hud(); break; }
     case 'serie-koop': case 'serie-verbouw': {
       const dd = paneelData, n = Math.max(1, Math.round(+$('sn-n')?.value || 1)), naam = $('sn-naam')?.value;
       if (a === 'serie-koop') {
@@ -1950,6 +1953,18 @@ function stationOntwerp(d) {
   return o;
 }
 const stationKosten = (o, d) => Math.round(((d?.soort === 'halte' ? 0.5e6 : 2e6) + (d?.combi ? 3e6 : 0) + o.lengte * 2500 + o.vlakken.reduce((a, v, i) => a + 2e6, 0) + o.eilanden * 1e6) / 1e5) * 1e5;
+// ---------------------------------------------------------------- lening
+// Lenen bij de bank om te investeren. Rente per maand; hoe meer je leent t.o.v. je bezit, hoe hoger de rente.
+function bezitWaarde() { let w = 0; for (const [id, n] of Object.entries(spel.voertuigen)) w += n * (TYPE[id]?.prijs || 0) * 0.5; return w + spel.spoor.filter(x => x.eigenaar === 'speler').reduce((a, x) => a + (x.kosten || 0) * 0.5, 0); }
+const leningMax = () => Math.round((20e6 + bezitWaarde() * 0.8) / 1e6) * 1e6;
+const leningRente = () => (spel.jaar < 1950 ? 0.05 : spel.jaar < 1980 ? 0.07 : spel.jaar < 2010 ? 0.055 : 0.04) + 0.04 * Math.min(1, (spel.lening || 0) / Math.max(1, leningMax()));
+function leningBlok() {
+  const l = spel.lening || 0, max = leningMax(), ruimte = Math.max(0, max - l);
+  return `<h3>Lening</h3><p>Geleend: <b>${S.euro(l)}</b> · rente ${komma(leningRente() * 100)}% per jaar (${S.euro(l * leningRente() / 12)} per maand) · je kunt nog ${S.euroKort(ruimte)} lenen.</p>
+    <p class="klein">De bank leent tot € 20 mln plus 80% van de waarde van je materieel en eigen spoor. Hoe meer je leent, hoe hoger de rente.</p>
+    <div class="rij">${[1e6, 5e6, 10e6, 25e6, 100e6].filter(b => b <= ruimte).map(b => `<button class="knop klein" data-actie="lenen" data-b="${b}">＋ ${S.euroKort(b)} lenen</button>`).join('')}</div>
+    ${l ? `<div class="rij">${[1e6, 5e6, 10e6].filter(b => b <= l).map(b => `<button class="knop klein" data-actie="aflossen" data-b="${b}">− ${S.euroKort(b)} aflossen</button>`).join('')}<button class="knop klein" data-actie="aflossen" data-b="${l}">Alles aflossen</button></div>` : ''}`;
+}
 function perronVoorstelWissen() { perronOntwerp = null; kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [] }); }
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
   let beste = null, bd = maxPx;
@@ -2250,7 +2265,7 @@ async function nieuwSpelStarten() {
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
   registreerSeries([]); zetKlassePrijzen(null);
-  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: 25e6 });
+  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 25e6) });
   if (hist) {
     zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });

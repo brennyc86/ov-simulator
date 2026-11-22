@@ -478,6 +478,8 @@ export function maandAfsluiten(spel) {
   // poortjes: onderhoud
   const poortjes = spel.controle.poortjes ? spel.haltes.filter(h => h.modus === 'trein' || h.modus === 'metro').length * 4000 : 0;
   m.afschrijving = afschr; m.overig += poortjes;
+  // rente op de lening (zelfde formule als in het geldpaneel)
+  if (spel.lening) { const rente = spel.lening * spel.lening_rente / 12 || 0; m.rente = rente; m.overig += rente; spel.geld -= rente; }
   spel.geld -= poortjes; // afschrijving is geen kasuitgave: aanschaf is al betaald
   m.inkomsten = m.kaartjes + m.boetes + m.subsidie;
   m.resultaat = m.inkomsten - m.personeel - m.energie - m.gebruik - m.overig - afschr;

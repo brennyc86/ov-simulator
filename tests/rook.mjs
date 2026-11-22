@@ -220,12 +220,12 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   if (t) { const m = t.pts.length >> 1 & ~1; const G4 = await import('../js/geo.js'), [la, lo] = G4.rdNaarWgs(t.pts[m], t.pts[m + 1]); globalThis.__map.easeTo({ center: [lo, la], zoom: 16 }); await wacht(50);
     document.querySelector('[data-tool="station"]').click(); globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(60);
     log('nieuw station:', tekst().slice(0, 300));
-    const zs = document.querySelector('[data-wijzig="ns-sporen"]'); zs.value = '6'; zs.dispatchEvent(new window.Event('change')); await wacht(40);
+    const zs = document.querySelector('[data-wijzig="ns-sporen"]'); if (!zs) { log('geen stationspaneel (spoor bestaat niet in dit jaar)'); } else { zs.value = '6'; zs.dispatchEvent(new window.Event('change')); await wacht(40);
     const dg = document.querySelector('[data-wijzig="ns-doorgaand"]'); dg.checked = true; dg.dispatchEvent(new window.Event('change')); await wacht(40);
     log('weesp-variant:', tekst().match(/Doorsnede.{0,160}/)?.[0]);
     const h0 = sp.haltes.length, s0 = sp.spoor.length; document.querySelector('[data-actie="station-zelf"]').click(); await wacht(50);
     log('gebouwd: station', sp.haltes.length - h0, 'sporen', sp.spoor.length - s0, 'perrons', (sp.perronVormen || []).filter(v => v.station === sp.haltes.at(-1)?.naam).length, '| projecten', document.getElementById('b-bouw')?.textContent);
-    sp.tijd += 125; globalThis.__ovTest.bouwOpleveren(); log('na 2 uur: station klaar', !!sp.haltes.at(-1)?.opgeleverd, 'sporen klaar', sp.spoor.slice(s0).every(x => x.klaar)); }
+    sp.tijd += 125; globalThis.__ovTest.bouwOpleveren(); log('na 2 uur: station klaar', !!sp.haltes.at(-1)?.opgeleverd, 'sporen klaar', sp.spoor.slice(s0).every(x => x.klaar)); } }
   document.querySelector('[data-tool="kijk"]')?.click(); }
 // nieuw station op het traject van een sprinter: daarna stopt die er; intercity's niet
 { const sp = globalThis.__ovTest.spel, AIx = globalThis.__ovTest.ai;
@@ -246,6 +246,11 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     gedaan = true; break; }
   if (!gedaan) log('geen sprinter gevonden voor stationstest; kandidaten', cand.length, 'treinlijnen', AIx.lijnen.filter(a => a.modus === 'trein').length, AIx.lijnen.filter(a => a.modus === 'trein').slice(0, 5).map(a => a.nr + '/' + a.haltes.length).join(' '));
   document.querySelector('[data-tool="kijk"]')?.click(); }
+// lening afsluiten en aflossen
+{ const sp = globalThis.__ovTest.spel; const g0 = sp.geld; document.querySelector('[data-paneel="geld"]').click(); await wacht(30);
+  document.querySelector('[data-actie="lenen"][data-b="10000000"]')?.click(); await wacht(20);
+  log('lening:', sp.lening, 'geld +', Math.round(sp.geld - g0), '|', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').match(/Geleend.{0,120}/)?.[0]);
+  document.querySelector('[data-actie="aflossen"][data-b="5000000"]')?.click(); await wacht(20); log('na aflossen:', sp.lening); }
 // perrons: vormen, eilandperron bouwen, voortgang, versneld bouwen; enkelspoor verdubbelen
 { const sp = globalThis.__ovTest.spel, st = globalThis.__ovTest.stations.find(x => x.n === 'Naarden-Bussum') || globalThis.__ovTest.stations.find(x => x.s === 'trein');
   const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
