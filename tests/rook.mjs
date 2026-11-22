@@ -196,6 +196,28 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
       const omp = O.maakOmloop([heen, terug].map(x => (x.actief = true, x)), true); heen.paar = terug.id; S0.herbereken(heen); log('heen + aparte terugweg:', omp.voertuigen.length, 'voertuigen, lege ritten', omp.voertuigen.reduce((n, v) => n + v.ritten.filter(x => x.leeg).length, 0));
     }
   } else log('stations niet gevonden voor bouwtest'); }
+// perrons: vormen, eilandperron bouwen, voortgang, versneld bouwen; enkelspoor verdubbelen
+{ const sp = globalThis.__ovTest.spel, st = globalThis.__ovTest.stations.find(x => x.n === 'Naarden-Bussum') || globalThis.__ovTest.stations.find(x => x.s === 'trein');
+  const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  const G3 = await import('../js/geo.js'), [la, lo] = G3.rdNaarWgs(st.x, st.y); globalThis.__map.easeTo({ center: [lo, la], zoom: 16 }); await wacht(50);
+  document.querySelector('[data-tool="perron"]')?.click(); globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(80);
+  log('perronvoorstel:', tekst().slice(0, 300));
+  for (const v of ['eiland', 'kop', 'kop2', 'langs', 'kopLangs']) { const r = document.querySelector(`[data-wijzig="perron-vorm"][value="${v}"]`); if (!r) { log('vorm niet aangeboden:', v); continue; } r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(40); log('vorm', v, '→', tekst().match(/Kosten.{0,60}/)?.[0]); }
+  const r = document.querySelector('[data-wijzig="perron-vorm"][value="eiland"]'); r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(40);
+  const n0 = sp.spoor.length; document.querySelector('[data-actie="perron-bouw"]')?.click(); await wacht(50);
+  log('gebouwd: sporen erbij', sp.spoor.length - n0, '| bouw-teller', document.getElementById('b-bouw')?.textContent);
+  document.querySelector('[data-paneel="bouw"]').click(); await wacht(30); log('bouwpaneel:', tekst().slice(0, 300));
+  document.querySelector('[data-actie="spoed"]')?.click(); await wacht(30); log('na versnellen:', tekst().match(/Klaar om.{0,80}/)?.[0]);
+  // verdubbelen: een stuk enkelspoor zoeken
+  const t = globalThis.__ovTest.net.takken.find(x => x.sporen === 1 && x.dienst === 0 && x.soort === 0 && x.lengte > 2000 && x.lengte < 6000 && !x.eind);
+  if (t) { const m = t.pts.length >> 1 & ~1; const [la2, lo2] = G3.rdNaarWgs(t.pts[m], t.pts[m + 1]); globalThis.__map.easeTo({ center: [lo2, la2], zoom: 15 }); await wacht(50);
+    document.querySelector('[data-tool="spoor"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Enkelspoor verdubbelen').click();
+    globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(60); log('verdubbelvoorstel:', tekst().slice(0, 260));
+    document.querySelector('[data-actie="perron-bouw"]')?.click(); await wacht(40);
+    const t0 = sp.tijd; sp.tijd += 130; globalThis.__ovTest.bouwOpleveren(); globalThis.__ovTest.hud();
+    log('na 130 spelminuten: tak sporen', t.sporen, '| open projecten', document.getElementById('b-bouw')?.hidden ? 0 : document.getElementById('b-bouw')?.textContent); }
+  else log('geen enkelspoor gevonden');
+  document.querySelector('[data-tool="kijk"]')?.click(); }
 // nieuwe bushalte: echte naam (halte uit de dienstregeling in de buurt, of straat uit de kaart)
 { const sp = globalThis.__ovTest.spel; globalThis.__map.querySourceFeatures = (src, o) => o.sourceLayer === 'transportation_name' ? [{ properties: { name: 'Stationsplein', class: 'minor' }, geometry: { type: 'LineString', coordinates: [[globalThis.__map.c.lng - 0.001, globalThis.__map.c.lat], [globalThis.__map.c.lng + 0.001, globalThis.__map.c.lat]] } }] : [];
   const G2 = await import('../js/geo.js'), [bla, blo] = G2.rdNaarWgs(153760, 462290);

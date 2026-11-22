@@ -89,7 +89,7 @@ function herbemonster(pts, stap) {
 
 // Ontwerp voor een extra spoor met perron bij station (x, y).
 // kant: 0 = automatisch (kant met de minste bebouwing), 1/-1 = links/rechts
-export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250, breedte = 5 } = {}) {
+export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250, breedte = 5, vorm = 'zij', eind = 1 } = {}) {
   const raak = net.dichtsteTak(x, y, 'trein', jaar, 400);
   if (!raak) return null;
   const t = raak.t;
@@ -131,7 +131,7 @@ export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250
     return Math.min(650, l);
   };
   const achter = r.soort === 'perron' ? reik(-1) : lengte / 2, voor = r.soort === 'perron' ? reik(1) : lengte / 2;
-  // spoor: langs de bestaande as, met wisselbogen van 120 m aan beide kanten
+  // spoor: langs de bestaande as, met wisselbogen van 120 m
   const boog = 120;
   const s0 = raak.s - achter - boog, s1 = raak.s + voor + boog;
   // het spoorstuk kan bij een wissel ophouden: daar de as recht doortrekken
@@ -143,35 +143,73 @@ export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250
     const d = Math.hypot(bx - ax, by - ay) || 1, ex = bx + (bx - ax) / d * l, ey = by + (by - ay) / d * l;
     return eind ? [...pts, ex, ey] : [ex, ey, ...pts];
   };
-  as = verleng(verleng(as, -s0, false), s1 - t.lengte, true);
-  as = herbemonster(as, 8);
-  const punten = [];
-  let cum = 0;
-  for (let i = 0; i < as.length; i += 2) {
-    if (i) cum += Math.hypot(as[i] - as[i - 2], as[i + 1] - as[i - 1]);
-    const s = s0 + cum;
-    const f = Math.max(0, Math.min(1, Math.min(s - s0, s1 - s) / boog));
-    const g = f * f * (3 - 2 * f);        // vloeiende S-boog
-    // lokale normaal
-    const j = Math.min(as.length - 2, i + 2), h = Math.max(0, i - 2);
-    let lx = as[j] - as[h], ly = as[j + 1] - as[h + 1]; const ll = Math.hypot(lx, ly) || 1; lx /= ll; ly /= ll;
-    punten.push([Math.round((as[i] - ly * spoorD * g) * 10) / 10, Math.round((as[i + 1] + lx * spoorD * g) * 10) / 10]);
+  as = herbemonster(verleng(verleng(as, -s0, false), s1 - t.lengte, true), 8);
+  const asS = [s0]; for (let i = 2; i < as.length; i += 2) asS.push(asS[asS.length - 1] + Math.hypot(as[i] - as[i - 2], as[i + 1] - as[i - 1]));
+  const normaal = i => { const j = Math.min(as.length - 2, i + 2), h = Math.max(0, i - 2); let lx = as[j] - as[h], ly = as[j + 1] - as[h + 1]; const ll = Math.hypot(lx, ly) || 1; return [lx / ll, ly / ll]; };
+  // spoor op afstand D van de as tussen a en b; bogen alleen aan de kant(en) met een wissel
+  const spoorOp = (D, a, b, boogA, boogB) => {
+    const pts = [];
+    for (let i = 0; i < as.length; i += 2) {
+      const sv = asS[i / 2]; if (sv < a - 1e-6 || sv > b + 1e-6) continue;
+      const f = Math.max(0, Math.min(1, Math.min(boogA ? (sv - a) / boog : 1, boogB ? (b - sv) / boog : 1)));
+      const g = f * f * (3 - 2 * f), [lx, ly] = normaal(i);
+      pts.push([Math.round((as[i] - ly * D * g) * 10) / 10, Math.round((as[i + 1] + lx * D * g) * 10) / 10]);
+    }
+    return pts;
+  };
+  // perron: rechthoek langs de as tussen a en b, van afstand d1 tot d2
+  const perronOp = (d1, d2, a, b) => {
+    const L = [], R = [];
+    for (let i = 0; i < as.length; i += 2) {
+      const sv = asS[i / 2]; if (sv < a || sv > b) continue;
+      const [lx, ly] = normaal(i);
+      L.push(as[i] - ly * d1, as[i + 1] + lx * d1); R.push(as[i] - ly * d2, as[i + 1] + lx * d2);
+    }
+    const v = [...L]; for (let i = R.length - 2; i >= 0; i -= 2) v.push(R[i], R[i + 1]); v.push(v[0], v[1]);
+    return v.map(x => Math.round(x * 10) / 10);
+  };
+  // vormen: zij (spoor + zijperron), eiland (2 sporen + eilandperron), langs (alleen spoor langs bestaand perron),
+  // kop (kopspoor + perron), kopLangs (kopspoor langs bestaand perron), kop2 (2 kopsporen met eilandperron)
+  const naastPerron = r.soort === 'perron';
+  if ((vorm === 'langs' || vorm === 'kopLangs') && !naastPerron) vorm = vorm === 'langs' ? 'zij' : 'kop';
+  const T = teken, D1 = spoorD, pa = raak.s - lengte / 2, pb = raak.s + lengte / 2;
+  const kop = vorm.startsWith('kop');
+  // kopspoor: wissel aan één eind (eind = 1: aan de 'voor'-kant), stootjuk aan het andere eind van het perron
+  const [ka, kb, bA, bB] = !kop ? [s0, s1, true, true] : eind > 0 ? [pa, s1, false, true] : [s0, pb, true, false];
+  const sporen = [], vlakken = [];
+  const bE = 8, bZ = breedte; // breedte eilandperron en zijperron
+  if (vorm === 'zij' || vorm === 'kop') { sporen.push(spoorOp(D1, ka, kb, bA, bB)); vlakken.push(perronOp(D1 + T * 1.65, D1 + T * (1.65 + bZ), pa, pb)); }
+  else if (vorm === 'langs' || vorm === 'kopLangs') sporen.push(spoorOp(D1, ka, kb, bA, bB));
+  else if (vorm === 'eiland' || vorm === 'kop2') {
+    const D2 = D1 + T * (3.3 + bE);
+    sporen.push(spoorOp(D1, ka, kb, bA, bB), spoorOp(D2, ka, kb, bA, bB));
+    vlakken.push(perronOp(D1 + T * 1.65, D1 + T * (1.65 + bE), pa, pb));
   }
-  // perron: rechthoek langs het spoor (in het midden van het ontwerp)
-  const links = [], rechts = [];
-  const p0 = Math.round((raak.s - lengte / 2 - s0) / 8) * 2, p1 = Math.round((raak.s + lengte / 2 - s0) / 8) * 2;
-  const pm = as.slice(Math.max(0, p0), Math.min(as.length, p1 + 2));
-  for (let i = 0; i < pm.length; i += 2) {
-    const j = Math.min(pm.length - 2, i + 2), h = Math.max(0, i - 2);
-    let lx = pm[j] - pm[h], ly = pm[j + 1] - pm[h + 1]; const ll = Math.hypot(lx, ly) || 1; lx /= ll; ly /= ll;
-    const b1 = perronMidden - breedte / 2, b2 = perronMidden + breedte / 2;
-    links.push(pm[i] - ly * b1, pm[i + 1] + lx * b1);
-    rechts.push(pm[i] - ly * b2, pm[i + 1] + lx * b2);
+  return { punten: sporen[0], perron: vlakken[0] || null, sporen, vlakken, vorm, eind, naastPerron, kant: teken, afstand: Math.abs(spoorD), naast: r.soort,
+    lengte: sporen.reduce((a, p) => a + p.reduce((s2, q, i) => i ? s2 + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0, 0), 0) };
+}
+
+// Enkelspoor verdubbelen: een tweede spoor evenwijdig aan de hele spoortak (van wissel tot wissel),
+// op 4,5 m hart-op-hart aan de vrije kant, met wisselbogen aan beide uiteinden.
+export function ontwerpVerdubbeling(net, perrons, x, y, jaar, kant = 0) {
+  const raak = net.dichtsteTak(x, y, 'trein', jaar, 150);
+  if (!raak) return { fout: 'Hier ligt geen spoor.' };
+  const t = raak.t;
+  if ((t.sporen || 1) >= 2) return { fout: 'Dit stuk is al dubbelspoor.' };
+  if (t.lengte < 150) return { fout: 'Dit stuk spoor is te kort om te verdubbelen (minder dan 150 m tussen twee wissels).' };
+  let as = herbemonster(net.stuk(t, 0, t.lengte), 10);
+  const n = as.length / 2, cum = [0];
+  for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(as[i * 2] - as[i * 2 - 2], as[i * 2 + 1] - as[i * 2 - 1]));
+  const normaal = i => { const j = Math.min(n - 1, i + 1), h = Math.max(0, i - 1); let lx = as[j * 2] - as[h * 2], ly = as[j * 2 + 1] - as[h * 2 + 1]; const ll = Math.hypot(lx, ly) || 1; return [lx / ll, ly / ll]; };
+  // welke kant is vrij? tel obstakels (ander spoor, perrons) op 4,5 m
+  const obstakels = tk => { let k = 0; for (let i = 0; i < n; i += 3) { const [lx, ly] = normaal(i), px = as[i * 2] - ly * 4.5 * tk, py = as[i * 2 + 1] + lx * 4.5 * tk; const d = net.dichtsteTak(px, py, 'trein', jaar, 2); if ((d && d.t !== t) || perrons.op(px, py)) k++; } return k; };
+  const tk = kant || (obstakels(1) <= obstakels(-1) ? 1 : -1);
+  const boog = Math.min(120, t.lengte / 3), L = cum[n - 1], punten = [];
+  for (let i = 0; i < n; i++) {
+    const f = Math.min(1, cum[i] / boog, (L - cum[i]) / boog), g = f * f * (3 - 2 * f), [lx, ly] = normaal(i);
+    punten.push([Math.round((as[i * 2] - ly * 4.5 * tk * g) * 10) / 10, Math.round((as[i * 2 + 1] + lx * 4.5 * tk * g) * 10) / 10]);
   }
-  const vlak = [...links];
-  for (let i = rechts.length - 2; i >= 0; i -= 2) vlak.push(rechts[i], rechts[i + 1]);
-  vlak.push(vlak[0], vlak[1]);
-  return { punten, perron: vlak.map(v => Math.round(v * 10) / 10), kant: teken, afstand: Math.abs(spoorD), naast: r.soort };
+  return { punten, sporen: [punten], vlakken: [], perron: null, kant: tk, lengte: L, tak: t.i, vrij: obstakels(tk) === 0 };
 }
 
 // Een eenvoudig perron langs een spoorlijn (voor oude stations zonder ingetekend perron).

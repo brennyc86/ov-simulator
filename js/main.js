@@ -3,7 +3,7 @@ import { Kaart } from './kaart.js';
 import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
 import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
-import { Perrons, ontwerpPerron, binnen, perronLangs } from './perron.js';
+import { Perrons, ontwerpPerron, ontwerpVerdubbeling, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
@@ -402,11 +402,11 @@ function eigenNetBijwerken() {
   if (!spel) { kaart.bron('eigen-spoor', leeg); kaart.bron('eigen-lijnen', leeg); kaart.bron('eigen-haltes', leeg); kaart.bron('eigen-perrons', leeg); return; }
   kaart.bron('eigen-perrons', { type: 'FeatureCollection', features: (spel.perronVormen || []).map(v => {
     const c = []; for (let i = 0; i < v.pts.length; i += 2) c.push(lonlat(v.pts[i], v.pts[i + 1]));
-    return { type: 'Feature', properties: { klaar: v.gereedDag <= spel.dag ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
+    return { type: 'Feature', properties: { klaar: isKlaar(v) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
   }) });
   kaart.bron('eigen-spoor', { type: 'FeatureCollection', features: spel.spoor.map(sp => ({ type: 'Feature', properties: { klaar: sp.klaar ? 1 : 0 }, geometry: { type: 'LineString', coordinates: sp.punten.map(p => lonlat(p[0], p[1])) } })) });
   kaart.bron('eigen-lijnen', { type: 'FeatureCollection', features: spel.lijnen.filter(l => l.route?.pts?.length >= 4).map(l => ({ type: 'Feature', properties: { id: l.id, kl: !l.actief ? '#8a8f8c' : selectie?.lijn === l ? '#f2c14e' : spel.kleur }, geometry: { type: 'LineString', coordinates: lijnGeo(l.route.pts) } })) });
-  kaart.bron('eigen-haltes', { type: 'FeatureCollection', features: spel.haltes.map(h => ({ type: 'Feature', properties: { n: h.naam + (h.gereedDag > spel.dag ? ' (in aanbouw)' : ''), m: h.modus, klaar: h.gereedDag > spel.dag ? 0 : 1 }, geometry: { type: 'Point', coordinates: lonlat(h.x, h.y) } })) });
+  kaart.bron('eigen-haltes', { type: 'FeatureCollection', features: spel.haltes.map(h => ({ type: 'Feature', properties: { n: h.naam + (!isKlaar(h) ? ' (in aanbouw)' : ''), m: h.modus, klaar: isKlaar(h) ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(h.x, h.y) } })) });
 }
 
 function stationZichtbaar(s, jaar) {
@@ -418,7 +418,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, dagVoorbij: () => dagVoorbij() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -585,6 +585,7 @@ function lus(nu) {
     // elk vol uur afrekenen
     for (let u = Math.floor(oud / 60) + 1; u <= Math.floor(spel.tijd / 60); u++) uurVoorbij(u * 60 - 60);
     if (spel.tijd >= 29 * 60) dagVoorbij(); // speldag loopt van 05:00 tot 05:00 (nacht 00:30–05:00)
+    if (Math.floor(oud) !== Math.floor(spel.tijd)) bouwOpleveren(); // elke spelminuut
   }
   kaart.render();
   hudT += dt; if (hudT > 0.25) { hudT = 0; hud(); }
@@ -603,14 +604,31 @@ function uurVoorbij(uurBegin) {
   }
   if (paneelSoort === 'geld' || paneelSoort === 'lijnen') ververs();
 }
+// ---------------------------------------------------------------- bouwen
+// Alles wat je bouwt (station, perron, spoor, verdubbeling) is na 2 speluren klaar: bij 100× ruim een minuut.
+const BOUWTIJD = 120;
+const nuMin = () => spel.dag * 1440 + spel.tijd - 300;          // spelminuten sinds de start (dag begint om 05:00)
+const gereedMin = x => x.gereedMin ?? x.gereedDag * 1440;       // oude opslag: hele dagen
+const isKlaar = x => gereedMin(x) <= nuMin();
+const bouwKlaar = () => ({ startMin: Math.round(nuMin()), gereedMin: Math.round(nuMin()) + BOUWTIJD, gereedDag: spel.dag });
+function bouwOpleveren() {
+  let iets = false;
+  for (const s of spel.spoor) if (!s.klaar && isKlaar(s)) {
+    s.klaar = true; iets = true;
+    const t = net.voegEigenSpoorToe(s.punten.map(p => [p[0], p[1]]), s.eigenaar, s.sporen, spel.jaar); s.takId = t.i;
+    if (s.verdubbelt != null && net.takken[s.verdubbelt]) net.takken[s.verdubbelt].sporen = 2;
+    if (!s.project || !spel.spoor.some(x => x !== s && x.project === s.project && !x.klaar)) melding(`Opgeleverd: ${s.projectNaam || `${komma(t.lengte / 1000)} km ${s.sporen === 2 ? 'dubbel' : 'enkel'}spoor`} (${s.eigenaar === 'speler' ? 'van jou' : 'ProRail'}).`);
+  }
+  for (const h of spel.haltes) if (!h.opgeleverd && h.modus === 'trein' && (h.gereedMin != null || h.gereedDag > 0) && isKlaar(h)) { h.opgeleverd = true; if (h.startMin != null) { melding(`${h.naam} is klaar en kan gebruikt worden.`); iets = true; } }
+  if (iets) { netwerkLagen(); eigenNetBijwerken(); if (paneelSoort === 'bouw' || paneelSoort === 'station') ververs(); }
+}
 function dagVoorbij() {
   spel.tijd -= 24 * 60; // naar 05:00 volgende dag
   spel.dag++;
   dienstVoorDag();
-  // bouwprojecten opleveren
-  for (const s of spel.spoor) if (!s.klaar && s.gereedDag <= spel.dag) { s.klaar = true; const t = net.voegEigenSpoorToe(s.punten.map(p => [p[0], p[1]]), s.eigenaar, s.sporen, spel.jaar); s.takId = t.i; melding(`Spoor opgeleverd: ${(t.lengte / 1000).toFixed(1).replace('.', ',')} km ${s.sporen === 2 ? 'dubbel' : 'enkel'}spoor (${s.eigenaar === 'speler' ? 'van jou' : 'ProRail'}).`); netwerkLagen(); }
-  for (const h of spel.haltes) if (h.gereedDag === spel.dag) melding(`${h.naam} is klaar en kan gebruikt worden.`);
+  bouwOpleveren();
   bijzonderAfrekenen();
+
   // groepen vragen soms een eigen rit aan (alleen als je treinen hebt)
   if (spel.lijnen.some(l => l.modus === 'trein') && spel.dag >= (spel.volgendeCharter ?? 3)) {
     spel.volgendeCharter = spel.dag + 12 + Math.floor(Math.random() * 15);
@@ -671,6 +689,7 @@ function dienstVoorDag() {
 function hud() {
   if (!spel) return;
   $('b-geld').textContent = S.euroKort(spel.geld);
+  { const n = bouwProjecten().length, e = $('b-bouw'); if (e) { e.hidden = !n; e.textContent = n; } }
   $('b-geld').style.color = spel.geld < 0 ? 'var(--rood)' : '';
   $('b-dag').textContent = `${S.datumTekst(spel.dag, true)} ${spel.jaar}`;
   $('b-dag').title = `Dag ${spel.dag + 1} · ${S.datumTekst(spel.dag)} ${spel.jaar}`;
@@ -1164,21 +1183,38 @@ const PANELEN = {
   },
   station(s) {
     return `<h2>${esc(s.naam)}</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''}${spel.perrons?.[s.naam] ? ` · ${spel.perrons[s.naam]} extra perron(s) van jou` : ''}</p>
+      ${bouwProjecten().filter(p => p.station === s.naam).map(p => voortgang(p)).join('')}
       <button class="knop hoofd" data-actie="perron-ontwerp" data-naam="${esc(s.naam)}" data-x="${s.x}" data-y="${s.y}">＋ Spoor met perron ontwerpen</button>`;
   },
   perronVoorstel(o) {
     const kosten = perronKosten(o);
+    if (o.verdubbel) return `<h2>Enkelspoor verdubbelen${o.naam && o.naam !== 'spoor' ? ' · ' + esc(o.naam) : ''}</h2>
+      <p>Een tweede spoor van ${komma(o.lengte / 1000)} km naast het bestaande, van wissel tot wissel, op 4,5 m hart-op-hart${o.vrij ? '' : ' <b>(let op: aan deze kant ligt iets in de weg)</b>'}.</p>
+      <p>Kosten <b>${S.euroKort(kosten)}</b>, bouwtijd 2 speluren. Daarna telt dit stuk als dubbelspoor: treinen hoeven niet meer op elkaar te wachten.</p>
+      <div class="rij"><button class="knop hoofd" data-actie="perron-bouw">Bouwen</button><button class="knop" data-actie="perron-kant">Andere kant</button><button class="knop" data-actie="perron-stop">Annuleren</button></div>`;
+    const vormen = [['zij', 'Spoor met zijperron'], ['eiland', 'Twee sporen met een eilandperron ertussen'], ...(o.naastPerron ? [['langs', 'Alleen een spoor langs het bestaande perron (wordt een eilandperron)']] : []),
+      ['kop', 'Kopspoor met perron'], ...(o.naastPerron ? [['kopLangs', 'Kopspoor langs het bestaande perron (gelijkvloers overstappen, zoals in Haarlem)']] : []), ['kop2', 'Twee kopsporen met een eilandperron ertussen']];
+    const uitleg = { zij: 'een extra spoor met een perron van 250 × 5 m aan de buitenkant', eiland: 'twee extra sporen met een eilandperron van 250 × 8 m ertussen', langs: 'een extra spoor langs het bestaande perron, zodat aan beide kanten treinen stoppen',
+      kop: 'een doodlopend spoor (stootjuk) met een perron: treinen keren hier zonder het doorgaande spoor te bezetten', kopLangs: 'een doodlopend spoor langs het bestaande perron: reizigers stappen gelijkvloers over naar de trein aan de overkant',
+      kop2: 'twee doodlopende sporen met een eilandperron ertussen' }[o.vorm];
     return `<h2>Nieuw perronspoor · ${esc(o.naam)}</h2>
-      <p>Een extra spoor van ${(o.punten.length * 8 / 1000).toFixed(1).replace('.', ',')} km met wisselbogen, en een perron van 250 × 5 m ${o.naast === 'perron' ? 'langs het bestaande perron' : 'aan de buitenkant van het emplacement'}, op ${o.afstand.toFixed(0)} m van het spoor waar je klikte.</p>
-      <p>Kosten <b>${S.euroKort(kosten)}</b>, bouwtijd 30 dagen. Daarna hoort het spoor bij het net (van jou): treinen kunnen er halteren of keren zonder het doorgaande spoor te bezetten.</p>
+      <div class="veld">${vormen.map(([v, n]) => `<label class="rij"><input type="radio" name="perron-vorm" data-wijzig="perron-vorm" value="${v}" ${o.vorm === v ? 'checked' : ''}> ${n}</label>`).join('')}</div>
+      <p>${uitleg}; ${komma(o.lengte / 1000)} km spoor met wisselbogen, op ${o.afstand.toFixed(0)} m van het spoor waar je klikte${o.naast === 'perron' ? ', naast het bestaande perron' : ''}.</p>
+      <p>Kosten <b>${S.euroKort(kosten)}</b>, bouwtijd 2 speluren. Daarna hoort het spoor bij het net (van jou).</p>
       <div class="rij"><button class="knop hoofd" data-actie="perron-bouw">Bouwen</button>
-      <button class="knop" data-actie="perron-kant">Andere kant</button>
+      <button class="knop" data-actie="perron-kant">Andere kant</button>${o.vorm.startsWith('kop') ? '<button class="knop" data-actie="perron-eind">Wissel aan het andere eind</button>' : ''}
       <button class="knop" data-actie="perron-stop">Annuleren</button></div>`;
+  },
+  bouw() {
+    const pr = bouwProjecten();
+    if (!pr.length) return '<h2>Bouwprojecten</h2><p>Er wordt nu niets gebouwd.</p>';
+    return `<h2>Bouwprojecten</h2><p class="klein">Bouwen duurt 2 speluren; de echte tijd geldt bij de huidige snelheid (${snelheid}×). Versneld bouwen (extra ploegen, ook 's nachts) halveert de resterende tijd voor 40% van de bouwsom.</p>
+      ${pr.map((p, i) => voortgang(p, i)).join('')}`;
   },
   nieuwStation(d) {
     return `<h2>Nieuw station</h2><p class="klein">Op het spoor bij ${esc(d.plaats || 'deze plek')}.</p>
       <div class="veld"><label for="ns-naam">Naam</label><input id="ns-naam" value="${esc(d.naam)}" maxlength="40"></div>
-      <div class="rij"><button class="knop hoofd" data-actie="station-zelf">Zelf bouwen (€ 6 mln, 30 dagen)</button><button class="knop" data-actie="station-prorail">ProRail vragen (gratis, als het rendeert)</button></div>
+      <div class="rij"><button class="knop hoofd" data-actie="station-zelf">Zelf bouwen (€ 6 mln, 2 speluren)</button><button class="knop" data-actie="station-prorail">ProRail vragen (gratis, als het rendeert)</button></div>
       <p class="klein">Een eigen station is van jou: andere vervoerders moeten jou vragen om er te stoppen. ProRail bouwt alleen als de maatschappelijke kosten-batenanalyse (MKBA) positief is.</p>`;
   },
   nieuwSpoor(d) {
@@ -1186,7 +1222,7 @@ const PANELEN = {
     return `<h2>Nieuw spoor</h2><p>${km.toFixed(1).replace('.', ',')} km over ${d.punten.length} punten. Begin en eind sluiten aan op bestaand spoor als dat binnen 250 m ligt.</p>
       <label class="rij"><input type="radio" name="sporen" value="1" checked> Enkelspoor (€ 8 mln/km)</label><label class="rij"><input type="radio" name="sporen" value="2"> Dubbelspoor (€ 15 mln/km)</label>
       <div class="rij"><button class="knop hoofd" data-actie="spoor-zelf" data-km="${km}">Zelf aanleggen</button><button class="knop" data-actie="spoor-prorail">ProRail vragen</button></div>
-      <p class="klein">Eigen spoor is van jou: je betaalt geen gebruiksvergoeding, en anderen betalen jou als ze er willen rijden. Bouwtijd ongeveer ${Math.round(60 + km * 8)} speldagen.</p>`;
+      <p class="klein">Eigen spoor is van jou: je betaalt geen gebruiksvergoeding, en anderen betalen jou als ze er willen rijden. Bouwtijd 2 speluren.</p>`;
   },
   nieuweLijn(d) {
     if (d.geklikt) d.haltes = d.stopOveral ? d.overal : d.geklikt;
@@ -1353,27 +1389,38 @@ function actieUit(a, d) {
     case 'bewaar': bewaar(true); break;
     case 'nieuw': toonStart(); break;
     case 'perron-ontwerp': perronOntwerpen(d.naam, +d.x, +d.y); break;
-    case 'perron-kant': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); break;
+    case 'perron-kant': if (perronOntwerp?.verdubbel) verdubbelOntwerpen(perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); else if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); break;
+    case 'perron-eind': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, perronOntwerp.vorm, -perronOntwerp.eind); break;
+    case 'spoed': {
+      const p = bouwProjecten()[+d.i]; if (!p || p.spoed) break;
+      const kosten = Math.round((p.kosten || 2e6) * 0.4 / 1e5) * 1e5;
+      if (!betaal(kosten, 'versneld bouwen')) break;
+      const nieuw = Math.round(nuMin() + Math.max(1, (p.gereed - nuMin()) / 2));
+      for (const x of p.delen) { x.gereedMin = nieuw; x.spoed = true; }
+      melding(`${p.naam}: versneld bouwen, klaar om ${S.klok((nieuw + 300) % 1440)} (${S.euroKort(kosten)}).`); ververs(); hud(); break;
+    }
     case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
     case 'perron-bouw': {
       const o = perronOntwerp; if (!o) break;
-      if (!betaal(perronKosten(o), 'het perronspoor')) break;
-      const klaar = spel.dag + 30;
-      spel.spoor.push({ punten: o.punten, sporen: 1, eigenaar: 'speler', gereedDag: klaar, klaar: false, perron: o.naam });
+      const kosten = perronKosten(o);
+      if (!betaal(kosten, o.verdubbel ? 'de verdubbeling' : 'het perronspoor')) break;
+      const tijd = bouwKlaar(), project = S.nieuwId('b');
+      const naam = o.verdubbel ? `Verdubbeling ${o.naam !== 'spoor' ? o.naam : ''} (${komma(o.lengte / 1000)} km)`.replace('  ', ' ') : `${{ zij: 'Spoor met perron', eiland: 'Eilandperron met 2 sporen', langs: 'Spoor langs perron', kop: 'Kopspoor met perron', kopLangs: 'Kopspoor langs perron', kop2: '2 kopsporen met eilandperron' }[o.vorm]} · ${o.naam}`;
+      o.sporen.forEach((pts, k) => spel.spoor.push({ punten: pts, sporen: 1, eigenaar: 'speler', ...tijd, klaar: false, perron: o.verdubbel ? undefined : o.naam,
+        verdubbelt: o.verdubbel && !k ? o.tak : undefined, project, projectNaam: naam, kosten: k ? 0 : kosten }));
       spel.perronVormen = spel.perronVormen || [];
-      spel.perronVormen.push({ station: o.naam, pts: o.perron, gereedDag: klaar });
-      D.perrons.voeg({ vlak: true, pts: o.perron, eigen: true });
-      spel.perrons = spel.perrons || {}; spel.perrons[o.naam] = (spel.perrons[o.naam] || 0) + 1;
-      melding(`Bouw van een extra spoor met perron bij ${o.naam} gestart. Klaar over 30 dagen.`);
-      perronVoorstelWissen(); eigenNetBijwerken(); sluitPaneel();
+      for (const v of o.vlakken) { spel.perronVormen.push({ station: o.naam, pts: v, ...tijd, project }); D.perrons.voeg({ vlak: true, pts: v, eigen: true }); }
+      if (!o.verdubbel) { spel.perrons = spel.perrons || {}; spel.perrons[o.naam] = (spel.perrons[o.naam] || 0) + o.sporen.length; }
+      melding(`${naam}: bouw gestart, klaar over 2 speluren (om ${S.klok((tijd.gereedMin + 300) % 1440)}). Voortgang bij ▤ Bouw.`);
+      perronVoorstelWissen(); eigenNetBijwerken(); sluitPaneel(); hud();
       break;
     }
     case 'station-zelf': case 'station-prorail': {
       const p = paneelData; const naam = $('ns-naam').value.trim() || p.naam;
       if (a === 'station-zelf') {
         if (!betaal(6e6, 'een station')) break;
-        spel.haltes.push({ id: S.nieuwId('h'), naam, modus: 'trein', x: p.x, y: p.y, eigen: true, gereedDag: spel.dag + 30 });
-        melding(`Bouw van station ${naam} gestart. Klaar over 30 speldagen.`); eigenNetBijwerken(); sluitPaneel();
+        spel.haltes.push({ id: S.nieuwId('h'), naam, modus: 'trein', x: p.x, y: p.y, eigen: true, ...bouwKlaar(), kosten: 6e6 });
+        melding(`Bouw van station ${naam} gestart. Klaar over 2 speluren.`); eigenNetBijwerken(); sluitPaneel();
       } else {
         nieuwVerzoek(spel, { aan: 'prorail', aanNaam: 'ProRail', soort: 'station', x: p.x, y: p.y, naam, tekst: `Verzoek aan ProRail om station ${naam} te bouwen.` });
         melding('Verzoek naar ProRail gestuurd.'); openPaneel('verzoeken');
@@ -1385,7 +1432,7 @@ function actieUit(a, d) {
       if (a === 'spoor-zelf') {
         const km = +d.km, kosten = km * (sporen === 2 ? 15e6 : 8e6);
         if (!betaal(kosten, 'het spoor')) break;
-        spel.spoor.push({ punten: p.punten, sporen, eigenaar: 'speler', gereedDag: spel.dag + Math.round(60 + km * 8), klaar: false });
+        spel.spoor.push({ punten: p.punten, sporen, eigenaar: 'speler', ...bouwKlaar(), klaar: false, kosten, projectNaam: `${sporen === 2 ? 'Dubbel' : 'Enkel'}spoor (${komma(km)} km)` });
         melding(`Aanleg gestart (${S.euroKort(kosten)}).`); eigenNetBijwerken(); sluitPaneel();
       } else {
         nieuwVerzoek(spel, { aan: 'prorail', aanNaam: 'ProRail', soort: 'spoor', punten: p.punten, sporen, tekst: `Verzoek aan ProRail om ${sporen === 2 ? 'dubbel' : 'enkel'}spoor aan te leggen.` });
@@ -1414,6 +1461,7 @@ function wijzig(w, i) {
     case 'spitsdubbel': l.spitsDubbel = i.checked; S.herbereken(l); break;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
+    case 'perron-vorm': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, i.value, perronOntwerp.eind); return;
     case 'lijn-richting': l.richting = i.value; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
@@ -1537,8 +1585,8 @@ function voerUit(vz, waarde) {
     if (waarde.interval) { for (const p of Object.keys(l.interval)) l.interval[p] = Math.max(l.interval[p], waarde.interval); l.aangepast = true; S.herbereken(l); }
     l.paden = Math.ceil(60 / Math.min(...Object.values(l.interval))); l.actief = true; l.wacht = null;
   }
-  if (vz.soort === 'spoor') spel.spoor.push({ punten: vz.punten, sporen: vz.sporen, eigenaar: 'prorail', gereedDag: spel.dag + (vz.bouwDagen || 120), klaar: false });
-  if (vz.soort === 'station') spel.haltes.push({ id: S.nieuwId('h'), naam: vz.naam, modus: 'trein', x: vz.x, y: vz.y, eigen: false, gereedDag: spel.dag + 45 });
+  if (vz.soort === 'spoor') spel.spoor.push({ punten: vz.punten, sporen: vz.sporen, eigenaar: 'prorail', ...bouwKlaar(), klaar: false, projectNaam: 'Spoor door ProRail' });
+  if (vz.soort === 'station') spel.haltes.push({ id: S.nieuwId('h'), naam: vz.naam, modus: 'trein', x: vz.x, y: vz.y, eigen: false, ...bouwKlaar() });
   if (vz.soort === 'subsidie') {
     const l = lijnVan(vz.lijnId); if (!l) return;
     if (waarde.perReiziger) { l.subsidiePerReiziger = (l.subsidiePerReiziger || 0) + waarde.perReiziger; melding(`Extra subsidie voor lijn ${l.nr}: € ${waarde.perReiziger.toFixed(2).replace('.', ',')} per reiziger.`); }
@@ -1593,7 +1641,8 @@ function zetTool(t) {
   if (t === 'halte') hint('Wat voor halte?', [['Bushalte', () => halteModus('bus')], ['Tramhalte', () => halteModus('tram')], ['Steiger (veer)', () => halteModus('veer')], ['Watertaxi', () => halteModus('watertaxi')], ['Stoppen', () => zetTool('kijk')]]);
   if (t === 'station') hint('Klik op het spoor waar het station moet komen.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'perron') hint('Klik bij een treinstation: er komt een voorstel voor een extra spoor met perron.', [['Stoppen', () => zetTool('kijk')]]);
-  if (t === 'spoor') { bouw = { punten: [] }; hint('Klik punten voor het nieuwe spoor. Begin en eind sluiten aan op bestaand spoor.', [['Klaar', spoorKlaar], ['Laatste punt weg', () => { bouw.punten.pop(); }], ['Stoppen', () => zetTool('kijk')]]); }
+  if (t === 'spoor') { bouw = { punten: [] }; hint('Klik punten voor het nieuwe spoor. Begin en eind sluiten aan op bestaand spoor.', [['Klaar', spoorKlaar], ['Laatste punt weg', () => { bouw.punten.pop(); }], ['Enkelspoor verdubbelen', () => zetTool('verdubbel')], ['Stoppen', () => zetTool('kijk')]]); }
+  if (t === 'verdubbel') hint('Klik op een stuk enkelspoor: er komt een voorstel voor een tweede spoor ernaast, van wissel tot wissel.', [['Stoppen', () => zetTool('kijk')]]);
 }
 function kiesModus() {
   const modi = [['trein', 'Trein'], ['metro', 'Metro'], ['sneltram', 'Sneltram'], ['tram', 'Tram'], ['bus', 'Bus'], ['hov', 'Snelbus'], ['belbus', 'Belbus'], ['veer', 'Veer'], ['watertaxi', 'Watertaxi'], ['vlucht', 'Vliegtuig']];
@@ -1656,22 +1705,53 @@ function kandidaten(modus) {
   for (const s of D.stations) if (st.includes(s.s) && stationZichtbaar(s, spel.jaar)) uit.push({ naam: s.n, x: s.x, y: s.y, p: s.p });
   const bit = { trein: 1, metro: 2, sneltram: 6, tram: 4, bus: 8 | 32, hov: 8, belbus: 8 | 32, veer: 16, watertaxi: 16 }[modus];
   if (spel.jaar >= 2015) for (const h of D.haltes) if (h[3] & bit) uit.push({ naam: h[0], x: h[1], y: h[2] });
-  for (const h of spel.haltes) if (h.gereedDag <= spel.dag && (h.modus === modus || (['bus', 'hov', 'belbus'].includes(modus) && ['bus', 'hov', 'belbus'].includes(h.modus)) || (modus === 'watertaxi' && h.modus === 'veer'))) uit.push({ naam: h.naam, x: h.x, y: h.y, eigen: h.id });
+  for (const h of spel.haltes) if (isKlaar(h) && (h.modus === modus || (['bus', 'hov', 'belbus'].includes(modus) && ['bus', 'hov', 'belbus'].includes(h.modus)) || (modus === 'watertaxi' && h.modus === 'veer'))) uit.push({ naam: h.naam, x: h.x, y: h.y, eigen: h.id });
   return uit;
 }
 let perronOntwerp = null;
-function perronKosten(o) { return 2.5e6 + o.punten.length * 8 * 2500; }
-function perronOntwerpen(naam, x, y, kant = 0) {
-  const o = ontwerpPerron(net, D.perrons, x, y, spel.jaar, { kant });
+// kosten en bouwtijd van een ontwerp: spoor per meter, perrons per stuk (eilandperron breder)
+function perronKosten(o) { return Math.round((o.lengte * 2500 + (o.vlakken || []).length * (o.vorm === 'eiland' || o.vorm === 'kop2' ? 3.5e6 : 2.5e6) + (o.vorm?.startsWith('kop') ? 150000 * o.sporen.length : 0)) / 1e5) * 1e5; }
+
+function voorstelTekenen(o) {
+  const vl = v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return c; };
+  kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [
+    ...o.sporen.map(p => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: p.map(q => lonlat(q[0], q[1])) } })),
+    ...o.vlakken.map(v => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [vl(v)] } })),
+  ] });
+}
+function perronOntwerpen(naam, x, y, kant = 0, vorm = perronOntwerp?.vorm || 'zij', eind = perronOntwerp?.eind || 1) {
+  const o = ontwerpPerron(net, D.perrons, x, y, spel.jaar, { kant, vorm, eind });
   if (!o) { melding(`Bij ${naam} ligt geen spoor in de buurt.`); return; }
   perronOntwerp = { ...o, naam, x, y };
-  kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [
-    { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: o.punten.map(p => lonlat(p[0], p[1])) } },
-    { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [(() => { const c = []; for (let i = 0; i < o.perron.length; i += 2) c.push(lonlat(o.perron[i], o.perron[i + 1])); return c; })()] } },
-  ] });
+  voorstelTekenen(o);
   const m = o.punten[Math.floor(o.punten.length / 2)];
   if (kaart.res > 3) kaart.vliegNaar(m[0], m[1], 1.6);
   openPaneel('perronVoorstel', perronOntwerp);
+}
+function verdubbelOntwerpen(x, y, kant = 0) {
+  const o = ontwerpVerdubbeling(net, D.perrons, x, y, spel.jaar, kant);
+  if (o.fout) { melding(o.fout); return; }
+  perronOntwerp = { ...o, naam: net.takken[o.tak]?.naam || 'spoor', x, y, verdubbel: true };
+  voorstelTekenen(o);
+  openPaneel('perronVoorstel', perronOntwerp);
+}
+// lopende bouwprojecten: spoor (per project samengevoegd), perrons en stations
+function bouwProjecten() {
+  const uit = new Map();
+  const voeg = (sleutel, naam, x, station) => { if (!uit.has(sleutel)) uit.set(sleutel, { naam, start: x.startMin ?? (x.startDag ?? x.gereedDag - 30) * 1440, gereed: gereedMin(x), kosten: 0, delen: [], station, spoed: false }); const p = uit.get(sleutel); p.delen.push(x); p.kosten += x.kosten || 0; p.spoed = p.spoed || !!x.spoed; p.gereed = Math.max(p.gereed, gereedMin(x)); };
+  for (const sp of spel.spoor) if (!sp.klaar && !isKlaar(sp)) voeg(sp.project || sp, sp.projectNaam || (sp.perron ? `Spoor met perron · ${sp.perron}` : 'Nieuw spoor'), sp, sp.perron);
+  for (const v of spel.perronVormen || []) if (!isKlaar(v) && v.project && uit.has(v.project)) uit.get(v.project).delen.push(v);
+  for (const h of spel.haltes) if (!isKlaar(h)) voeg(h, `Station ${h.naam}${h.eigen ? '' : ' (ProRail)'}`, h, h.naam);
+  return [...uit.values()].sort((a, b) => a.gereed - b.gereed);
+}
+function voortgang(p, i) {
+  const nu = nuMin(), f = Math.max(0, Math.min(1, (nu - p.start) / Math.max(1, p.gereed - p.start)));
+  const rest = Math.max(0, p.gereed - nu), echtS = rest * 60 / Math.max(1, snelheid);
+  const echt = echtS < 90 ? `${Math.max(1, Math.round(echtS))} s` : echtS < 5400 ? `${Math.round(echtS / 60)} min` : `${komma(echtS / 3600)} uur`;
+  return `<div class="kaartje"><div class="rij"><b>${esc(p.naam)}</b><span class="klein" style="margin-left:auto">${Math.round(f * 100)}%</span></div>
+    <div style="height:8px;background:var(--lijn);border-radius:4px;overflow:hidden"><div style="height:100%;width:${(f * 100).toFixed(1)}%;background:var(--groen)"></div></div>
+    <p class="klein">Klaar om ${S.klok((Math.round(p.gereed) + 300) % 1440)}${Math.floor((p.gereed + 300) / 1440) - 0 > spel.dag + (spel.tijd >= 1440 ? 1 : 0) ? ' (later)' : ''}: nog ${rest >= 90 ? `${komma(rest / 60)} speluur` : `${Math.ceil(rest)} spelminuten`} (≈ ${echt} bij ${snelheid}×)${p.spoed ? ' · versneld' : ''}</p>
+    ${i != null && !p.spoed && p.delen.some(x => x.eigen !== false && x.eigenaar !== 'prorail') ? `<button class="knop klein" data-actie="spoed" data-i="${i}">Versneld bouwen (${S.euroKort(Math.round((p.kosten || 2e6) * 0.4 / 1e5) * 1e5)})</button>` : ''}</div>`;
 }
 function perronVoorstelWissen() { perronOntwerp = null; kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [] }); }
 function dichtsteKandidaat(modus, px, py, maxPx = 18) {
@@ -1809,6 +1889,7 @@ function klik(px, py) {
     return;
   }
   if (tool === 'spoor' && bouw) { bouw.punten.push({ x, y }); return; }
+  if (tool === 'verdubbel') { verdubbelOntwerpen(x, y); return; }
   // kijken: voertuig, eigen lijn of station selecteren
   let beste = null, bd = 12;
   for (const v of zichtLijnen) { const d = Math.hypot(v.px - px, v.py - py); if (d < bd) { bd = d; beste = v; } }
@@ -1937,7 +2018,7 @@ async function laadSpel(data, nieuwSlot) {
   }
   spel.lijnen = spel.lijnen.filter(l => l.route);
   if (spel.vervoerder) AI.lijnen = AI.lijnen.filter(x => x.vervoerder !== spel.vervoerder.id);
-  for (const s of spel.spoor) if (s.klaar) net.voegEigenSpoorToe(s.punten, s.eigenaar, s.sporen, spel.jaar);
+  for (const s of spel.spoor) if (s.klaar) { net.voegEigenSpoorToe(s.punten, s.eigenaar, s.sporen, spel.jaar); if (s.verdubbelt != null && net.takken[s.verdubbelt]) net.takken[s.verdubbelt].sporen = 2; }
   begin();
 }
 function vulVanAI(l, a, alle) {
