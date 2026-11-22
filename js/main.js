@@ -7,6 +7,7 @@ import { Perrons, ontwerpPerron, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
+import { inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardIndeling, BEEN, EXTRA, KLASSE_NAAM, kenmerk } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute, bboxVan } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
@@ -740,6 +741,31 @@ function trajectTabel(l) {
     <p class="klein">Geschat voor vandaag, alle ritten samen (reizigers per traject, beide richtingen). Hoe meer zwartrijders, hoe meer een controleploeg hier oplevert.</p>`;
 }
 
+// inrichting en prijzen van een eigen lijn (ontwerp eerst, dan ombouwen)
+function inrichtingBlok(l) {
+  const huidig = inrichtingVan(l, l.typeId);
+  const o = l._ontwerp || (l._ontwerp = huidig.map(k => ({ ...k })));
+  const kl = klassenVan(o, l.typeId, l.modus), effNu = vraagEffect(l, l.typeId), effO = vraagEffect({ ...l, inrichting: o }, l.typeId);
+  const km = kenmerk(l.typeId);
+  const gewijzigd = JSON.stringify(o) !== JSON.stringify(huidig);
+  const kosten = gewijzigd ? ombouwKosten(huidig, o, l.typeId) * Math.max(1, l.nodig) : 0;
+  const sel = (veld, i, waarden, huidigW) => `<select data-wijzig="ink" data-id="${l.id}" data-i="${i}" data-veld="${veld}">${waarden.map(([w, n]) => `<option value="${w}" ${String(w) === String(huidigW) ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+  const rijen = o.map((k, i) => `<tr>
+    <td>${sel('klasse', i, Object.entries(KLASSE_NAAM), k.klasse)}</td>
+    <td>${sel('breed', i, [2, 3, 4, 5, 6].map(b => [b, b + ' naast elkaar']), k.breed)}</td>
+    <td>${sel('been', i, Object.entries(BEEN).map(([w, cm]) => [w, `${w} (${cm} cm)`]), k.been)}</td>
+    <td>${sel('extra', i, Object.entries(EXTRA), k.extra)}</td>
+    <td><input type="number" min="5" max="100" step="5" value="${Math.round(k.deel * 100)}" data-wijzig="ink" data-id="${l.id}" data-i="${i}" data-veld="deel" style="width:4em">%</td>
+    <td><input type="number" min="10" max="500" step="5" value="${Math.round(k.prijs * 100)}" data-wijzig="ink" data-id="${l.id}" data-i="${i}" data-veld="prijs" style="width:4.4em">%</td>
+    <td class="getal klein">${kl[i].zit} zit${kl[i].sta ? ` + ${kl[i].sta} sta` : ''}<br>comfort ${kl[i].comfort.toFixed(1).replace('.', ',')}</td>
+    <td>${o.length > 1 ? `<button class="knop klein" data-actie="ink-weg" data-id="${l.id}" data-i="${i}" title="klasse weghalen">✕</button>` : ''}</td></tr>`).join('');
+  return `<p class="klein">${esc(TYPE[l.typeId]?.naam || '')}: basiscomfort ${km.comfort.toFixed(1).replace('.', ',')} · ${km.deuren > 1.1 ? 'veel deuren, snel in- en uitstappen' : km.deuren < 0.9 ? 'weinig deuren, trager instappen' : 'gewone deuren'}. Prijs in % van het standaardtarief (2e klas).</p>
+    <div style="overflow-x:auto"><table class="tabel klein"><tr><th>Klasse</th><th>Stoelen</th><th>Beenruimte</th><th>Extra</th><th>Vloer</th><th>Prijs</th><th>Plaatsen</th><th></th></tr>${rijen}</table></div>
+    <p class="klein">Totaal ${kl.reduce((a, k) => a + k.zit, 0)} zit + ${kl.reduce((a, k) => a + k.sta, 0)} sta per voertuig · verwachte reizigers ${effO.factor >= effNu.factor ? '+' : ''}${Math.round((effO.factor / effNu.factor - 1) * 100)}% · gemiddelde prijs ${Math.round(effO.gemPrijs * 100)}% · gemiddeld comfort ${effO.gemComfort.toFixed(1).replace('.', ',')}</p>
+    <div class="rij"><button class="knop klein" data-actie="ink-erbij" data-id="${l.id}">＋ klasse</button><button class="knop klein" data-actie="ink-standaard" data-id="${l.id}">Standaard</button>
+    ${gewijzigd ? `<button class="knop hoofd" data-actie="ink-ombouw" data-id="${l.id}">Ombouwen (${S.euroKort(kosten)} voor ${Math.max(1, l.nodig)} voertuigen)</button><button class="knop" data-actie="ink-terug" data-id="${l.id}">Ontwerp weggooien</button>` : ''}</div>`;
+}
+
 // ---------------------------------------------------------------- panelen
 function openPaneel(soort, data) {
   paneelSoort = soort; selectie = data?.selectie ?? (soort === 'lijn' ? selectie : null);
@@ -859,6 +885,7 @@ const PANELEN = {
       <div class="veld"><select data-wijzig="lijn-type" data-id="${l.id}">${typen.map(v => `<option value="${v.id}" ${v.id === l.typeId ? 'selected' : ''}>${esc(v.naam)} (${v.zit + v.sta} pl.)</option>`).join('')}</select></div>
       <p>Nodig: <b>${l.nodig}</b> × ${esc(t?.naam || '')} · in bezit: <b>${spel.voertuigen[l.typeId] || 0}</b>
       ${S.beschikbaarVoor(spel, l) < l.nodig ? `<br><button class="knop hoofd" data-actie="koop" data-type="${l.typeId}" data-n="${l.nodig - S.beschikbaarVoor(spel, l)}">Koop ${l.nodig - S.beschikbaarVoor(spel, l)} erbij (${S.euroKort((l.nodig - S.beschikbaarVoor(spel, l)) * (t?.prijs || 0))})</button>` : ''}</p>
+      <h3>Inrichting en prijzen</h3>${inrichtingBlok(l)}
       <h3>Dienstregeling (elke … minuten)</h3>
       ${l.echt && !l.aangepast ? '<p class="klein">Rijdt nu volgens de echte dienstregeling. Pas je iets aan, dan maakt het spel een eigen regelmatige dienstregeling.</p>' : ''}
       <div class="raster2">${S.PERIODES.map(p => `<label class="veld">${p.naam}<input type="number" min="0" max="240" step="1" value="${l.interval[p.id] ?? ''}" data-wijzig="interval" data-id="${l.id}" data-p="${p.id}"></label>`).join('')}</div>
@@ -1057,6 +1084,19 @@ function actieUit(a, d) {
     case 'aanuit': l.actief = !l.actief; ververs(); break;
     case 'opheffen': if (d.zeker) { spel.lijnen = spel.lijnen.filter(x => x !== l); sluitPaneel(); melding(`Lijn ${l.nr} opgeheven.`); }
       else { const b = document.querySelector('[data-actie="opheffen"]'); b.textContent = 'Zeker weten? Klik nog eens'; b.dataset.zeker = '1'; } break;
+    case 'ink-erbij': { const o = l._ontwerp || (l._ontwerp = inrichtingVan(l, l.typeId).map(k => ({ ...k }))); const vrij = ['P', '1', '3', '2'].find(c => !o.some(k => k.klasse === c)) || '2';
+      const deel = 0.15; o.forEach(k => k.deel = k.deel * (1 - deel)); o.unshift({ klasse: vrij, breed: vrij === 'P' ? 2 : vrij === '3' ? 5 : 3, been: vrij === 'P' ? 'royaal' : vrij === '3' ? 'krap' : 'ruim', extra: vrij === 'P' ? 'massage' : vrij === '3' ? 'kaal' : '', deel, prijs: { P: 2.6, 1: 1.7, 3: 0.7, 2: 1 }[vrij] }); ververs(); break; }
+    case 'ink-weg': { const o = l._ontwerp; if (o && o.length > 1) { const [weg] = o.splice(+d.i, 1); const som = o.reduce((a, k) => a + k.deel, 0) || 1; o.forEach(k => k.deel = k.deel + weg.deel * k.deel / som); } ververs(); break; }
+    case 'ink-standaard': l._ontwerp = standaardIndeling(l.typeId, l.modus); ververs(); break;
+    case 'ink-terug': l._ontwerp = null; ververs(); break;
+    case 'ink-ombouw': {
+      const o = l._ontwerp; if (!o) break;
+      const kosten = ombouwKosten(inrichtingVan(l, l.typeId), o, l.typeId) * Math.max(1, l.nodig);
+      if (!betaal(kosten, 'de ombouw')) break;
+      spel.maand.overig += kosten;
+      l.inrichting = o.map(k => ({ ...k })); l._ontwerp = null; S.herbereken(l);
+      melding(`Lijn ${l.nr} is omgebouwd (${S.euroKort(kosten)}). Reizigers merken het meteen.`); ververs(); break;
+    }
     case 'subsidie': {
       const bedrag = Math.max(0, Math.round(+$('sub-bedrag')?.value || 0));
       if (!bedrag) { melding('Vul een bedrag in.'); break; }
@@ -1150,6 +1190,14 @@ function wijzig(w, i) {
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
+    case 'ink': {
+      const o = l._ontwerp || (l._ontwerp = inrichtingVan(l, l.typeId).map(k => ({ ...k }))), k = o[+i.dataset.i], v = i.dataset.veld;
+      if (v === 'deel') k.deel = Math.max(0.05, Math.min(1, (+i.value || 0) / 100));
+      else if (v === 'prijs') k.prijs = Math.max(0.1, Math.min(5, (+i.value || 0) / 100));
+      else if (v === 'breed') k.breed = +i.value;
+      else k[v] = i.value;
+      i.blur(); setTimeout(() => ververs(), 0); return;
+    }
     case 'aankomst': {
       const [rr, ii] = i.dataset.k.split(':').map(Number);
       const gewenst = (tijd(i.value) - +i.dataset.dep) * 60, vroegst = l.trMin?.[rr]?.[ii] ?? 0;
@@ -1541,7 +1589,7 @@ const pakPts = pts => { const v = vereenvoudig(pts, 6), u = []; let px = 0, py =
 const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; u.push(x, y); } return u; };
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
-    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
+    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _ontwerp, _eff, _halteTijd, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };

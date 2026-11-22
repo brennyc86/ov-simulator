@@ -1,6 +1,7 @@
 // Spelkern: bedrijf, lijnen, dienstregeling, voertuigposities, geld en reizigers.
 import { MODI, TYPE, standaardType } from './vloot.js';
 import { bboxVan } from './net.js';
+import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor } from './comfort.js';
 
 export const TARIEF = {
   // instaptarief + per km (OV-chipkaart 2026, benaderd); trein degressief na 40 km
@@ -152,6 +153,7 @@ export function herbereken(lijn) {
   const v = type.vmax / 3.6 * (lijn.modus === 'bus' || lijn.modus === 'belbus' ? 0.55 : lijn.modus === 'tram' ? 0.6 : 0.8);
   const vlucht = lijn.modus === 'vlucht';
   const extraHalte = lijn.modus === 'bus' && lijn.chauffeurControle ? 5 : 0;
+  lijn._halteTijd = Math.round(mod.halteTijd * haltetijdFactor(lijn.typeId)); // meer deuren: sneller in- en uitstappen
   const profiel = baanProfiel(lijn, factor);
   lijn.t = [0];
   for (let i = 1; i < lijn.haltes.length; i++) {
@@ -162,7 +164,7 @@ export function herbereken(lijn) {
       const vEff = Math.min(v, Math.sqrt(Math.max(1, d) * type.acc)); // korte stukken halen de topsnelheid niet
       rij = vlucht ? d / v + 20 * 60 : d / Math.max(2, vEff) + vEff / type.acc; // vliegen: taxiën, opstijgen en naderen ~20 min
     }
-    lijn.t.push(lijn.t[i - 1] + rij * 1.07 + (i < lijn.haltes.length - 1 ? mod.halteTijd + extraHalte : 0));
+    lijn.t.push(lijn.t[i - 1] + rij * 1.07 + (i < lijn.haltes.length - 1 ? lijn._halteTijd + extraHalte : 0));
   }
   if (lijn.echt) {
     // bestaande lijn uit de echte dienstregeling: echte rijtijden en vertrektijden
@@ -173,7 +175,7 @@ export function herbereken(lijn) {
   // Extra wachttijd (halteWacht) en gewenste aankomsttijden (aankomstWens, s na vertrek bij de eerste halte):
   // later aankomen = rustiger rijden; eerst langer wachten eet die marge op tot de maximale snelheid.
   const n = lijn.t.length, dw = lijn.halteWacht || {}, wens = lijn.aankomstWens || {};
-  const h = mod.halteTijd + extraHalte;
+  const h = lijn._halteTijd + extraHalte;
   lijn.tr = [[0], [0]]; lijn.trMin = [[0], [0]];
   for (let r = 0; r < 2; r++) for (let i = 1; i < n; i++) {
     const j = r ? n - i : i; // stuk in de oorspronkelijke volgorde: van j-1 naar j
@@ -234,7 +236,7 @@ export function ritPositie(lijn, r, v, tm) {
   if (verstreken > t[n - 1]) return null;
   let i = 0;
   while (i < n - 2 && t[i + 1] <= verstreken) i++;
-  const halte = MODI[lijn.modus].halteTijd;
+  const halte = lijn._halteTijd ?? MODI[lijn.modus].halteTijd;
   // extra wachttijd bij de halte waar dit stuk begint: eerst blijven staan
   const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
   const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
@@ -301,7 +303,17 @@ export function vraagLijn(lijn, plaatsen, concurrentie = 0) {
 }
 
 // capaciteit per rit
-export const capaciteit = lijn => { const t = TYPE[lijn.typeId]; return t ? t.zit + t.sta : 80; };
+export const capaciteit = lijn => { const t = TYPE[lijn.typeId]; if (!t) return 80; return klassenVan(inrichtingVan(lijn, lijn.typeId), lijn.typeId, lijn.modus).reduce((a, k) => a + k.zit + k.sta, 0); };
+// onderhoud en energie per km: materieel dat buiten zijn eigen tijd rijdt (museum) is per km fors duurder
+export function kmKosten(type, jaar) {
+  if (!type) return 1;
+  const oud = jaar > type.tot + 5 ? (type.energie === 'kolen' ? 3.2 : 2.2) : 1;
+  return type.km * oud;
+}
+// vaste onderhoudskosten per voertuig per maand (deels tijd, deels km): museummaterieel staat vooral stil
+export function vastOnderhoud(type, jaar) { return !type ? 0 : type.prijs * (jaar > type.tot + 5 ? 0.006 : 0.02) / 12; }
+// vergelijkbaar comfort bij de concurrent (standaardmaterieel van die soort)
+const COMFORT_CONCURRENT = { trein: 6, metro: 4.5, sneltram: 5, tram: 4.5, bus: 4.5, hov: 6, belbus: 5, veer: 5, watertaxi: 6, vlucht: 6 };
 
 // ---------------------------------------------------------------- geld per uur
 // Wordt elk speluur aangeroepen voor het uur dat net voorbij is.
@@ -326,7 +338,11 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const km = ritten * lijn.lengteKm;
 
     // reizigers
-    const { perDag, gemKm } = vraagLijn(lijn, ctx.plaatsen, ctx.concurrentie(lijn));
+    const conc = ctx.concurrentie(lijn);
+    const eff = vraagEffect(lijn, lijn.typeId, conc > 0 ? COMFORT_CONCURRENT[lijn.modus] : null);
+    lijn._eff = eff;
+    let { perDag, gemKm } = vraagLijn(lijn, ctx.plaatsen, 0);
+    perDag *= eff.factor * (1 - conc * (1 - eff.marktaandeel));
     const totaalVraag = PERIODES.reduce((s, p) => s + p.vraag * (p.tot - p.van) / 60, 0);
     let reizigers = periode ? perDag * vraagFactor(spel.dag, periode) / totaalVraag : 0;
     reizigers = Math.min(reizigers, ritten * capaciteit(lijn) * 0.8);
@@ -340,12 +356,12 @@ export function verrekenUur(spel, ctx, uurBegin) {
       * (lijn.modus === 'bus' && spel.controle.chauffeur ? 0.5 : 1) * Math.exp(-pak * 6) * 1.6;
     const zwart = reizigers * zwartFractie;
     const betrapt = zwart * pak;
-    const kaartjes = (reizigers - zwart) * ritprijs;
+    const kaartjes = (reizigers - zwart) * ritprijs * eff.gemPrijs;
     const boetes = betrapt * (BOETE + ritprijs) * 0.75; // niet elke boete wordt geïnd
 
     // kosten
-    const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0);
-    const energie = km * (type?.km || 1);
+    const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(inrichtingVan(lijn, lijn.typeId));
+    const energie = km * kmKosten(type, spel.jaar);
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
       : lijn.modus === 'vlucht' ? ritten * (lijn.haltes.length - 1) * landingsgeld(lijn, type) : 0;
     // subsidie: per dienstregelingsuur (plus extra afgesproken met de provincie) en eventueel per reiziger
@@ -425,6 +441,10 @@ export function maandAfsluiten(spel) {
   for (const [id, n] of Object.entries(spel.voertuigen)) {
     const t = TYPE[id]; if (t) afschr += n * t.prijs / t.leven / 12;
   }
+  // vast onderhoud per voertuig (kasuitgave)
+  let vast = 0;
+  for (const [id, n] of Object.entries(spel.voertuigen)) vast += n * vastOnderhoud(TYPE[id], spel.jaar);
+  m.overig += vast; spel.geld -= vast;
   // poortjes: onderhoud
   const poortjes = spel.controle.poortjes ? spel.haltes.filter(h => h.modus === 'trein' || h.modus === 'metro').length * 4000 : 0;
   m.afschrijving = afschr; m.overig += poortjes;

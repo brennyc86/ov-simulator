@@ -141,6 +141,12 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const sp
       log('rijtijden heen (min) voor:', voor.join(','), '| na +5 min aankomst halte 3 en 2 min wachten halte 2:', nl.tr[0].map(x => Math.round(x / 60)).join(','));
       log('vroegst per halte:', nl.trMin[0].map(x => Math.round(x / 60)).join(','), '| haltes', nl.haltes.map(h => h.naam).join(' > ')); }
   } else log('stations niet gevonden voor bouwtest'); }
+// inrichting: premium-klasse erbij, prijs aanpassen, ombouwen
+{ const t0 = document.querySelector('[data-actie="ink-erbij"]');
+  if (t0) { t0.click(); await wacht(100); const prijs = document.querySelector('[data-veld="prijs"]'); if (prijs) { prijs.value = 300; prijs.dispatchEvent(new window.Event('change')); await wacht(50); }
+    let t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('inrichting ontwerp:', t.slice(t.indexOf('Totaal'), t.indexOf('Totaal') + 200));
+    document.querySelector('[data-actie="ink-ombouw"]')?.click(); await wacht(100);
+    t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('na ombouw:', t.slice(t.indexOf('Inrichting en prijzen'), t.indexOf('Inrichting en prijzen') + 160)); } else log('geen inrichtingsknop gevonden'); }
 // heen en terug op eigen spoor? (lijnen die twee richtingen rijden)
 { const gezien = new Set();
   for (const l of [...zl.map(v => v.lijn), ...globalThis.__ovTest.spel.lijnen]) { if (gezien.has(l) || !l._banen) continue; gezien.add(l);
@@ -160,7 +166,8 @@ if (zl.length) {
   const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
   log('ritpaneel:', t.slice(0, 220));
   for (const b of document.querySelectorAll('#paneel-inhoud button')) { try { b.click(); } catch (e) { fouten.push('knop ' + b.textContent + ': ' + e.stack); } await wacht(20); }
-  { const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('reizigers:', t.slice(t.indexOf('Reizigers'), t.indexOf('Reizigers') + 330)); }
+  globalThis.__map.vuur('click', { point: { x: v.px, y: v.py } }); await wacht(150);
+  { const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('reizigers:', t.indexOf('Reizigers') >= 0 ? t.slice(t.indexOf('Reizigers'), t.indexOf('Reizigers') + 330) : 'NIET GEVONDEN in: ' + t.slice(0, 900)); }
   // ook een trein bekijken (eigen of ander), als die in beeld is
   const trein = zl.find(x => x.lijn.modus === 'trein' && !x.wacht);
   if (trein) { globalThis.__map.vuur('click', { point: { x: trein.px, y: trein.py } }); await wacht(150);
