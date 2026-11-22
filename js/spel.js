@@ -322,7 +322,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
   const m = spel.maand;
   const periode = PERIODES.find(p => uurBegin >= p.van && uurBegin < p.tot);
   for (const lijn of spel.lijnen) {
-    if (!lijn.actief) continue;
+    if (!lijn.actief || lijn.bijzonder) continue; // bijzondere ritten worden per rit afgerekend
     const type = TYPE[lijn.typeId];
     const mod = MODI[lijn.modus];
     // ritten die in dit uur vertrokken

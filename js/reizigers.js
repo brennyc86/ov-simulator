@@ -23,6 +23,12 @@ export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
   if (cache.has(sleutel)) return cache.get(sleutel);
   if (cache.size > 4000) cache.clear();
   const mod = MODI[lijn.modus] || MODI.bus;
+  if (lijn.bijzonder) { // bijzondere rit: iedereen stapt in bij het begin en reist mee tot het eind
+    const klassen = indeling(typeId, lijn.modus, lijn), cap = klassen.reduce((a, k) => a + k.zit + k.sta, 0), n = lijn.haltes.length;
+    const mee = Math.min(cap, lijn.bijzonder.charter ? lijn.bijzonder.personen : (lijn.bijzonder.ingeschreven || 0));
+    const volg = r ? [...lijn.haltes].reverse() : lijn.haltes;
+    return { haltes: volg.map((h, i) => ({ naam: h.naam, in: i ? 0 : mee, uit: i === n - 1 ? mee : 0, achter: 0 })), segmenten: volg.slice(1).map(() => ({ aanBoord: mee, metKaartje: mee })), cap, klassen, totaal: mee, achter: 0 };
+  }
   if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(ctx.plaatsen, h.x, h.y, mod.bereik));
   const n = lijn.haltes.length;
   const volg = r ? [...lijn.haltes].reverse() : lijn.haltes;

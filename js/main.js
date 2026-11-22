@@ -7,6 +7,7 @@ import { Perrons, ontwerpPerron, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
+import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter } from './bijzonder.js';
 import { inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardIndeling, BEEN, EXTRA, KLASSE_NAAM, kenmerk } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute, bboxVan } from './net.js';
@@ -417,7 +418,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; } }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, dagVoorbij: () => dagVoorbij() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -607,6 +608,13 @@ function dagVoorbij() {
   // bouwprojecten opleveren
   for (const s of spel.spoor) if (!s.klaar && s.gereedDag <= spel.dag) { s.klaar = true; const t = net.voegEigenSpoorToe(s.punten.map(p => [p[0], p[1]]), s.eigenaar, s.sporen, spel.jaar); s.takId = t.i; melding(`Spoor opgeleverd: ${(t.lengte / 1000).toFixed(1).replace('.', ',')} km ${s.sporen === 2 ? 'dubbel' : 'enkel'}spoor (${s.eigenaar === 'speler' ? 'van jou' : 'ProRail'}).`); netwerkLagen(); }
   for (const h of spel.haltes) if (h.gereedDag === spel.dag) melding(`${h.naam} is klaar en kan gebruikt worden.`);
+  bijzonderAfrekenen();
+  // groepen vragen soms een eigen rit aan (alleen als je treinen hebt)
+  if (spel.lijnen.some(l => l.modus === 'trein') && spel.dag >= (spel.volgendeCharter ?? 3)) {
+    spel.volgendeCharter = spel.dag + 12 + Math.floor(Math.random() * 15);
+    const c = bedenkCharter(spel, D.stations);
+    if (c) { spel.verzoeken.unshift(c); melding(`Nieuwe aanvraag voor een bijzondere rit van ${c.vanNaam}.`); }
+  }
   // AI-vervoerders vragen soms iets
   if (spel.dag >= spel.volgendeAI / 1440) {
     spel.volgendeAI = (spel.dag + 2 + Math.random() * 3) * 1440;
@@ -778,6 +786,48 @@ function inrichtingBlok(l) {
     ${gewijzigd ? `<button class="knop hoofd" data-actie="ink-ombouw" data-id="${l.id}">Ombouwen (${S.euroKort(kosten)} voor ${Math.max(1, l.nodig)} voertuigen)</button><button class="knop" data-actie="ink-terug" data-id="${l.id}">Ontwerp weggooien</button>` : ''}</div>`;
 }
 
+// ---------------------------------------------------------------- bijzondere ritten
+function maakBijzonder({ nr, naam, modus, typeId, haltes, route, dag, vertrek, prijs, charter = false, bod = 0, personen = 0, wie = '' }) {
+  const l = S.maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interval: { vroeg: 999, ochtendspits: 999, dal: 999, avondspits: 999, avond: 999 } });
+  l.bijzonder = { dag, vertrek, prijs, charter, bod, personen, wie, gepland: spel.dag, ingeschreven: 0 };
+  bijzonderBijwerken(l);
+  return l;
+}
+function bijzonderBijwerken(l) {
+  const b = l.bijzonder;
+  l.echt = { v: vertrekOpDag(l, spel.dag) }; l.aangepast = false;
+  S.herbereken(l);
+  l.actief = spel.dag === b.dag;
+  if (!b.charter && spel.dag <= b.dag) b.ingeschreven = inschrijvingen(spel, l, D.plaatsen, S.capaciteit(l));
+}
+// na de dag van de rit: afrekenen en opruimen
+function bijzonderAfrekenen() {
+  for (const l of [...spel.lijnen]) {
+    if (!l.bijzonder) continue;
+    if (spel.dag <= l.bijzonder.dag) { bijzonderBijwerken(l); continue; }
+    const b = l.bijzonder, t = TYPE[l.typeId];
+    const heeft = (spel.voertuigen[l.typeId] || 0) > 0;
+    const opbrengst = !heeft ? 0 : b.charter ? b.bod : Math.min(b.ingeschreven, S.capaciteit(l)) * b.prijs;
+    const kosten = heeft ? ritKosten(spel, l) : 0;
+    spel.geld += opbrengst - kosten; spel.maand.kaartjes += opbrengst; spel.maand.overig += kosten;
+    if (b.charter) spel.reputatie = Math.min(100, spel.reputatie + (heeft ? 1 : -4));
+    (spel.bijzonderArchief ||= []).unshift({ naam: l.naam, dag: b.dag, reizigers: b.charter ? b.personen : b.ingeschreven, opbrengst, kosten, type: t?.naam });
+    spel.bijzonderArchief.length = Math.min(spel.bijzonderArchief.length, 20);
+    melding(heeft ? `Bijzondere rit ${l.naam} gereden: ${b.charter ? b.personen : b.ingeschreven} reizigers, resultaat ${S.euro(opbrengst - kosten)}.` : `Bijzondere rit ${l.naam} kon niet rijden: geen ${t?.naam || 'materieel'} meer in bezit.`, 7000);
+    spel.lijnen.splice(spel.lijnen.indexOf(l), 1);
+  }
+}
+function bijzonderTabel() {
+  const lijst = spel.lijnen.filter(l => l.bijzonder);
+  const rij = l => { const b = l.bijzonder, cap = S.capaciteit(l), n = b.charter ? b.personen : b.ingeschreven;
+    return `<tr data-actie="toon-lijn" data-id="${l.id}" style="cursor:pointer"><td>${esc(l.naam)}<br><span class="klein">${S.datumTekst(b.dag, true)} · ${S.klok(b.vertrek)} · ${esc(TYPE[l.typeId]?.naam || '')}${b.charter ? ` · charter ${esc(b.wie)}` : ''}</span></td>
+      <td class="getal">${n} / ${cap}<br><span class="klein">${b.charter ? S.euroKort(b.bod) : S.euroKort(n * b.prijs)}</span></td></tr>`; };
+  const arch = (spel.bijzonderArchief || []).slice(0, 5);
+  return `${lijst.length ? `<table class="tabel"><tr><th>Rit</th><th class="getal">ingeschreven</th></tr>${lijst.map(rij).join('')}</table>` : '<p class="klein">Geen bijzondere ritten gepland.</p>'}
+    ${arch.length ? `<p class="klein">Gereden: ${arch.map(a => `${esc(a.naam)} (${a.reizigers} reizigers, ${S.euroKort(a.opbrengst - a.kosten)})`).join(' · ')}</p>` : ''}
+    <p class="klein">Een bijzondere rit plan je met <b>＋ Lijn</b>: klik de route aan en vink daarna <b>eenmalige bijzondere rit</b> aan. Museummaterieel koop je bij <b>Vloot</b>.</p>`;
+}
+
 // ---------------------------------------------------------------- panelen
 function openPaneel(soort, data) {
   paneelSoort = soort; selectie = data?.selectie ?? (soort === 'lijn' ? selectie : null);
@@ -869,7 +919,7 @@ const PANELEN = {
         <button class="knop hoofd" data-actie="rit-verzoek">Verzoek sturen</button>`}`;
   },
   lijnen() {
-    const rijen = spel.lijnen.map(l => {
+    const rijen = spel.lijnen.filter(l => !l.bijzonder).map(l => {
       const st = l.stat, res = st ? st.opbrengst - st.kosten : 0;
       const tekort = S.beschikbaarVoor(spel, l) < l.nodig;
       return `<tr data-actie="toon-lijn" data-id="${l.id}" style="cursor:pointer"><td><span class="lijnnr" style="background:${l.actief ? spel.kleur : '#888'}">${esc(l.nr)}</span></td>
@@ -878,10 +928,17 @@ const PANELEN = {
     }).join('');
     return `<h2>Je lijnen</h2><p class="klein">Reizigers en resultaat deze maand. Klik op een lijn voor de dienstregeling.</p>
       ${spel.lijnen.length ? `<table class="tabel"><tr><th>Lijn</th><th>Route</th><th class="getal">Reizigers</th></tr>${rijen}</table>` : '<p>Nog geen lijnen. Kies <b>＋ Lijn</b> links en klik haltes of stations op volgorde aan.</p>'}
-      <button class="knop hoofd" data-actie="tool" data-tool="lijn">＋ Nieuwe lijn</button>`;
+      <button class="knop hoofd" data-actie="tool" data-tool="lijn">＋ Nieuwe lijn</button>
+      <h3>Bijzondere ritten</h3>${bijzonderTabel()}`;
   },
   lijn(l) {
     if (!l) return '';
+    if (l.bijzonder) { const b = l.bijzonder, n = b.charter ? b.personen : b.ingeschreven;
+      return `<h2><span class="lijnnr" style="background:${spel.kleur}">★</span> ${esc(l.naam)}</h2>
+        <p>Bijzondere rit op <b>${S.datumTekst(b.dag)}</b>, vertrek ${S.klok(b.vertrek)} · ${esc(TYPE[l.typeId]?.naam || '')}${isMuseum(TYPE[l.typeId], spel.jaar) ? ' (museum)' : ''}</p>
+        <p>${b.charter ? `Charter voor ${esc(b.wie)}: ${b.personen} personen, opbrengst ${S.euro(b.bod)}.` : `Ingeschreven: <b>${n}</b> van ${S.capaciteit(l)} plaatsen à ${S.euro(b.prijs)} = ${S.euro(n * b.prijs)}.`} Verwachte kosten ${S.euro(ritKosten(spel, l))}.</p>
+        <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">${S.klok(b.vertrek + Math.round(l.t[i] / 60))}</span></li>`).join('')}</ol>
+        <button class="knop gevaar" data-actie="opheffen" data-id="${l.id}">Rit afblazen</button>`; }
     const t = TYPE[l.typeId];
     const typen = beschikbaar(spel.jaar, l.modus);
     const st = l.stat;
@@ -930,7 +987,9 @@ const PANELEN = {
       const status = { open: '<span class="chip let">wacht op antwoord</span>', geaccepteerd: '<span class="chip goed">akkoord</span>', afgewezen: '<span class="chip fout">afgewezen</span>',
         tegenvoorstel: '<span class="chip let">tegenvoorstel</span>', 'tegen-van-speler': '<span class="chip let">jouw tegenvoorstel ligt er</span>', ingetrokken: '<span class="chip">ingetrokken</span>' }[v.status] || '';
       let acties = '';
-      if (v.aan === 'speler' && v.status === 'open') acties = `<div class="rij"><button class="knop hoofd" data-actie="vz-ja" data-id="${v.id}">Akkoord</button><button class="knop" data-actie="vz-nee" data-id="${v.id}">Afwijzen</button></div>
+      if (v.aan === 'speler' && v.status === 'open' && v.soort === 'charter') acties = `<div class="rij"><button class="knop hoofd" data-actie="vz-ja" data-id="${v.id}">Akkoord (${S.euroKort(v.bod)})</button><button class="knop" data-actie="vz-nee" data-id="${v.id}">Bedanken</button></div>
+        <div class="raster2"><label class="veld">Tegenbod €<input type="number" min="0" step="500" value="${Math.round(v.bod * 1.2 / 500) * 500}" id="tv-geld-${v.id}"></label></div><button class="knop" data-actie="vz-tegen" data-id="${v.id}">Tegenbod sturen</button>`;
+      else if (v.aan === 'speler' && v.status === 'open') acties = `<div class="rij"><button class="knop hoofd" data-actie="vz-ja" data-id="${v.id}">Akkoord</button><button class="knop" data-actie="vz-nee" data-id="${v.id}">Afwijzen</button></div>
         <div class="raster2"><label class="veld">Tegenvoorstel (min)<input type="number" min="-15" max="15" value="${v.minuten}" id="tv-min-${v.id}"></label><label class="veld">Vergoeding €/jaar<input type="number" min="0" step="5000" value="0" id="tv-geld-${v.id}"></label></div>
         <button class="knop" data-actie="vz-tegen" data-id="${v.id}">Tegenvoorstel sturen</button>`;
       if (v.status === 'tegenvoorstel' && v.aan !== 'speler') acties = `<div class="rij"><button class="knop hoofd" data-actie="vz-tegen-ja" data-id="${v.id}">Tegenvoorstel aannemen</button><button class="knop" data-actie="vz-tegen-nee" data-id="${v.id}">Laten zitten</button></div>
@@ -955,7 +1014,11 @@ const PANELEN = {
         <td class="getal">${spel.voertuigen[v.id] || 0}${nodig[v.id] ? `<br><span class="klein" style="color:${(spel.voertuigen[v.id] || 0) < nodig[v.id] ? 'var(--rood)' : 'inherit'}">nodig ${nodig[v.id]}</span>` : ''}</td>
         <td><div class="rij" style="flex-wrap:nowrap"><button class="knop" data-actie="koop" data-type="${v.id}" data-n="1" title="Kopen">＋</button><button class="knop" data-actie="verkoop" data-type="${v.id}" title="Verkopen voor 45% van de nieuwprijs" ${spel.voertuigen[v.id] ? '' : 'disabled'}>−</button></div></td></tr>`).join('')}</table>`;
     }).join('');
-    return `<h2>Vloot</h2><p class="klein">Materieel dat in ${spel.jaar} in Nederland reed. Prijzen zijn benaderingen in euro's van nu. Verkopen levert 45% op.</p>${groepen}`;
+    const museum = museumTypen(spel.jaar);
+    const mus = museum.length ? `<h3>Museummaterieel (gerestaureerd)</h3><p class="klein">Rijdt niet meer in de dienstregeling, maar trekt veel belangstelling bij bijzondere ritten. Lage vaste kosten, wel duur per km.</p>
+      <table class="tabel">${museum.map(v => `<tr><td><b>${esc(v.naam)}</b><br><span class="klein">${v.zit} zit · ${v.vmax} km/u · ${v.energie} · ${v.van}–${v.tot} · ${S.euroKort(museumPrijs(v))}</span></td><td class="getal">${spel.voertuigen[v.id] || 0}</td>
+      <td><div class="rij" style="flex-wrap:nowrap"><button class="knop" data-actie="koop-museum" data-type="${v.id}" title="Kopen">＋</button><button class="knop" data-actie="verkoop" data-type="${v.id}" ${spel.voertuigen[v.id] ? '' : 'disabled'}>−</button></div></td></tr>`).join('')}</table>` : '';
+    return `<h2>Vloot</h2><p class="klein">Materieel dat in ${spel.jaar} in Nederland reed. Prijzen zijn benaderingen in euro's van nu. Verkopen levert 45% op.</p>${groepen}${mus}`;
   },
   controle() {
     const c = spel.controle, m = spel.maand;
@@ -1048,10 +1111,17 @@ const PANELEN = {
       <label class="veld">Naam<input id="nl-naam" value="${esc(d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0])}" maxlength="60"></label></div>
       <div class="veld"><label for="nl-type">Materieel</label><select id="nl-type">${typen.map(v => `<option value="${v.id}">${esc(v.naam)} · ${v.zit + v.sta} pl. · ${S.euroKort(v.prijs)}</option>`).join('')}</select></div>
       <div class="raster2"><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.modus === 'trein' ? 30 : 15}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="30" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="60" min="3"></label></div>
+      <label class="rij"><input type="checkbox" data-wijzig="nl-bijzonder" ${d.bijzonder ? 'checked' : ''}> Eenmalige bijzondere rit (bv. stoomtrein of themarit)</label>
+      ${d.bijzonder ? `<div class="raster2"><label class="veld">Over hoeveel dagen<input id="nb-dagen" type="number" min="3" max="90" value="14"></label><label class="veld">Vertrek<input id="nb-tijd" type="time" value="10:00"></label>
+        <label class="veld">Prijs per persoon €<input id="nb-prijs" type="number" min="0" step="1" value="${Math.round(gewonePrijs(d.modus, d.route.lengte / 1000) * 1.8)}"></label></div>
+        <div class="veld"><label for="nb-type">Materieel (in bezit)</label><select id="nb-type">${[...beschikbaar(spel.jaar, d.modus), ...museumTypen(spel.jaar).filter(t => t.modus === d.modus)].filter(t => spel.voertuigen[t.id]).map(t => `<option value="${t.id}">${esc(t.naam)}${isMuseum(t, spel.jaar) ? ' (museum)' : ''} · ${spel.voertuigen[t.id]} in bezit</option>`).join('') || '<option value="">— geen materieel in bezit: koop eerst bij Vloot —</option>'}</select></div>
+        <p class="klein">Mensen schrijven zich in tot de dag van de rit. Museummaterieel en weekenddagen trekken veel meer belangstelling.</p>
+        <div class="rij"><button class="knop hoofd" data-actie="bijzonder-maak">Rit uitschrijven</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div>` : ''}
+      <div ${d.bijzonder ? 'hidden' : ''}>
       <label class="rij"><input type="checkbox" id="nl-koop" checked> Benodigd materieel meteen kopen</label>
       <label class="rij"><input type="checkbox" id="nl-concessie" checked> Concessie (subsidie) aanvragen bij de provincie</label>
       ${d.modus === 'trein' ? '<p class="klein">Voor een treinlijn vraag je ruimte op het spoor aan bij ProRail. De lijn rijdt pas als die is toegekend (behalve over je eigen spoor).</p>' : ''}
-      <div class="rij"><button class="knop hoofd" data-actie="lijn-maak">Lijn openen</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div>`;
+      <div class="rij"><button class="knop hoofd" data-actie="lijn-maak">Lijn openen</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div></div>`;
   },
   aiLijn(a) {
     return `<h2><span class="lijnnr" style="background:${esc(a.kleur)}">${esc(a.nr)}</span> ${esc(a.vervoerderNaam)}</h2>
@@ -1192,6 +1262,16 @@ function actieUit(a, d) {
       bouw = null; zetTool('kijk'); break;
     }
     case 'lijn-maak': maakNieuweLijn(); break;
+    case 'bijzonder-maak': {
+      const dd = paneelData, typeId = $('nb-type').value;
+      if (!typeId) { melding('Koop eerst materieel (Vloot), bijvoorbeeld museummaterieel.'); break; }
+      const [hh, mm] = $('nb-tijd').value.split(':').map(Number);
+      const nl = maakBijzonder({ nr: '★', naam: `${dd.haltes[0].naam.split(',')[0]} – ${dd.haltes[dd.haltes.length - 1].naam.split(',')[0]}`, modus: dd.modus, typeId, haltes: dd.haltes, route: dd.route,
+        dag: spel.dag + Math.max(3, Math.min(90, +$('nb-dagen').value || 14)), vertrek: hh * 60 + mm, prijs: Math.max(0, +$('nb-prijs').value || 0) });
+      melding(`Bijzondere rit uitgeschreven voor ${S.datumTekst(nl.bijzonder.dag)}. Verwachting: ${Math.min(S.capaciteit(nl), belangstelling(spel, { ...nl.bijzonder, haltes: nl.haltes, typeId, modus: nl.modus, lengteKm: nl.lengteKm }, D.plaatsen))} inschrijvingen.`, 7000);
+      bouw = null; zetTool('kijk'); openPaneel('lijnen'); break;
+    }
+    case 'koop-museum': { const t = TYPE[d.type]; if (!betaal(museumPrijs(t), t.naam)) break; spel.voertuigen[d.type] = (spel.voertuigen[d.type] || 0) + 1; melding(`${t.naam} gekocht en gerestaureerd (${S.euroKort(museumPrijs(t))}).`); ververs(); break; }
     case 'lijn-annuleer': bouw = null; sluitPaneel(); zetTool('kijk'); break;
   }
 }
@@ -1200,6 +1280,7 @@ function wijzig(w, i) {
   const tijd = v => { const [h, m] = v.split(':').map(Number); let t = h * 60 + m; if (t < 4 * 60) t += 1440; return t; };
   switch (w) {
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
+    case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
     case 'ink': {
@@ -1325,9 +1406,30 @@ function voerUit(vz, waarde) {
   }
   eigenNetBijwerken();
 }
+// charter: akkoord = rit inplannen met passend materieel; tegenbod: de groep beslist meteen
+function charterAntwoord(a, vz, val) {
+  const plan = bod => {
+    const typen = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && TYPE[id]?.modus === 'trein');
+    const typeId = (vz.historisch ? typen.find(id => isMuseum(TYPE[id], spel.jaar)) : null) || (!vz.historisch ? typen.sort((x, y) => spel.voertuigen[y] - spel.voertuigen[x])[0] : null);
+    if (!typeId) { melding(vz.historisch ? 'Je hebt geen museummaterieel. Koop een historische trein bij Vloot.' : 'Je hebt geen treinen in bezit.'); return false; }
+    const r = net.route([vz.van_.x, vz.van_.y], [vz.naar.x, vz.naar.y], 'trein', spel.jaar);
+    if (!r) { melding('Er is geen spoorverbinding tussen deze stations.'); return false; }
+    maakBijzonder({ nr: '★', naam: `${vz.vanNaam}: ${vz.van_.naam} – ${vz.naar.naam}`, modus: 'trein', typeId, haltes: [vz.van_, vz.naar], route: r, dag: vz.ritDag, vertrek: vz.vertrek, prijs: 0, charter: true, bod, personen: vz.personen, wie: vz.vanNaam });
+    return true;
+  };
+  if (a === 'vz-ja') { if (plan(vz.bod)) { vz.status = 'geaccepteerd'; vz.reden = `Ingepland voor ${S.datumTekst(vz.ritDag)}.`; melding('Rit ingepland.'); } }
+  else if (a === 'vz-nee') { vz.status = 'afgewezen'; vz.reden = 'Je hebt bedankt.'; }
+  else if (a === 'vz-tegen') {
+    const tegen = val(`tv-geld-${vz.id}`);
+    if (tegen <= vz.bod * (1.05 + Math.random() * 0.3)) { if (plan(tegen)) { vz.status = 'geaccepteerd'; vz.reden = `${vz.vanNaam} gaat akkoord met € ${tegen.toLocaleString('nl-NL')}. Ingepland voor ${S.datumTekst(vz.ritDag)}.`; } }
+    else { vz.status = 'afgewezen'; vz.reden = `${vz.vanNaam} vindt € ${tegen.toLocaleString('nl-NL')} te duur en zoekt een andere vervoerder.`; }
+  }
+  vz.gezien = false; ververs();
+}
 function reageerOpVerzoek(a, vz) {
   if (!vz) return;
   const val = id => +($(id)?.value || 0);
+  if (vz.soort === 'charter') return charterAntwoord(a, vz, val);
   if (a === 'vz-ja') { vz.status = 'geaccepteerd'; vz.reden = 'Je hebt ingestemd.'; voerUit(vz, vz); spel.goodwill[vz.van] = (spel.goodwill[vz.van] || 0) + 5; melding('Akkoord gegeven; je lijn is verschoven.'); }
   if (a === 'vz-nee') { vz.status = 'afgewezen'; vz.reden = 'Je hebt het verzoek afgewezen.'; spel.goodwill[vz.van] = (spel.goodwill[vz.van] || 0) - 3; }
   if (a === 'vz-tegen') { vz.tegen = { minuten: val(`tv-min-${vz.id}`), vergoeding: val(`tv-geld-${vz.id}`) }; vz.status = 'tegen-van-speler'; vz.antwoordDag = spel.dag + spel.tijd / 1440 + 1; vz.reden = `Jouw tegenvoorstel: ${vz.tegen.minuten > 0 ? '+' : ''}${vz.tegen.minuten} min${vz.tegen.vergoeding ? `, ${S.euro(vz.tegen.vergoeding)} per jaar` : ''}.`; }
@@ -1708,6 +1810,7 @@ function begin() {
   zetPlaatsen(spel.jaar);
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
   spel._weekend = undefined; dienstVoorDag();
+  for (const l of spel.lijnen) if (l.bijzonder) bijzonderBijwerken(l); // vertrektijden worden niet opgeslagen
   netwerkLagen(); hud(); laadAIinBeeld();
   if (spel.jaar < 2020) historischeAI();
   if (!spel.lijnen.length) setTimeout(() => melding('Tip: kies ＋ Lijn, dan Bus, en klik een paar plekken in een stad aan. Haltes komen er vanzelf bij.', 8000), 1200);
