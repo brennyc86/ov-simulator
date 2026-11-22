@@ -215,7 +215,15 @@ out body geom;"""
             vmax = int(re.match(r"\d+", t.get("maxspeed", "0")).group(0))
         except (AttributeError, ValueError):
             vmax = 0
-        elek = 1 if t.get("electrified", "no") not in ("no", "") else 0
+        # elektrificatie: 0 = geen, anders de spanning in volt (1 = wel elektrisch, spanning onbekend);
+        # 3e rail (metro) krijgt een negatief getal: -750 = 750 V via derde rail
+        elek = 0
+        if t.get("electrified", "no") not in ("no", ""):
+            try:
+                v = int(re.match(r"\d+", t.get("voltage", "").split(";")[0]).group(0))
+            except (AttributeError, ValueError):
+                v = 1
+            elek = -v if t.get("electrified") == "rail" and v > 1 else v
         start = jaar(t.get("start_date") or t.get("opening_date"))
         eind = jaar(t.get("end_date") or t.get("closing_date") or t.get("abandoned:date")
                     or t.get("razed:date"))
@@ -582,6 +590,9 @@ def main():
         takken = spoor(a.bbox, a.uit)
         time.sleep(20)
         stations(a.bbox, a.uit, takken)
+        return
+    if a.alleen == "spoorkaal":  # alleen het spoornet (zonder stations)
+        spoor(a.bbox, a.uit)
         return
     if a.alleen == "trolley":
         trolley(a.bbox, a.uit)

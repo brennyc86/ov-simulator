@@ -299,6 +299,20 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(40);
   log('kruisingpaneel:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160));
   document.querySelector('[data-actie="kruising-bouw"][data-s="flyover"]')?.click(); await wacht(30); log('eigen kruisingen:', JSON.stringify(sp.kruisingen || [])); document.querySelector('[data-tool="kijk"]')?.click(); }
+// elektrificatie: baanvak van een eigen treinlijn ombouwen naar 25 kV, conflicten, sleeploc
+{ const sp = globalThis.__ovTest.spel, tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  const l = sp.lijnen.find(x => !x.bijzonder && x.modus === 'trein' && x.route?.takken?.length && !x.echt);
+  if (l) { const net = globalThis.__ovTest.net, t = net.takken[l.route.takken[Math.floor(l.route.takken.length / 2)]] || net.eigen[l.route.takken[0] - 1e6];
+    const m = (t.pts.length >> 2) * 2, G9 = await import('../js/geo.js'), [la, lo] = G9.rdNaarWgs(t.pts[m], t.pts[m + 1]);
+    globalThis.__map.easeTo({ center: [lo, la], zoom: 16 }); await wacht(30); globalThis.__ovTest.open('spoorvak', { ti: t.i }); await wacht(40);
+    log('spoorvak:', tekst().slice(0, 500));
+    const r = document.querySelector('[data-wijzig="sv-kies"][value="25kVAC"]'); if (r) { r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(40); }
+    log('25 kV kiezen:', tekst().match(/Deze lijnen.{0,300}/)?.[0] || tekst().slice(-200));
+    document.querySelector('[data-actie="sv-zet"]')?.click(); await wacht(40);
+    log('lijn', l.nr, 'actief', l.actief, 'wacht', l.wacht, JSON.stringify(l._stroom?.probleem));
+    document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(60);
+    const sel = document.getElementById(`sleep-${l.id}`); if (sel) { sel.value = 'loc193'; } document.querySelector(`[data-actie="sleeploc"][data-id="${l.id}"]`)?.click(); await wacht(40);
+    log('na sleeploc:', l.sleeploc, 'actief', l.actief, 'wacht', l.wacht); } }
 // lening afsluiten en aflossen
 { const sp = globalThis.__ovTest.spel; const g0 = sp.geld; document.querySelector('[data-paneel="geld"]').click(); await wacht(30);
   document.querySelector('[data-actie="lenen"][data-b="10000000"]')?.click(); await wacht(20);

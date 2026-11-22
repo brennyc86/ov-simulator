@@ -6,6 +6,7 @@ import { Wegen } from './wegen.js';
 import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst } from './subsidie.js';
 import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } from './gebouw.js';
 import { busstationOntwerp } from './perron.js';
+import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom } from './stroom.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
@@ -434,7 +435,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -1138,10 +1139,12 @@ const PANELEN = {
     for (const g of gedeeld) if (!uniekeAI.some(u => u.ai.sleutel === g.ai.sleutel && u.halte === g.halte)) uniekeAI.push(g);
     return `<h2><span class="lijnnr" style="background:${spel.kleur}">${esc(l.nr)}</span> ${esc(l.naam || '')}</h2>
       <p class="klein">${MODI[l.modus].naam} · ${l.lengteKm.toFixed(1).replace('.', ',')} km · rijtijd ${Math.round(l.duur / 60)} min · ${l.vertrek[0].length + l.vertrek[1].length} ritten per dag
-      ${l.concessie ? ' · <span class="chip goed">concessie</span>' : ''} ${l.wacht ? '<span class="chip let">wacht op ProRail</span>' : ''} ${!l.actief && !l.wacht ? '<span class="chip">gestopt</span>' : ''}</p>
+      ${l.concessie ? ' · <span class="chip goed">concessie</span>' : ''} ${l.wacht ? `<span class="chip let">${l.wacht === 'stroom' ? 'rijdt niet: materieel past niet bij de bovenleiding' : 'wacht op ProRail'}</span>` : ''} ${!l.actief && !l.wacht ? '<span class="chip">gestopt</span>' : ''}</p>
       <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span>${l.bijzonder ? '' : ` <button class="knop klein" data-actie="halte-weg" data-id="${l.id}" data-i="${i}" title="halte uit de lijn halen">✕</button>`}</li>`).join('')}</ol>
       ${l.bijzonder ? '' : `<button class="knop klein" data-actie="halte-erbij" data-id="${l.id}">＋ Station/halte toevoegen</button>`}
       ${richtingBlok(l)}
+      ${(() => { const c = l._stroom || ((l.echt && !l.aangepast) ? null : stroomCheck(spel, net, l)); if (!c || (c.ok && !l.sleeploc)) return ''; return c.ok ? `<p class="chip">Sleeploc: ${esc(TYPE[l.sleeploc]?.naam || '')} over de stukken waar het eigen materieel niet kan <button class="knop klein" data-actie="sleeploc-weg" data-id="${l.id}">weg</button></p>`
+        : `<div class="kaartje"><b style="color:var(--rood)">Kan niet rijden:</b> ${esc(TYPE[l.typeId]?.naam || '')} kan niet op ${c.probleem.map(p => `${p.naam} (${komma(p.km)} km)`).join(', ')}.<br>Kies hieronder ander materieel (bv. een meersysteemtrein), of ${sleeplocKnoppen(l, c.probleem[0].sys === 'geen' ? null : c.probleem[0].sys) || 'een diesel-sleeploc'}</div>`; })()}
       ${l.aanbod ? (() => { const a = (spel.aanbiedingen || []).find(x => x.id === l.aanbod.id); const t = a ? toetsEisen(l, a) : { ok: false, redenen: ['aanbieding bestaat niet meer'] };
         return `<p class="chip ${t.ok ? 'goed' : 'fout'}">Subsidie ${a ? `${esc(a.a.naam)} – ${esc(a.b.naam)}: ${vergoedingTekst(a.vergoeding)}` : ''} · ${t.ok ? 'voldoet aan de eisen' : 'wordt niet uitbetaald: ' + esc(t.redenen.join('; '))}</p>`; })() : ''}
       <h3>Voertuigen op deze lijn</h3>${voertuigTabel(l)}
@@ -1358,6 +1361,22 @@ const PANELEN = {
       <div class="rij"><button class="knop hoofd" data-actie="kruising-bouw" data-s="flyover">Flyover (€ 60 mln)</button><button class="knop hoofd" data-actie="kruising-bouw" data-s="diveunder">Dive-under (€ 90 mln)</button><button class="knop" data-actie="perron-stop">Annuleren</button></div>
       <p class="klein">Bouwtijd 2 speluren. Op de kaart zie je ▲ (flyover, over het andere spoor) of ▼ (dive-under, eronderdoor). Let op: het spel rekent nog niet met wachttijd bij gelijkvloerse kruisingen; dit is voorlopig vooral zichtbaar en voor later.</p>`;
   },
+  spoorvak(d) {
+    const t = takVan(d.ti); if (!t) return '<p>Spoor niet gevonden.</p>';
+    const bv = baanvak(spel, net, t), km = bv.lengte / 1000, nu = bv.sys;
+    const soortNaam = ['treinspoor', 'sneltramspoor', 'metrospoor', 'tramspoor', 'smalspoor'][t.soort] || 'spoor';
+    const opties = [...systemenVoorSoort(t.soort), null];
+    const conflict = sys => lijnenOpBaanvak(bv.takken).filter(x => kanOp(x.typeId, nu) && !kanOp(x.typeId, sys) && !(x.lijn.sleeploc && kanOp(x.lijn.sleeploc, sys)));
+    const keuze = d.kies !== undefined ? d.kies : undefined, kc = keuze !== undefined ? conflict(keuze) : [];
+    return `<h2>${soortNaam[0].toUpperCase() + soortNaam.slice(1)}${t.naam && typeof t.naam === 'string' ? ' · ' + esc(t.naam) : ''}</h2>
+      <p class="klein">Baanvak ${komma(km)} km · ${t.sporen >= 2 ? t.sporen + ' sporen' : 'enkelspoor'} · max ${t.vmax || '?'} km/u · spoorwijdte ${t.soort === 4 ? 'smalspoor' : 'normaalspoor (1435 mm)'} · ${t.eigenaar === 'speler' ? 'van jou' : 'ProRail'}${t.hoogte > 0 ? ' · viaduct' : t.hoogte < 0 ? ' · tunnel' : ''}</p>
+      <p>Elektrificatie: <b>${nu ? SYSTEMEN[nu].naam : 'geen bovenleiding'}</b></p>
+      <div class="veld"><label>Andere spanning voor dit baanvak</label>${opties.map(sys => { const c = sys === nu ? [] : conflict(sys); return `<label class="rij" style="${c.length ? 'opacity:.45' : ''}"><input type="radio" name="sv" data-wijzig="sv-kies" value="${sys || ''}" ${sys === (keuze !== undefined ? keuze : nu) ? 'checked' : ''}> ${sys ? SYSTEMEN[sys].naam : 'geen bovenleiding (alleen diesel, stoom, accu)'}${sys === nu ? ' (nu)' : c.length ? ` <span class="klein">— ${c.length} lijn(en) kunnen dan niet rijden</span>` : sys ? ` <span class="klein">${S.euroKort(ombouwKostenStroom(nu, sys, km))}</span>` : ''}</label>`; }).join('')}</div>
+      ${keuze !== undefined && keuze !== nu ? (kc.length ? `<div class="kaartje"><b>Deze lijnen kunnen dan niet meer rijden:</b>${kc.map(x => `<p class="klein">${x.lijn.ai ? esc(x.lijn.vervoerderNaam || '') : 'Jouw lijn'} <b>${esc(x.lijn.nr || x.lijn.naam || '')}</b> (${esc(TYPE[x.typeId]?.naam || x.typeId)})
+          ${x.lijn.ai ? '— van een andere vervoerder: die rijdt dan niet meer. Kies een spanning waar hun materieel op kan.' : `<br><button class="knop klein" data-actie="toon-lijn" data-id="${x.lijn.id}">Ander materieel kiezen</button> ${sleeplocKnoppen(x.lijn, keuze)}`}</p>`).join('')}</div>` : '')
+        + `<button class="knop hoofd" data-actie="sv-zet" data-ti="${d.ti}" ${kc.some(x => x.lijn.ai) ? 'disabled' : ''}>Ombouwen naar ${keuze ? SYSTEMEN[keuze].naam : 'geen bovenleiding'} (${S.euroKort(ombouwKostenStroom(nu, keuze, km))})</button>${kc.some(x => !x.lijn.ai) ? '<p class="klein">Jouw lijnen die niet kunnen, stoppen tot je ander materieel of een sleeploc kiest.</p>' : ''}` : ''}
+      <p class="klein">Elektrisch materieel rijdt alleen op spanningen die het aankan (meersysteemtreinen en -locs kunnen er meer). Diesel, stoom en accutreinen rijden overal; een paardentram alleen op tramspoor.</p>`;
+  },
   bouw() {
     const pr = bouwProjecten();
     if (!pr.length) return '<h2>Bouwprojecten</h2><p>Er wordt nu niets gebouwd.</p>';
@@ -1490,7 +1509,7 @@ function actieUit(a, d) {
     case 'sam-op': { const k = +d.i; [l._sam[k - 1], l._sam[k]] = [l._sam[k], l._sam[k - 1]]; ververs(); break; }
     case 'sam-terug': l._sam = null; ververs(); break;
     case 'sam-toepassen': { const o = l._sam; if (!o?.length) break; l.typeId = o.length > 1 ? samenstelling(o).id : o[0]; l._sam = null; S.herbereken(l); padOpnieuwNodig(l);
-      melding(`Lijn ${l.nr} rijdt nu met ${TYPE[l.typeId].naam}.`); ververs(); break; }
+      stroomBijwerken(l); melding(`Lijn ${l.nr} rijdt nu met ${TYPE[l.typeId].naam}.`); ververs(); break; }
     case 'koop-nodig': {
       const tekort = Object.entries(nodigPer(l.typeId)).map(([c, k]) => [c, Math.max(0, k * l.nodig - (spel.voertuigen[c] || 0))]).filter(x => x[1] > 0);
       const kosten = tekort.reduce((a, [c, n]) => a + n * TYPE[c].prijs, 0);
@@ -1499,6 +1518,20 @@ function actieUit(a, d) {
       melding(`Gekocht: ${tekort.map(([c, n]) => `${n} × ${TYPE[c].naam}`).join(', ')} (${S.euroKort(kosten)}).`); ververs(); break;
     }
     case 'paneel': openPaneel(d.p); break;
+    case 'sv-zet': {
+      const t = takVan(+d.ti), bv = baanvak(spel, net, t), naar = paneelData.kies ?? null, kosten = ombouwKostenStroom(bv.sys, naar, bv.lengte / 1000);
+      if (!betaal(kosten, 'de ombouw van de bovenleiding')) break;
+      spel.spanning = spel.spanning || {}; for (const x of bv.takken) spel.spanning[x.i] = naar || 0;
+      for (const x of spel.lijnen) stroomBijwerken(x);
+      melding(`Baanvak (${komma(bv.lengte / 1000)} km) omgebouwd naar ${naar ? SYSTEMEN[naar].naam : 'geen bovenleiding'}.`); paneelData.kies = undefined; ververs(); break;
+    }
+    case 'sleeploc': {
+      const id = $(`sleep-${l.id}`)?.value; if (!id) break; const tekort = Math.max(0, l.nodig - (spel.voertuigen[id] || 0));
+      if (tekort && !betaal(tekort * TYPE[id].prijs, `${tekort} × ${TYPE[id].naam}`)) break;
+      spel.voertuigen[id] = (spel.voertuigen[id] || 0) + tekort; l.sleeploc = id; stroomBijwerken(l);
+      melding(`Lijn ${l.nr} krijgt een ${TYPE[id].naam} als sleeploc over de stukken waar het eigen materieel niet kan${tekort ? ` (${tekort} gekocht)` : ''}.`, 8000); ververs(); break;
+    }
+    case 'sleeploc-weg': l.sleeploc = null; stroomBijwerken(l); ververs(); break;
     case 'kruising-bouw': { const g = paneelData, kosten = d.s === 'flyover' ? 60e6 : 90e6; if (!betaal(kosten, d.s === 'flyover' ? 'de flyover' : 'de dive-under')) break;
       spel.kruisingen = spel.kruisingen || []; spel.kruisingen.push({ x: g.x, y: g.y, soort: d.s, ...bouwKlaar(), kosten, projectNaam: d.s === 'flyover' ? 'Flyover' : 'Dive-under' });
       melding(`Bouw van de ${d.s === 'flyover' ? 'flyover' : 'dive-under'} gestart, klaar over 2 speluren.`); sluitPaneel(); eigenNetBijwerken(); hud(); break; }
@@ -1695,6 +1728,7 @@ function wijzig(w, i) {
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
     case 'ns-naam': paneelData.naam = i.value; return;
+    case 'sv-kies': paneelData.kies = i.value || null; ververs(); return;
     case 'spoor-hergebruik': paneelData.hergebruik = i.checked; spoorVoorstel(paneelData); i.blur(); setTimeout(() => ververs(), 0); return;
     case 'spoor-n': paneelData.sporen = +i.value; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'bs-n': paneelData.n = Math.max(1, Math.min(16, Math.round(+i.value || 1))); if (paneelData.plek) busVoorstel(paneelData); i.blur(); setTimeout(() => ververs(), 0); return;
@@ -1708,7 +1742,7 @@ function wijzig(w, i) {
     case 'perron-vorm': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, i.value, perronOntwerp.eind); return;
     case 'lijn-richting': l.richting = i.value; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
-    case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
+    case 'lijn-type': l.typeId = i.value; S.herbereken(l); stroomBijwerken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
     case 'lcatering': l.catering = { ...(l.catering || {}), [i.dataset.k]: +i.value }; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'lrest': {
@@ -2103,6 +2137,32 @@ function bovenleidingToevoegen(punten) {
   if (kaart?.map?.getSource?.('trolley')) kaart.bron('trolley', { type: 'FeatureCollection', features: D.trolley.map(q => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lijnGeo(q) } })) });
   for (const l of [...spel.lijnen, ...AI.lijnen]) l._trolley = undefined;
 }
+// ---------------------------------------------------------------- elektrificatie
+const takVan = i => i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i];
+// welke lijnen (eigen en van anderen) rijden over deze takken, met hun materieel
+function lijnenOpBaanvak(takken) {
+  const ids = new Set(takken.map(t => t.i)), uit = [];
+  const midden = takken.map(t => [t.pts[(t.pts.length >> 2) * 2], t.pts[(t.pts.length >> 2) * 2 + 1]]);
+  for (const l of [...spel.lijnen, ...AI.lijnen]) {
+    if (!['trein', 'metro', 'sneltram', 'tram'].includes(l.modus) || l.bijzonder) continue;
+    let erop = l.route?.takken ? l.route.takken.some(i => ids.has(i)) : false;
+    if (!erop && !l.route?.takken && l.route?.pts) { const [x0, y0, x1, y1] = l.bbox || bboxVan(l.route.pts); erop = midden.some(([mx, my]) => mx > x0 - 50 && mx < x1 + 50 && my > y0 - 50 && my < y1 + 50 && projecteer(l.route.pts, mx, my).d < 25); }
+    if (erop) uit.push({ lijn: l, typeId: l.ai ? typeVoor(l, spel.jaar, standaardType) : l.typeId });
+  }
+  return uit;
+}
+// sleeplocs die dit systeem aankunnen (diesel kan altijd), om ongeschikt materieel over het stuk te slepen
+function sleeplocKnoppen(l, sys) {
+  const locs = [...beschikbaarLos(spel.jaar), ...VLOOT.filter(v => v.soort === 'loc' && spel.voertuigen[v.id])].filter((v, i, a) => v.soort === 'loc' && a.indexOf(v) === i && kanOp(v.id, sys));
+  return locs.length ? `<select id="sleep-${l.id}">${locs.map(v => `<option value="${v.id}">${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ` · ${S.euroKort(v.prijs)}`}</option>`).join('')}</select><button class="knop klein" data-actie="sleeploc" data-id="${l.id}">Sleeploc inzetten (${l.nodig} nodig)</button>` : '';
+}
+// mag deze eigen lijn met dit materieel rijden? anders stilzetten tot het is opgelost
+function stroomBijwerken(l) {
+  if (!l || l.ai || l.bijzonder || (l.echt && !l.aangepast)) return;
+  const c = stroomCheck(spel, net, l); l._stroom = c;
+  if (!c.ok && l.actief) { l.actief = false; l.wacht = 'stroom'; melding(`Lijn ${l.nr} kan niet rijden: ${TYPE[l.typeId]?.naam || ''} kan niet op ${c.probleem.map(p => `${p.naam} (${komma(p.km)} km)`).join(', ')}. Kies ander materieel of een sleeploc.`, 10000); }
+  if (c.ok && l.wacht === 'stroom') { l.actief = true; l.wacht = null; melding(`Lijn ${l.nr} rijdt weer.`); }
+}
 // ---------------------------------------------------------------- busstation
 const busKosten = g => Math.round((g.n * 60000 + 150000 + (g.opstelling === 'naast' ? g.n * 30000 : 0)) / 1e4) * 1e4;
 function busVoorstel(g) {
@@ -2227,6 +2287,7 @@ function maakNieuweLijn() {
   const aanbodId = $('nl-aanbod')?.checked ? $('nl-aanbod').value : null;
   if ($('nl-concessie').checked) nieuwVerzoek(spel, { aan: 'provincie', aanNaam: 'Provincie', soort: 'concessie', lijnId: l.id, tekst: `Concessie en subsidie gevraagd voor lijn ${l.nr}.` });
   melding(`Lijn ${l.nr} ${l.actief ? 'rijdt vanaf nu' : 'wacht op ruimte op het spoor'}. Benodigd: ${l.nodig} voertuig(en).`);
+  stroomBijwerken(l);
   if (aanbodId) aanbodKoppelen(aanbodId, l);
   bouw = null; zetTool('kijk'); selectie = { lijn: l }; openPaneel('lijn', l);
   if (terugBouwen) terugwegBouwen(l);
@@ -2400,7 +2461,10 @@ function klik(px, py) {
     }
   }
   const st = dichtsteKandidaat('trein', px, py, 10);
-  if (st) openPaneel('station', { naam: st.naam, p: st.p, eigen: !!st.eigen, x: st.x, y: st.y });
+  if (st) { openPaneel('station', { naam: st.naam, p: st.p, eigen: !!st.eigen, x: st.x, y: st.y }); return; }
+  // op het spoor geklikt: baanvak met spanning en eigenschappen
+  const r = ['trein', 'metro', 'tram'].map(m => net.dichtsteTak(x, y, m, spel.jaar, 8 * kaart.res + 4)).filter(Boolean).sort((a, b) => a.d - b.d)[0];
+  if (r) openPaneel('spoorvak', { ti: r.t.i });
 }
 function afstandTotLijnstuk(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
@@ -2590,6 +2654,7 @@ function begin() {
   zetPlaatsen(spel.jaar);
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
   spel._weekend = undefined; dienstVoorDag();
+  for (const l of spel.lijnen) stroomBijwerken(l);
   for (const l of spel.lijnen) if (l.wacht === 'pad') { l.wacht = null; l.actief = true; l.paden = Math.ceil(60 / Math.min(...Object.values(l.interval))); } // spoorruimte krijg je nu altijd
   aanbiedingenAanvullen(); aanbiedingenToetsen();
   for (const l of spel.lijnen) if (l.bijzonder) bijzonderBijwerken(l); // vertrektijden worden niet opgeslagen
