@@ -44,7 +44,8 @@ fetch('versie.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).ca
 async function laadData() {
   const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(json));
-  const [po, hs, tr, sg] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json'].map(json));
+  const [po, hs, tr, sg, bb] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json', 'data/bebouwing.json'].map(json));
+  D.bebouwing = bb; // bebouwing door de tijd (BAG): per cel van 100 m sinds wanneer bebouwd, met functie
   D.stationsgebouwen = (sg?.g || []).map(ontpakDelta); // bestaande stationsgebouwen en perrongebouwtjes (OSM)
   // bovenleiding voor trolleybussen: lijnen + raster (50 m) om bussen op die wegen te herkennen
   D.trolley = (tr?.w || []).map(w => ontpakDelta(w.d));
@@ -295,6 +296,15 @@ function netwerkLagen() {
     kaart.laag({ id: 'perron-rand', type: 'line', source: 'perrons', minzoom: 14, filter: ['all', ['==', ['get', 'v'], 1], jaarFilter(jaar)], paint: { 'line-color': PERRONRAND, 'line-width': meters(0.4, 0.6) } });
     kaart.laag({ id: 'perron-lijn', type: 'line', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 0], layout: { 'line-cap': 'butt' }, paint: { 'line-color': PERRON, 'line-width': meters(4.5, 1.2) } });
     kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': spel?.kleur || '#c2412d' } });
+    // bebouwing door de tijd (BAG) in het eigen thema: in historische jaren in plaats van de bebouwing van nu
+    if (D.bebouwing?.r && !kaart.map.getSource('bebouwing-hist')) {
+      const c = D.bebouwing.cel || 100, fs = [];
+      for (const r of D.bebouwing.r) { const j = r[0]; for (let q = 1; q < r.length; q += 4) { const i0 = r[q], n = r[q + 1], x0 = i0 * c, x1 = (i0 + n) * c, y0 = j * c, y1 = y0 + c;
+        fs.push({ type: 'Feature', properties: { j: r[q + 2], f: r[q + 3] }, geometry: { type: 'Polygon', coordinates: [[lonlat(x0, y0), lonlat(x1, y0), lonlat(x1, y1), lonlat(x0, y1), lonlat(x0, y0)]] } }); } }
+      kaart.bron('bebouwing-hist', { type: 'FeatureCollection', features: fs });
+      kaart.laag({ id: 'bebouwing-hist', type: 'fill', source: 'bebouwing-hist', layout: { visibility: 'none' },
+        paint: { 'fill-color': ['match', ['get', 'f'], 1, '#e0a04a', 2, '#c9655a', 3, '#8e9ccc', '#d9705f'], 'fill-antialias': false } }, kaart.map.getLayer('zand-landuse') ? 'zand-landuse' : undefined);
+    }
     // stationsgebouwen en gebouwtjes op perrons (wachtkamers, winkels, horeca) in donkergrijs: herkenbaar als station
     const STATIONSGRIJS = '#55595e';
     if (!kaart.map.getSource('stationsgebouwen')) kaart.bron('stationsgebouwen', { type: 'FeatureCollection', features: (D.stationsgebouwen || []).map(v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [c] } }; }) });
@@ -372,6 +382,10 @@ function jaarBijwerken() {
   m.setFilter('net-stations', ['all', f, ['any', ['==', ['get', 's'], 'trein'], ['>=', ['zoom'], 12.5]]]);
   m.setFilter('net-stations-naam', ['all', f, ['any', ['all', ['==', ['get', 's'], 'trein'], ['any', ['>=', ['get', 'p'], 5], ['>=', ['zoom'], 9.5]]], ['>=', ['zoom'], 14]]]);
   m.setLayoutProperty('net-oud', 'visibility', jaar < 2000 || kaart.achtergrond === 'historisch' ? 'visible' : 'none');
+  // historische bebouwing (BAG) in plaats van de bebouwing en gebouwen van nu
+  const hist = !!m.getLayer('bebouwing-hist') && jaar < 2020;
+  if (m.getLayer('bebouwing-hist')) { m.setLayoutProperty('bebouwing-hist', 'visibility', hist ? 'visible' : 'none'); m.setFilter('bebouwing-hist', ['<=', ['get', 'j'], jaar]); }
+  for (const id of ['bebouwd', 'industrie', 'gebouw', 'gebouw-schaduw']) if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', hist ? 'none' : 'visible');
   if (spel) for (const id of ['net-eigen-spoor', 'net-eigen-bouw']) m.setPaintProperty(id, 'line-color', spel.kleur);
   if (spel) m.setPaintProperty('net-eigen-haltes', 'circle-stroke-color', spel.kleur);
   kaart.jaar = jaar;
@@ -2664,7 +2678,7 @@ function begin() {
   spel._weekend = undefined; dienstVoorDag();
   // historische jaren: standaard de echte kaart van dat jaar (Kadaster-tijdreiskaart) als ondergrond, zodat
   // bebouwing, wegen, heide en water kloppen met de tijd; de moderne bebouwing valt eronder weg
-  const ag = spel.achtergrond || (spel.jaar < 2015 ? 'historisch' : 'eigen');
+  const ag = spel.achtergrond || (spel.jaar < 2015 && !D.bebouwing ? 'historisch' : 'eigen'); // met BAG-bebouwing: eigen thema per jaar
   if (kaart.achtergrond !== ag) { kaart.zetAchtergrond(ag); $('bron').textContent = ACHTERGROND_KEUZE[ag]?.bron || ''; }
   for (const l of spel.lijnen) stroomBijwerken(l);
   for (const l of spel.lijnen) if (l.wacht === 'pad') { l.wacht = null; l.actief = true; l.paden = Math.ceil(60 / Math.min(...Object.values(l.interval))); } // spoorruimte krijg je nu altijd

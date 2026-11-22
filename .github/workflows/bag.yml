@@ -1,0 +1,42 @@
+name: Bebouwing door de tijd (BAG)
+# Downloadt de BAG (bag-light, ~8 GB) en maakt bebouwing.json: per cel van 100 m sinds wanneer die bebouwd is,
+# en de belangrijkste functie. De data-tak wordt pas vlak voor het wegschrijven opgehaald, zodat niets verloren gaat.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 15 1,4,7,10 *"   # elk kwartaal
+concurrency:
+  group: data
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: write
+jobs:
+  bag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ruimte maken
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true; df -h /
+      - name: BAG downloaden
+        run: curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/bag.gpkg https://service.pdok.nl/kadaster/bag/atom/downloads/bag-light.gpkg && ls -la /tmp/bag.gpkg
+      - name: Bebouwing berekenen
+        run: python3 -u tools/bag.py --gpkg /tmp/bag.gpkg --uit /tmp/uit
+      - name: Naar de data-tak (nieuwste versie, alleen bebouwing.json erbij)
+        run: |
+          mkdir -p tak && cd tak
+          git init -q
+          git fetch -q --depth 1 "https://github.com/${{ github.repository }}" data && git checkout -q FETCH_HEAD -- .
+          rm -rf .git
+          cp /tmp/uit/bebouwing.json .
+          git init -q -b data
+          git config user.name "ov-simulator data"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -qm "Bebouwing (BAG) $(date -u +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
+      - name: Site opnieuw publiceren
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main

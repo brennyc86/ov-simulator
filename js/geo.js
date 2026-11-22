@@ -44,9 +44,10 @@ export const ACHTERGRONDEN = {
 // Jaren waarvoor de tijdreiskaart bestaat (wordt overschreven met data/historie.json als die er is)
 export let KAARTJAREN = [1815,1850,1865,1880,1900,1910,1920,1930,1940,1950,1960,1970,1980,1990,2000,2010,2015];
 export function zetKaartjaren(j) { if (Array.isArray(j) && j.length) KAARTJAREN = j; }
+// het dichtstbijzijnde kaartjaar (een paar jaar eerder of later stoort minder dan een kaart uit een heel ander tijdperk)
 export function kaartjaarVoor(jaar) {
   let beste = KAARTJAREN[0];
-  for (const j of KAARTJAREN) if (j <= jaar) beste = j;
+  for (const j of KAARTJAREN) if (Math.abs(j - jaar) < Math.abs(beste - jaar) || (Math.abs(j - jaar) === Math.abs(beste - jaar) && j < beste)) beste = j;
   return beste;
 }
 

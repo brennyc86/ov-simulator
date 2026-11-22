@@ -36,7 +36,10 @@ jobs:
       - name: Naar de data-tak
         if: always()
         run: |
-          cd uit
+          # nieuwste data-tak ophalen en alleen de wegen erover zetten (anders gaan tussentijdse wijzigingen verloren)
+          mkdir -p tak && cd tak && git init -q
+          git fetch -q --depth 1 "https://github.com/${{ github.repository }}" data && git checkout -q FETCH_HEAD -- .
+          rm -rf .git wegen && cp -r ../uit/wegen ./wegen
           git init -q -b data
           git config user.name "ov-simulator data"
           git config user.email "actions@users.noreply.github.com"
