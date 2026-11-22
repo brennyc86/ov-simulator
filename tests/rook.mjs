@@ -210,10 +210,14 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     document.querySelector('[data-paneel="vloot"]').click(); await wacht(50);
     document.querySelector(`[data-actie="serie-open"][data-type="${basis}"]`).click(); await wacht(50);
     log('serie-paneel:', tekst().slice(0, 160));
-    document.querySelector('[data-actie="sn-erbij"]').click(); await wacht(30);
-    const r = document.querySelector('[data-wijzig="sn-rest"]'); r.checked = true; r.dispatchEvent(new window.Event('change')); await wacht(30);
-    const deel = document.querySelector('[data-wijzig="sn"][data-i="0"][data-veld="deel"]'); deel.value = 20; deel.dispatchEvent(new window.Event('change')); await wacht(30);
-    log('ontwerp:', tekst().match(/Totaal.{0,60}/)?.[0], '|', tekst().match(/Naam van de nieuwe serie/)?.[0], document.getElementById('sn-naam')?.value);
+    const zet = async (sel, v, chk) => { const e = document.querySelector(sel); if (!e) { log('NIET GEVONDEN', sel); return; } if (chk) e.checked = true; else e.value = v; e.dispatchEvent(new window.Event('change')); await wacht(30); };
+    document.querySelector('[data-actie="sw-splits"][data-w="0"]').click(); await wacht(30);
+    await zet('[data-wijzig="sw"][data-w="0"][data-d="1"][data-veld="soort"]', 'rest');
+    await zet('[data-wijzig="sw"][data-w="1"][data-d="0"][data-veld="klasse"]', 'P');
+    await zet('[data-wijzig="sw"][data-w="1"][data-d="0"][data-veld="stoel"]', 'massage');
+    if (document.querySelector('[data-wijzig="sw"][data-w="2"][data-d="0"][data-veld="klasse"]')) await zet('[data-wijzig="sw"][data-w="2"][data-d="0"][data-veld="klasse"]', '4');
+    await zet('[data-wijzig="sv"][data-v="koffie"]', 0, true);
+    log('ontwerp:', tekst().match(/Per voertuig:.{0,200}/)?.[0], '| naam', document.getElementById('sn-naam')?.value);
     document.querySelector('[data-actie="serie-koop"]').click(); await wacht(50);
     const serie = sp.series.at(-1); log('gekocht:', serie?.naam, sp.voertuigen[serie?.id], '| vloot heeft rij:', (document.querySelector('[data-paneel="vloot"]').click(), await wacht(30), tekst().includes(serie?.naam)));
     // verbouwen: 2 standaard naar de nieuwe serie
@@ -221,8 +225,20 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     const vs = document.querySelector('[data-wijzig="sn-van"]'); vs.value = basis; vs.dispatchEvent(new window.Event('change')); await wacht(30);
     document.getElementById('sn-n').value = 2; document.querySelector('[data-actie="serie-verbouw"]')?.click(); await wacht(50);
     log('na verbouwen:', basis, sp.voertuigen[basis], serie.naam, sp.voertuigen[serie.id]);
+    // samenstelling: loc + losse rijtuigen + stuurstand
+    { const V = await import('../js/vloot.js'); const los = V.beschikbaarLos(sp.jaar); const loc = los.find(x => x.soort === 'loc'), rt = los.find(x => x.soort === 'rijtuig'), st = los.find(x => x.soort === 'stuurstand');
+      if (loc && rt) { l._sam = [loc.id, rt.id, rt.id, rt.id, ...(st ? [st.id] : [])];
+        document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(100);
+        log('samenstelling ontwerp:', tekst().match(/Samenstelling.{0,400}/)?.[0]);
+        document.querySelector('[data-actie="sam-toepassen"]')?.click(); await wacht(100);
+        const T = V.TYPE[l.typeId]; log('lijn rijdt met', l.typeId, T?.vmax, 'km/u acc', T?.acc?.toFixed(2), 'keerExtra', T?.keerExtra, 'nodig', l.nodig, 'inzetbaar', (await import('../js/spel.js')).beschikbaarVoor(sp, l), 'duur', Math.round(l.duur / 60));
+        document.querySelector('[data-actie="koop-nodig"]')?.click(); await wacht(50);
+        log('na koop: inzetbaar', (await import('../js/spel.js')).beschikbaarVoor(sp, l), 'van', l.nodig, '| capaciteit', (await import('../js/spel.js')).capaciteit(l), '| uiterlijk bakken', (await import('../js/voertuig.js')).uiterlijk(l.typeId, 'trein').bakken.length);
+        const O = await import('../js/omloop.js'); log('omloop samenstelling:', O.maakOmloop([l]).voertuigen.length, 'treinen'); } }
+    // bezetting: hogere klasse mag lager zitten, niet andersom
+    { const R = await import('../js/reizigers.js'); log('bezetting 2e vol:', JSON.stringify(R.bezettingKlassen(100, [{ klasse: '1', zit: 20, sta: 0, aandeel: 0.5 }, { klasse: '2', zit: 30, sta: 10, aandeel: 0.5 }]))); }
     // lijn op de serie zetten, catering en restauratie deels open
-    l.typeId = serie.id; (await import('../js/spel.js')).herbereken(l);
+    l.typeId = serie.id; l._sam = null; (await import('../js/spel.js')).herbereken(l);
     document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(100);
     const c = document.querySelector('[data-wijzig="lcatering"][data-k="1"]'); if (c) { c.value = '2'; c.dispatchEvent(new window.Event('change')); await wacht(30); }
     const rs = document.querySelector('[data-wijzig="lrest"][data-veld="soort"]'); if (rs) { rs.value = 'deel'; rs.dispatchEvent(new window.Event('change')); await wacht(30); }

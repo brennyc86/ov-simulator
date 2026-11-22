@@ -8,10 +8,10 @@ import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter } from './bijzonder.js';
-import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, RESTAURATIE, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten } from './comfort.js';
+import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, delenVan, restauratieOpen } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute, bboxVan } from './net.js';
-import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
+import { MODI, VLOOT, TYPE, beschikbaar, beschikbaarLos, standaardType } from './vloot.js';
 import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
@@ -776,28 +776,53 @@ function richtingBlok(l) {
 // materieel dat je voor een lijn kunt kiezen: wat in dit jaar rijdt plus je eigen series (eigen interieur)
 function typenVoor(modus) {
   const lijst = beschikbaar(spel.jaar, modus);
-  for (const s2 of spel.series || []) { const t = TYPE[s2.id]; if (t && t.modus === modus && (spel.voertuigen[t.id] || lijst.some(b => b.id === t.basis))) lijst.push(t); }
+  for (const s2 of spel.series || []) { const t = TYPE[s2.id]; if (t && t.modus === modus && !TYPE[t.basis]?.soort && (spel.voertuigen[t.id] || lijst.some(b => b.id === t.basis))) lijst.push(t); }
+  // samenstellingen die al op een lijn rijden
+  for (const l of spel.lijnen) { const t = TYPE[l.typeId]; if (t?.samen && t.modus === modus && !lijst.includes(t)) lijst.push(t); }
   return lijst;
 }
 const plaatsenVan = id => klassenVan(serieInrichting(id), id, TYPE[id]?.modus).reduce((a, k) => a + k.zit + k.sta, 0);
 const komma = (x, d = 1) => x.toFixed(d).replace('.', ',');
 // prijzen, catering en restauratie van een eigen lijn (het interieur zelf hoort bij het materieel: zie Vloot)
 function prijzenBlok(l) {
-  const ink = inrichtingVan(l, l.typeId), kl = klassenVan(ink, l.typeId, l.modus), eff = vraagEffect(l, l.typeId);
-  const km = kenmerk(l.typeId), t = TYPE[l.typeId];
-  const rijen = ink.klassen.map((k, i) => `<tr><td>${KLASSE_NAAM[k.klasse]}</td><td class="klein">${STOEL[k.stoel]?.naam || ''}<br>${kl[i].zit} zit${kl[i].sta ? ` + ${kl[i].sta} sta` : ''}</td>
-    <td><input type="number" min="10" max="500" step="5" value="${Math.round(k.prijs * 100)}" data-wijzig="lprijs" data-id="${l.id}" data-k="${k.klasse}" style="width:4.4em">%</td>
+  const kl = klassenVan(inrichtingVan(l, l.typeId), l.typeId, l.modus), eff = vraagEffect(l, l.typeId);
+  const km = kenmerk(l.typeId), t = TYPE[l.typeId], vz = voorzieningen(l.typeId);
+  const rijen = kl.map(k => `<tr><td>${KLASSE_NAAM[k.klasse]}</td><td class="klein">${STOEL[k.stoel]?.naam || ''}<br>${k.zit} zit${k.sta ? ` + ${k.sta} sta` : ''}</td>
+    <td class="getal">${Math.round(k.prijs * 100)}%</td>
     <td><select data-wijzig="lcatering" data-id="${l.id}" data-k="${k.klasse}">${CATERING.map((c, n) => `<option value="${n}" ${n === k.catering ? 'selected' : ''}>${c.naam}</option>`).join('')}</select></td>
-    <td class="getal">${komma(kl[i].comfort)}</td></tr>`).join('');
+    <td class="getal">${komma(k.comfort)}</td></tr>`).join('');
   const r = l.restauratie, halteSel = (veld, w) => `<select data-wijzig="lrest" data-id="${l.id}" data-veld="${veld}">${l.haltes.map((h, i) => `<option value="${i}" ${i === w ? 'selected' : ''}>${esc(h.naam)}</option>`).join('')}</select>`;
-  const rest = ink.restauratie ? `<div class="veld"><label>Restauratierijtuig</label><select data-wijzig="lrest" data-id="${l.id}" data-veld="soort">
+  const bemand = vz.filter(v => v.bemand), open = Math.round(restauratieOpen(l) * 100);
+  const rest = bemand.length ? `<div class="veld"><label>${esc([...new Set(bemand.map(v => v.naam))].join(', '))}</label><select data-wijzig="lrest" data-id="${l.id}" data-veld="soort">
       <option value="heel" ${r === undefined || r === null ? 'selected' : ''}>de hele reis open</option><option value="deel" ${Array.isArray(r) ? 'selected' : ''}>een deel van de reis open</option><option value="dicht" ${r === 'dicht' ? 'selected' : ''}>dicht</option></select>
       ${Array.isArray(r) ? `<div class="raster2"><label class="veld">Open vanaf${halteSel('van', r[0])}</label><label class="veld">tot${halteSel('tot', r[1])}</label></div>` : ''}
-      <p class="klein">Open ${Math.round(ink.restOpen * 100)}% van de reis: iedereen aan boord +${komma(ink.restOpen * RESTAURATIE.comfort)} comfort, € ${RESTAURATIE.uur} per uur open (personeel en inkoop min verkoop).</p></div>` : '';
-  return `<p class="klein"><b>${esc(t?.naam || '')}</b>: basiscomfort ${komma(km.comfort)} · ${km.deuren > 1.1 ? 'veel deuren, snel in- en uitstappen' : km.deuren < 0.9 ? 'weinig deuren, trager instappen' : 'gewone deuren'}${ink.restauratie ? ' · met restauratierijtuig' : ''}.
-      Het interieur (klassen, stoelen, restauratie) kies je bij het kopen of verbouwen van het materieel: <a href="#" data-actie="serie-open" data-type="${l.typeId}">interieur van deze serie</a>. Prijs in % van het standaardtarief.</p>
-    <div style="overflow-x:auto"><table class="tabel klein"><tr><th>Klasse</th><th>Stoelen</th><th>Prijs</th><th>Catering</th><th class="getal">Comfort</th></tr>${rijen}</table></div>${rest}
-    <p class="klein">Verwachte reizigers ${eff.factor >= 1 ? '+' : ''}${Math.round((eff.factor - 1) * 100)}% t.o.v. standaard · gemiddelde prijs ${Math.round(eff.gemPrijs * 100)}% · gemiddeld comfort ${komma(eff.gemComfort)} · catering en restauratie € ${Math.round(uurKosten(l, l.typeId))} per voertuiguur.</p>`;
+      <p class="klein">Open ${open}% van de reis.</p></div>` : '';
+  return `<p class="klein"><b>${esc(t?.naam || '')}</b>: basiscomfort ${komma(km.comfort)} · ${km.deuren > 1.1 ? 'veel deuren, snel in- en uitstappen' : km.deuren < 0.9 ? 'weinig deuren, trager instappen' : 'gewone deuren'}${vz.length ? ' · ' + esc([...new Set(vz.map(v => v.naam))].join(', ')) : ''}.
+      Het interieur kies je bij het kopen of verbouwen van het materieel${t?.samen ? ' (Vloot)' : `: <a href="#" data-actie="serie-open" data-type="${l.typeId}">interieur van deze serie</a>`}. De klassetoeslagen gelden voor je hele bedrijf (<a href="#" data-actie="paneel" data-p="geld">Financiën</a>).</p>
+    <div style="overflow-x:auto"><table class="tabel klein"><tr><th>Klasse</th><th>Stoelen</th><th class="getal">Prijs</th><th>Catering aan je plaats</th><th class="getal">Comfort</th></tr>${rijen}</table></div>${rest}
+    <p class="klein">Verwachte reizigers ${eff.factor >= 1 ? '+' : ''}${Math.round((eff.factor - 1) * 100)}% t.o.v. standaard · gemiddelde prijs ${Math.round(eff.gemPrijs * 100)}% · gemiddeld comfort ${komma(eff.gemComfort)} · catering en voorzieningen € ${Math.round(uurKosten(l, l.typeId))} per voertuiguur.</p>`;
+}
+// samenstelling van een treinlijn: treinstellen koppelen, of een loc met losse rijtuigen en eventueel een stuurstandrijtuig
+function samenstellingBlok(l) {
+  if (l.modus !== 'trein') return '';
+  const o = l._sam || (l._sam = [...delenVan(l.typeId)]);
+  const nu = JSON.stringify(o) === JSON.stringify(delenVan(l.typeId));
+  const t = !o.length ? null : o.length > 1 ? samenstelling(o) : TYPE[o[0]];
+  const kiesbaar = [...beschikbaar(spel.jaar, 'trein'), ...beschikbaarLos(spel.jaar), ...(spel.series || []).map(x => TYPE[x.id]).filter(x => x && x.modus === 'trein')]
+    .filter((x, i, a) => a.indexOf(x) === i);
+  const groep = x => x.soort === 'loc' ? 'Locomotieven' : (x.soort || TYPE[x.basis]?.soort) ? 'Losse rijtuigen en stuurstandrijtuigen' : 'Treinstellen (koppelen)';
+  const opties = ['Locomotieven', 'Losse rijtuigen en stuurstandrijtuigen', 'Treinstellen (koppelen)'].map(g => `<optgroup label="${g}">${kiesbaar.filter(x => groep(x) === g).map(x => `<option value="${x.id}">${esc(x.naam)}${spel.voertuigen[x.id] ? ` · ${spel.voertuigen[x.id]} in bezit` : ''}</option>`).join('')}</optgroup>`).join('');
+  const kl = t ? klassenVan(inrichtingVan(l, t.id), t.id, 'trein') : [];
+  const per = {}; for (const c of o) per[c] = (per[c] || 0) + 1;
+  const tekort = Object.entries(per).map(([c, k]) => [c, Math.max(0, k * l.nodig - (spel.voertuigen[c] || 0))]).filter(x => x[1] > 0);
+  const soortTekst = c => { const x = TYPE[c], so = x?.soort || TYPE[x?.basis]?.soort; return so === 'loc' ? 'loc' : so === 'stuurstand' ? 'stuurstand' : so ? `${plaatsenVan(c)} pl.` : 'treinstel'; };
+  return `<div class="kaartje"><b>Samenstelling</b>
+    <ol class="haltelijst">${o.map((c, i) => `<li>${esc(TYPE[c]?.naam || c)} <span class="klein">${soortTekst(c)}</span>
+      ${i ? `<button class="knop klein" data-actie="sam-op" data-id="${l.id}" data-i="${i}" title="naar voren">↑</button>` : ''}${o.length > 1 ? `<button class="knop klein" data-actie="sam-weg" data-id="${l.id}" data-i="${i}" title="weghalen">✕</button>` : ''}</li>`).join('')}</ol>
+    <div class="rij"><select id="sam-kies">${opties}</select><button class="knop klein" data-actie="sam-erbij" data-id="${l.id}">＋ toevoegen</button></div>
+    ${t ? `<p class="klein">${t.zonderTrekkracht ? '<b style="color:var(--rood)">Geen loc of treinstel: deze trein kan niet rijden.</b> ' : ''}${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit}${k.sta ? '+' + k.sta : ''}`).join(' · ')} · max ${t.vmax} km/u · optrekken ${komma(t.acc, 2)} m/s²${t.keerExtra ? ` · <b>geen stuurstandrijtuig: de loc moet bij elk keerpunt omlopen (+${t.keerExtra} min)</b>` : ''}</p>` : ''}
+    ${!nu ? `<div class="rij"><button class="knop hoofd" data-actie="sam-toepassen" data-id="${l.id}" ${!t || t.zonderTrekkracht ? 'disabled' : ''}>Deze samenstelling gebruiken</button><button class="knop" data-actie="sam-terug" data-id="${l.id}">Terug</button></div>` : ''}
+    ${nu && tekort.length ? `<p class="klein">Tekort: ${tekort.map(([c, n]) => `${n} × ${esc(TYPE[c].naam)}`).join(', ')}</p><button class="knop hoofd" data-actie="koop-nodig" data-id="${l.id}">Koop wat ontbreekt (${S.euroKort(tekort.reduce((a, [c, n]) => a + n * TYPE[c].prijs, 0))})</button>` : ''}</div>`;
 }
 // een serie (eigen interieur) zoeken of aanmaken; het standaardinterieur is gewoon het basistype
 function serieVoor(basis, ink, naam) {
@@ -808,7 +833,7 @@ function serieVoor(basis, ink, naam) {
   let n = (naam || serieNaamVoorstel(basis, ink)).trim().slice(0, 30) || serieNaamVoorstel(basis, ink), k = 2;
   const basisNaam = n;
   while (spel.series.some(x => x.naam === n) || Object.values(TYPE).some(t => !t.serie && t.naam === n)) n = `${basisNaam}${k++}`;
-  const nieuw = { id: S.nieuwId('m'), basis, naam: n, ink: JSON.parse(JSON.stringify({ klassen: ink.klassen, restauratie: !!ink.restauratie })) };
+  const nieuw = { id: S.nieuwId('m'), basis, naam: n, ink: JSON.parse(JSON.stringify({ wagons: ink.wagons, voorz: ink.voorz || [] })) };
   spel.series.push(nieuw); registreerSeries(spel.series);
   return nieuw.id;
 }
@@ -981,8 +1006,9 @@ const PANELEN = {
       <h3>Materieel</h3>
       ${l.modus === 'trein' ? `<label class="rij"><input type="checkbox" data-wijzig="spitsdubbel" data-id="${l.id}" ${l.spitsDubbel ? 'checked' : ''}> In de spits gekoppeld rijden (2 eenheden: dubbele capaciteit, meer materieel nodig)</label>` : ''}
       <div class="veld"><select data-wijzig="lijn-type" data-id="${l.id}">${typen.map(v => `<option value="${v.id}" ${v.id === l.typeId ? 'selected' : ''}>${esc(v.naam)} (${plaatsenVan(v.id)} pl.)</option>`).join('')}</select></div>
-      <p>Nodig: <b>${l.nodig}</b> × ${esc(t?.naam || '')} · in bezit: <b>${spel.voertuigen[l.typeId] || 0}</b>
-      ${S.beschikbaarVoor(spel, l) < l.nodig ? `<br><button class="knop hoofd" data-actie="koop" data-type="${l.typeId}" data-n="${l.nodig - S.beschikbaarVoor(spel, l)}">Koop ${l.nodig - S.beschikbaarVoor(spel, l)} erbij (${S.euroKort((l.nodig - S.beschikbaarVoor(spel, l)) * (t?.prijs || 0))})</button>` : ''}</p>
+      <p>Nodig: <b>${l.nodig}</b> × ${esc(t?.naam || '')} · inzetbaar: <b>${S.beschikbaarVoor(spel, l)}</b></p>
+      ${samenstellingBlok(l)}
+      ${l.modus !== 'trein' && S.beschikbaarVoor(spel, l) < l.nodig ? `<button class="knop hoofd" data-actie="koop-nodig" data-id="${l.id}">Koop wat ontbreekt</button>` : ''}
       <h3>Prijzen en catering</h3>${prijzenBlok(l)}
       <h3>Dienstregeling (elke … minuten)</h3>
       ${l.echt && !l.aangepast ? '<p class="klein">Rijdt nu volgens de echte dienstregeling. Pas je iets aan, dan maakt het spel een eigen regelmatige dienstregeling.</p>' : ''}
@@ -1034,17 +1060,20 @@ const PANELEN = {
   },
   vloot() {
     const nodig = {};
-    for (const l of spel.lijnen) if (l.actief) nodig[l.typeId] = (nodig[l.typeId] || 0) + l.nodig;
-    const typen = beschikbaar(spel.jaar);
+    for (const l of spel.lijnen) if (l.actief) for (const [c, k] of Object.entries(nodigPer(l.typeId))) nodig[c] = (nodig[c] || 0) + k * l.nodig;
+    const typen = beschikbaar(spel.jaar), los = beschikbaarLos(spel.jaar);
     const groepen = Object.keys(MODI).map(m => {
       const lijst = typen.filter(v => v.modus === m);
       if (!lijst.length) return '';
       const rij = (v, serie) => { const kl = klassenVan(serieInrichting(v.id), v.id, v.modus), zit = kl.reduce((a, k) => a + k.zit, 0), sta = kl.reduce((a, k) => a + k.sta, 0);
-        return `<tr><td>${serie ? '↳ ' : ''}<b>${esc(v.naam)}</b><br><span class="klein">${serie ? `interieur: ${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${STOEL[k.stoel]?.naam || ''}`).join(', ')}${v.ink?.restauratie ? ', restauratie' : ''} · ` : ''}${zit} zit + ${sta} sta · ${v.vmax} km/u · ${v.energie} · ${S.euroKort(v.prijs)}${serie ? '' : ' · ' + esc(v.wie)}</span>
-          <br><a href="#" class="klein" data-actie="serie-open" data-type="${v.id}">${spel.voertuigen[v.id] ? 'interieur: nieuwe serie of verbouwen' : 'kopen met een eigen interieur'}</a></td>
+        const vz = voorzieningen(v.id);
+        return `<tr><td>${serie ? '↳ ' : ''}<b>${esc(v.naam)}</b><br><span class="klein">${serie ? `interieur: ${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${STOEL[k.stoel]?.naam || ''}`).join(', ')}${vz.length ? ', ' + [...new Set(vz.map(x => x.naam))].join(', ') : ''} · ` : ''}${v.soort === 'loc' ? '' : `${zit} zit + ${sta} sta · `}${v.vmax} km/u · ${v.energie} · ${S.euroKort(v.prijs)}${serie ? '' : ' · ' + esc(v.wie)}</span>
+          ${v.soort === 'loc' ? '' : `<br><a href="#" class="klein" data-actie="serie-open" data-type="${v.id}">${spel.voertuigen[v.id] ? 'interieur: nieuwe serie of verbouwen' : 'kopen met een eigen interieur'}</a>`}</td>
         <td class="getal">${spel.voertuigen[v.id] || 0}${nodig[v.id] ? `<br><span class="klein" style="color:${(spel.voertuigen[v.id] || 0) < nodig[v.id] ? 'var(--rood)' : 'inherit'}">nodig ${nodig[v.id]}</span>` : ''}</td>
         <td><div class="rij" style="flex-wrap:nowrap"><button class="knop" data-actie="koop" data-type="${v.id}" data-n="1" title="Kopen">＋</button><button class="knop" data-actie="verkoop" data-type="${v.id}" title="Verkopen voor 45% van de nieuwprijs" ${spel.voertuigen[v.id] ? '' : 'disabled'}>−</button></div></td></tr>`; };
-      return `<h3>${MODI[m].naam}</h3><table class="tabel">${lijst.map(v => rij(v) + (spel.series || []).filter(x => x.basis === v.id && TYPE[x.id]).map(x => rij(TYPE[x.id], true)).join('')).join('')}</table>`;
+      const tabel = l2 => `<table class="tabel">${l2.map(v => rij(v) + (spel.series || []).filter(x => x.basis === v.id && TYPE[x.id]).map(x => rij(TYPE[x.id], true)).join('')).join('')}</table>`;
+      const locs = m === 'trein' ? los.filter(v => v.soort === 'loc') : [], rijt = m === 'trein' ? los.filter(v => v.soort !== 'loc') : [];
+      return `<h3>${MODI[m].naam}</h3>${tabel(lijst)}${locs.length ? `<h3>Locomotieven</h3><p class="klein">Een loc met losse rijtuigen stel je per lijn samen (lijnpaneel → Samenstelling).</p>${tabel(locs)}` : ''}${rijt.length ? `<h3>Losse rijtuigen en stuurstandrijtuigen</h3><p class="klein">Met een stuurstandrijtuig aan het eind kan de trein keren zonder dat de loc omloopt.</p>${tabel(rijt)}` : ''}`;
     }).join('');
     const museum = museumTypen(spel.jaar);
     const mus = museum.length ? `<h3>Museummaterieel (gerestaureerd)</h3><p class="klein">Rijdt niet meer in de dienstregeling, maar trekt veel belangstelling bij bijzondere ritten. Lage vaste kosten, wel duur per km.</p>
@@ -1053,31 +1082,36 @@ const PANELEN = {
     return `<h2>Vloot</h2><p class="klein">Materieel dat in ${spel.jaar} in Nederland reed. Prijzen zijn benaderingen in euro's van nu. Verkopen levert 45% op.</p>${groepen}${mus}`;
   },
   serie(d) {
-    const b = TYPE[d.basis], modus = b.modus, ink = d.ink, kl = klassenVan({ ...ink, restOpen: 0 }, d.basis, modus);
+    const b = TYPE[d.basis], modus = b.modus, ink = d.ink, wagons = wagonsVan(d.basis, modus);
+    const per = plaatsenPerWagon(ink, d.basis), kl = klassenVan(ink, d.basis, modus);
     const doelId = zelfdeInterieur(ink, standaardInrichting(d.basis, modus)) ? d.basis : (spel.series || []).find(x => x.basis === d.basis && zelfdeInterieur(x.ink, ink))?.id;
     const voorstel = d.naam || serieNaamVoorstel(d.basis, ink);
-    const meer = doelId ? TYPE[doelId].prijs : Math.max(b.prijs * 0.8, b.prijs + interieurMeerprijs(ink, d.basis));
-    const sel = (veld, i, waarden, w) => `<select data-wijzig="sn" data-i="${i}" data-veld="${veld}">${waarden.map(([x, n]) => `<option value="${x}" ${String(x) === String(w) ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
-    const somDeel = ink.klassen.reduce((a, k) => a + k.deel, 0) || 1, lengte = Math.round(uiterlijk(d.basis, modus)._l);
-    const rijen = ink.klassen.map((k, i) => `<tr><td>${sel('klasse', i, Object.entries(KLASSE_NAAM), k.klasse)}</td>
-      <td><input type="number" min="5" max="100" step="5" value="${Math.round(k.deel * 100)}" data-wijzig="sn" data-i="${i}" data-veld="deel" style="width:4em">%<br><span class="klein">≈ ${Math.round(lengte * k.deel / somDeel * (ink.restauratie ? 1 - RESTAURATIE.vloer : 1))} m</span></td>
-      <td>${sel('stoel', i, Object.entries(STOEL).map(([x, st]) => [x, st.naam]), k.stoel)}</td>
-      <td>${sel('breed', i, [2, 3, 4, 5, 6].map(x => [x, x + ' naast elkaar']), k.breed)}</td>
-      <td>${sel('been', i, Object.entries(BEEN).map(([x, cm]) => [x, `${x} (${cm} cm)`]), k.been)}</td>
-      <td class="getal"><b>${kl[i].zit}</b> zit${kl[i].sta ? `<br>+ ${kl[i].sta} sta` : ''}<br><span class="klein">comfort ${komma(kl[i].comfort)}</span></td>
-      <td>${ink.klassen.length > 1 ? `<button class="knop klein" data-actie="sn-weg" data-i="${i}" title="klasse weghalen">✕</button>` : ''}</td></tr>`).join('');
+    const prijs = doelId ? TYPE[doelId].prijs : Math.max(b.prijs * 0.8, b.prijs + interieurMeerprijs(ink, d.basis));
+    const sel = (w, j, veld, waarden, x) => `<select data-wijzig="sw" data-w="${w}" data-d="${j}" data-veld="${veld}">${waarden.map(([v, n]) => `<option value="${v}" ${String(v) === String(x) ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
+    const trein = modus === 'trein';
+    const wagonRij = (w, i) => `<div class="kaartje"><div class="rij"><b>${wagons.length > 1 ? `Wagon ${i + 1}` : 'Indeling'}</b><span class="klein">${Math.round(wagons[i]?.lengte || 0)} m</span>
+        <span style="margin-left:auto"></span>${w.delen.length < 3 ? `<button class="knop klein" data-actie="sw-splits" data-w="${i}" title="wagon in delen splitsen">½ splitsen</button>` : ''}${wagons.length > 1 ? `<button class="knop klein" data-actie="sw-kopie" data-w="${i}" title="alle wagons zo indelen">⇉ alle wagons zo</button>` : ''}</div>
+      <table class="tabel klein">${w.delen.map((dl, j) => `<tr>
+        <td>${sel(i, j, 'soort', trein ? [['zit', 'zitplaatsen'], ['rest', 'restauratie']] : [['zit', 'zitplaatsen']], dl.soort)}</td>
+        ${w.delen.length > 1 ? `<td><input type="number" min="10" max="90" step="5" value="${Math.round(dl.len * 100)}" data-wijzig="sw" data-w="${i}" data-d="${j}" data-veld="len" style="width:3.6em">%</td>` : '<td></td>'}
+        ${dl.soort === 'zit' ? `<td>${sel(i, j, 'klasse', KLASSEN.map(k => [k, KLASSE_NAAM[k]]), dl.klasse)}</td><td>${sel(i, j, 'stoel', Object.entries(STOEL).map(([v, st]) => [v, st.naam]), dl.stoel)}</td>
+          <td>${sel(i, j, 'breed', [1, 2, 3, 4, 5, 6].map(x => [x, x + ' naast elkaar']), dl.breed)}</td><td>${sel(i, j, 'been', Object.entries(BEEN).map(([v, cm]) => [v, `${v} (${cm} cm)`]), dl.been)}</td>
+          <td class="getal"><b>${per[i]?.[j]?.zit ?? 0}</b> zit${per[i]?.[j]?.sta ? ` + ${per[i][j].sta} sta` : ''}</td>`
+        : `<td colspan="5">${dl.len >= 0.75 ? REST.vol.naam : REST.beperkt.naam}</td>`}
+        <td>${w.delen.length > 1 ? `<button class="knop klein" data-actie="sw-weg" data-w="${i}" data-d="${j}" title="deel weghalen">✕</button>` : ''}</td></tr>`).join('')}</table></div>`;
     const eigen = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && basisId(id) === d.basis);
     const ombouw = d.van && spel.voertuigen[d.van] && d.van !== doelId ? ombouwKosten(serieInrichting(d.van), ink, d.basis) : 0;
+    const vzOpties = Object.entries(VOORZ).filter(([v]) => voorzMag(v, d.basis) || (ink.voorz || []).includes(v));
     return `<h2>Interieur: ${esc(b.naam)}</h2>
-      <p class="klein">Het interieur hoort bij het voertuig. Per klasse kies je welk deel van de lengte (${lengte} m${lengte && modus === 'trein' ? ' per eenheid' : ''}) ze krijgt, de soort stoel, stoelen naast elkaar en beenruimte; je ziet meteen hoeveel plaatsen dat oplevert. Een eigen interieur wordt een eigen serie met een eigen naam. Catering en prijzen regel je per lijn.</p>
-      <div style="overflow-x:auto"><table class="tabel klein"><tr><th>Klasse</th><th>Deel van de lengte</th><th>Stoel</th><th>Breedte</th><th>Beenruimte</th><th class="getal">Plaatsen</th><th></th></tr>${rijen}</table></div>
-      <div class="rij"><button class="knop klein" data-actie="sn-erbij">＋ klasse</button><button class="knop klein" data-actie="sn-standaard">Standaardinterieur</button></div>
-      ${RESTAURATIE.kanBij.includes(modus) ? `<label class="rij"><input type="checkbox" data-wijzig="sn-rest" ${ink.restauratie ? 'checked' : ''}> Restauratierijtuig (${Math.round(RESTAURATIE.vloer * 100)}% van de lengte, ${S.euroKort(RESTAURATIE.prijs)}; per lijn bepaal je wanneer het open is)</label>` : ''}
-      <p>Totaal <b>${kl.reduce((a, k) => a + k.zit, 0)}</b> zit + <b>${kl.reduce((a, k) => a + k.sta, 0)}</b> sta per voertuig.</p>
+      <p class="klein">Het interieur hoort bij het voertuig en deel je per wagon in. Een wagon kan in delen (bv. half 1e en half 2e klas${trein ? ', of een halve wagon beperkte restauratie' : ''}). Klassen: Premium, 1e, 2e, 3e, 4e …; met een hoger kaartje mag je lager zitten, niet andersom. Een eigen interieur wordt een eigen serie. Catering aan je plaats en openingstijden regel je per lijn.</p>
+      ${ink.wagons.map(wagonRij).join('')}
+      <div class="rij"><button class="knop klein" data-actie="sn-standaard">Standaardinterieur</button></div>
+      ${vzOpties.length ? `<h3>Voorzieningen</h3>${vzOpties.map(([v, x]) => `<label class="rij klein"><input type="checkbox" data-wijzig="sv" data-v="${v}" ${(ink.voorz || []).includes(v) ? 'checked' : ''}> ${x.naam} <span class="klein">(kost ${x.plekken} zitplaatsen, ${S.euroKort(x.prijs)}${x.bemand ? `, € ${x.uur}/uur open` : ''})</span></label>`).join('')}` : ''}
+      <p>Per voertuig: ${kl.map(k => `<b>${KLASSE_NAAM[k.klasse]}</b> ${k.zit} zit${k.sta ? ` + ${k.sta} sta` : ''} (comfort ${komma(k.comfort)})`).join(' · ')}</p>
       ${doelId ? `<p class="chip">Dit interieur ${doelId === d.basis ? 'is het standaardinterieur' : `bestaat al: <b>${esc(TYPE[doelId].naam)}</b>`} (${spel.voertuigen[doelId] || 0} in bezit).</p>`
         : `<label class="veld">Naam van de nieuwe serie<input id="sn-naam" value="${esc(voorstel)}" maxlength="30"></label>`}
       <h3>Nieuw kopen</h3><div class="rij"><label class="veld">Aantal<input id="sn-n" type="number" min="1" max="200" value="${d.n || 1}" style="width:5em"></label>
-        <span>${S.euroKort(meer)} per stuk${meer !== b.prijs ? ` <span class="klein">(standaard ${S.euroKort(b.prijs)})</span>` : ''}</span><button class="knop hoofd" data-actie="serie-koop">Kopen</button></div>
+        <span>${S.euroKort(prijs)} per stuk${prijs !== b.prijs ? ` <span class="klein">(standaard ${S.euroKort(b.prijs)})</span>` : ''}</span><button class="knop hoofd" data-actie="serie-koop">Kopen</button></div>
       ${eigen.length ? `<h3>Verbouwen</h3><div class="veld"><label>Bestaande voertuigen</label><select data-wijzig="sn-van"><option value="">— kies —</option>${eigen.map(id => `<option value="${id}" ${id === d.van ? 'selected' : ''}>${esc(TYPE[id].naam)} (${spel.voertuigen[id]} in bezit)</option>`).join('')}</select></div>
         ${d.van && d.van === doelId ? '<p class="klein">Pas het ontwerp hierboven aan om deze voertuigen te verbouwen.</p>' : d.van ? `<p>Verbouwen kost <b>${S.euroKort(ombouw)}</b> per voertuig. Het aantal hierboven geldt (hooguit ${spel.voertuigen[d.van]}).</p><button class="knop hoofd" data-actie="serie-verbouw">Verbouwen</button>` : ''}` : ''}`;
   },
@@ -1107,6 +1141,8 @@ const PANELEN = {
       <tr><th>Reizigers</th><th class="getal">${Math.round(m.reizigers).toLocaleString('nl-NL')}</th></tr></table>
       ${h.length ? `<h3>Resultaat per maand</h3><div style="display:flex;align-items:flex-end;gap:3px;height:90px;border-bottom:1px solid var(--lijn)">${h.map(x => `<div title="${S.euro(x.resultaat)}" style="flex:1;height:${Math.max(2, Math.abs(x.resultaat) / max * 88)}px;background:${x.resultaat < 0 ? 'var(--rood)' : 'var(--groen)'};border-radius:2px 2px 0 0"></div>`).join('')}</div>
       <p class="klein">Resultaat inclusief afschrijving van de vloot. Laatste maand: ${S.euro(h[h.length - 1].resultaat)}.</p>` : '<p class="klein">Na 30 speldagen verschijnt hier je eerste maandresultaat.</p>'}
+      <h3>Klassen en toeslagen</h3><p class="klein">Prijs per klasse in % van het standaardtarief; geldt voor al je lijnen. Met een kaartje voor een hogere klasse mag je lager zitten, niet andersom.</p>
+      <div class="raster2">${KLASSEN.map(k => `<label class="veld">${KLASSE_NAAM[k]}<input type="number" min="10" max="600" step="5" value="${Math.round(klassePrijs(k) * 100)}" data-wijzig="kprijs" data-k="${k}"></label>`).join('')}</div>
       <h3>Spel</h3><div class="rij"><button class="knop" data-actie="bewaar">Nu opslaan</button><button class="knop" data-actie="nieuw">Nieuw spel / laden</button></div>`;
   },
   kaart() {
@@ -1236,12 +1272,24 @@ function actieUit(a, d) {
     case 'opheffen': if (d.zeker) { spel.lijnen = spel.lijnen.filter(x => x !== l); const pr = l.paar && lijnVan(l.paar); if (pr) { pr.paar = null; S.herbereken(pr); } sluitPaneel(); melding(`Lijn ${l.nr} opgeheven.`); }
       else { const b = document.querySelector('[data-actie="opheffen"]'); b.textContent = 'Zeker weten? Klik nog eens'; b.dataset.zeker = '1'; } break;
     case 'serie-open': { const t = TYPE[d.type]; if (!t) break; openPaneel('serie', { basis: basisId(d.type), van: spel.voertuigen[d.type] ? d.type : null, ink: JSON.parse(JSON.stringify(serieInrichting(d.type))), n: 1 }); break; }
-    case 'sn-erbij': { const o = paneelData.ink.klassen, vrij = ['P', '1', '3', '2'].find(c => !o.some(k => k.klasse === c)) || '2', deel = 0.15;
-      o.forEach(k => k.deel = k.deel * (1 - deel));
-      o.unshift({ klasse: vrij, breed: vrij === 'P' ? 2 : vrij === '3' ? 5 : 3, been: vrij === 'P' ? 'royaal' : vrij === '3' ? 'krap' : 'ruim', stoel: vrij === 'P' ? 'massage' : vrij === '3' ? 'hout' : vrij === '1' ? 'verstelbaar' : 'bekleed', deel });
-      paneelData.naam = null; ververs(); break; }
-    case 'sn-weg': { const o = paneelData.ink.klassen; if (o.length > 1) { const [weg] = o.splice(+d.i, 1); const som = o.reduce((a, k) => a + k.deel, 0) || 1; o.forEach(k => k.deel = k.deel + weg.deel * k.deel / som); } paneelData.naam = null; ververs(); break; }
+    case 'sw-splits': { const w = paneelData.ink.wagons[+d.w], laatst = w.delen[w.delen.length - 1]; laatst.len = laatst.len / 2; w.delen.push({ ...laatst }); paneelData.naam = null; ververs(); break; }
+    case 'sw-weg': { const w = paneelData.ink.wagons[+d.w]; if (w.delen.length > 1) { const [weg] = w.delen.splice(+d.d, 1); w.delen[Math.max(0, +d.d - 1)].len += weg.len; } paneelData.naam = null; ververs(); break; }
+    case 'sw-kopie': { const w = paneelData.ink.wagons[+d.w]; paneelData.ink.wagons = paneelData.ink.wagons.map(() => JSON.parse(JSON.stringify(w))); paneelData.naam = null; ververs(); break; }
     case 'sn-standaard': paneelData.ink = standaardInrichting(paneelData.basis, TYPE[paneelData.basis].modus); paneelData.naam = null; ververs(); break;
+    case 'sam-erbij': { const v = $('sam-kies')?.value; if (v) { l._sam = l._sam || [...delenVan(l.typeId)]; l._sam.push(v); } ververs(); break; }
+    case 'sam-weg': l._sam.splice(+d.i, 1); ververs(); break;
+    case 'sam-op': { const k = +d.i; [l._sam[k - 1], l._sam[k]] = [l._sam[k], l._sam[k - 1]]; ververs(); break; }
+    case 'sam-terug': l._sam = null; ververs(); break;
+    case 'sam-toepassen': { const o = l._sam; if (!o?.length) break; l.typeId = o.length > 1 ? samenstelling(o).id : o[0]; l._sam = null; S.herbereken(l); padOpnieuwNodig(l);
+      melding(`Lijn ${l.nr} rijdt nu met ${TYPE[l.typeId].naam}.`); ververs(); break; }
+    case 'koop-nodig': {
+      const tekort = Object.entries(nodigPer(l.typeId)).map(([c, k]) => [c, Math.max(0, k * l.nodig - (spel.voertuigen[c] || 0))]).filter(x => x[1] > 0);
+      const kosten = tekort.reduce((a, [c, n]) => a + n * TYPE[c].prijs, 0);
+      if (!tekort.length || !betaal(kosten, 'materieel')) break;
+      for (const [c, n] of tekort) spel.voertuigen[c] = (spel.voertuigen[c] || 0) + n;
+      melding(`Gekocht: ${tekort.map(([c, n]) => `${n} × ${TYPE[c].naam}`).join(', ')} (${S.euroKort(kosten)}).`); ververs(); break;
+    }
+    case 'paneel': openPaneel(d.p); break;
     case 'serie-koop': case 'serie-verbouw': {
       const dd = paneelData, n = Math.max(1, Math.round(+$('sn-n')?.value || 1)), naam = $('sn-naam')?.value;
       if (a === 'serie-koop') {
@@ -1370,7 +1418,6 @@ function wijzig(w, i) {
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); break;
     case 'lijn-alt': l.altTypeId = i.value || null; break;
-    case 'lprijs': l.prijzen = { ...(l.prijzen || {}), [i.dataset.k]: Math.max(0.1, Math.min(5, (+i.value || 0) / 100)) }; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'lcatering': l.catering = { ...(l.catering || {}), [i.dataset.k]: +i.value }; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'lrest': {
       const v = i.dataset.veld, n = l.haltes.length - 1;
@@ -1378,12 +1425,16 @@ function wijzig(w, i) {
       else if (Array.isArray(l.restauratie)) { const r = [...l.restauratie]; r[v === 'van' ? 0 : 1] = +i.value; if (r[0] >= r[1]) { if (v === 'van') r[1] = Math.min(n, r[0] + 1); else r[0] = Math.max(0, r[1] - 1); } l.restauratie = r; }
       i.blur(); setTimeout(() => ververs(), 0); return;
     }
-    case 'sn': {
-      const k = paneelData.ink.klassen[+i.dataset.i], v = i.dataset.veld;
-      if (v === 'deel') k.deel = Math.max(0.05, Math.min(1, (+i.value || 0) / 100)); else if (v === 'breed') k.breed = +i.value; else k[v] = i.value;
+    case 'sw': {
+      const w = paneelData.ink.wagons[+i.dataset.w], dl = w.delen[+i.dataset.d], v = i.dataset.veld;
+      if (v === 'len') { const x = Math.max(0.1, Math.min(0.9, (+i.value || 0) / 100)); const andere = w.delen.filter(o => o !== dl), som = andere.reduce((a, o) => a + o.len, 0) || 1; andere.forEach(o => o.len = Math.round(o.len / som * (1 - x) * 100) / 100); dl.len = x; }
+      else if (v === 'breed') dl.breed = +i.value;
+      else if (v === 'soort') { if (i.value === 'rest') { for (const k of ['klasse', 'stoel', 'breed', 'been']) delete dl[k]; dl.soort = 'rest'; } else Object.assign(dl, { soort: 'zit', klasse: '2', stoel: 'bekleed', breed: 4, been: 'normaal' }); }
+      else dl[v] = i.value;
       paneelData.naam = null; i.blur(); setTimeout(() => ververs(), 0); return;
     }
-    case 'sn-rest': paneelData.ink.restauratie = i.checked; paneelData.naam = null; i.blur(); setTimeout(() => ververs(), 0); return;
+    case 'sv': { const vz = new Set(paneelData.ink.voorz || []); i.checked ? vz.add(i.dataset.v) : vz.delete(i.dataset.v); paneelData.ink.voorz = [...vz]; paneelData.naam = null; i.blur(); setTimeout(() => ververs(), 0); return; }
+    case 'kprijs': spel.klassePrijs = { ...(spel.klassePrijs || {}), [i.dataset.k]: Math.max(0.1, Math.min(6, (+i.value || 0) / 100)) }; zetKlassePrijzen(spel.klassePrijs); for (const l2 of spel.lijnen) l2._eff = null; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'sn-van': paneelData.van = i.value || null; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'aankomst': {
       const [rr, ii] = i.dataset.k.split(':').map(Number);
@@ -1838,7 +1889,7 @@ const pakPts = pts => { const v = vereenvoudig(pts, 6), u = []; let px = 0, py =
 const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.length; i += 2) { x += d[i]; y += d[i + 1]; u.push(x, y); } return u; };
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
-    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _ontwerp, _eff, _halteTijd, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
+    const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _ontwerp, _sam, _eff, _halteTijd, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };
@@ -1863,7 +1914,8 @@ async function bewaar(hand) {
 }
 async function laadSpel(data, nieuwSlot) {
   spel = data; slot = nieuwSlot;
-  spel.series = spel.series || []; registreerSeries(spel.series);
+  spel.series = spel.series || []; registreerSeries(spel.series); zetKlassePrijzen(spel.klassePrijs);
+  for (const l of spel.lijnen) samenstellingVan(l.typeId); // samengestelde treinen opnieuw aanmaken
   // oude genummerde haltes ("Plaats, Halte 3") krijgen hun echte naam, ook in de lijnen die er stoppen
   for (const h of spel.haltes || []) {
     if (!/, (Halte|Steiger) \d+$/.test(h.naam)) continue;
@@ -1909,7 +1961,7 @@ async function nieuwSpelStarten() {
     if (!vervoerder && !hist) { melding('Kies eerst een vervoerder.'); return; }
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
-  registreerSeries([]);
+  registreerSeries([]); zetKlassePrijzen(null);
   spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: 25e6 });
   if (hist) {
     zetPlaatsen(jaar);

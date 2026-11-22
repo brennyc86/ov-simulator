@@ -4,7 +4,7 @@
 // Bussen blijven bij hun eindhalte staan. Omlopen worden per pool berekend: alle lijnen van één vervoerder
 // met hetzelfde soort vervoer en materieel, zodat een trein na aankomst ook op een andere lijn verder kan.
 import { ritPositie, ritPlek, puntOp } from './spel.js';
-import { MODI } from './vloot.js';
+import { MODI, TYPE } from './vloot.js';
 
 const SPOOR = ['trein', 'metro', 'sneltram', 'tram'];
 const LANG = { trein: 40, metro: 30, sneltram: 30, tram: 35, bus: 30, hov: 30, belbus: 30 }; // langer: naar opstelspoor/stalling
@@ -28,7 +28,7 @@ export function maakOmloop(lijnen) {
     }
   }
   ritten.sort((a, b) => a.dep - b.dep);
-  const keer = MODI[lijnen[0]?.modus]?.keer ?? 5;
+  const keer = (MODI[lijnen[0]?.modus]?.keer ?? 5) + Math.max(0, ...lijnen.map(l => TYPE[l.typeId]?.keerExtra || 0)); // loc omlopen kost tijd
   const voertuigen = [];
   // wachtende voertuigen per eindpunt (stationsnaam); best passend = kortste keertijd
   const wachtrij = new Map();

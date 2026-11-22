@@ -26,6 +26,27 @@ const U = {
   lint41:      { bakken: [20.8, 20.8], neus: 'spits', kleur: '#1d9fd1', gel: true },
   buffel:      { bakken: [26.1, 26.1], neus: 'plat', kleur: '#ffc917' },
   ice3:        { bakken: [25.8, 24.8, 24.8, 24.8, 24.8, 24.8, 24.8, 25.8], neus: 'spits', kleur: '#f2f2f2', pant: [1, 6] },
+  // losse locs en rijtuigen (één bak); een samenstelling plakt ze achter elkaar
+  stoomloc3700:{ bakken: [11.5, 8], neus: 'stoom', kleur: '#2b2b2b', loc: 2 },
+  loc1000:     { bakken: [16.2], neus: 'loc', kleur: '#2f5d8a', loc: 1, pant: [0] },
+  loc1100:     { bakken: [14.1], neus: 'loc', kleur: '#2f5d8a', loc: 1, pant: [0] },
+  loc1200:     { bakken: [18.1], neus: 'loc', kleur: '#2f5d8a', loc: 1, pant: [0] },
+  loc1300:     { bakken: [18.9], neus: 'loc', kleur: '#2f5d8a', loc: 1, pant: [0] },
+  loc2200:     { bakken: [14.1], neus: 'loc', kleur: '#ffc917', loc: 1 },
+  loc1600:     { bakken: [17.5], neus: 'loc', kleur: '#ffc917', loc: 1, pant: [0] },
+  loc1700:     { bakken: [17.6], neus: 'loc', kleur: '#ffc917', loc: 1, pant: [0] },
+  loc186:      { bakken: [18.9], neus: 'loc', kleur: '#ffc917', loc: 1, pant: [0] },
+  loc193:      { bakken: [18.9], neus: 'loc', kleur: '#c9cdd1', loc: 1, pant: [0] },
+  coupe:       { bakken: [14], neus: 'plat', kleur: '#6b3a2a' },
+  staalrijtuig:{ bakken: [21], neus: 'plat', kleur: '#6b3a2a' },
+  plane:       { bakken: [24.5], neus: 'plat', kleur: '#6b3a2a' },
+  planw:       { bakken: [25.2], neus: 'plat', kleur: '#2d4f8a' },
+  icr:         { bakken: [26.4], neus: 'plat', kleur: '#ffc917' },
+  icrbvk:      { bakken: [26.4], neus: 'koploper', kleur: '#ffc917' },
+  ddm1:        { bakken: [26.8], neus: 'plat', kleur: '#ffc917', dd: true },
+  ddm1bvk:     { bakken: [26.8], neus: 'rond', kleur: '#ffc917', dd: true },
+  viaggio:     { bakken: [26.5], neus: 'plat', kleur: '#c9cdd1' },
+  viaggiobvk:  { bakken: [26.5], neus: 'spits', kleur: '#c9cdd1' },
   gvbm1:       { bakken: [18.7, 18.7, 18.7, 18.7], neus: 'plat', kleur: '#c7ccd1', gel: true },
   gvbm5:       { bakken: [19.4, 19.4, 19.4, 19.4, 19.4, 19.4], neus: 'rond', kleur: '#c7ccd1' },
   gvbm7:       { bakken: [19.4, 19.4, 19.4, 19.4, 19.4, 19.4], neus: 'rond', kleur: '#c7ccd1' },
@@ -87,8 +108,19 @@ export function typeVoor(lijn, jaar, standaardType) {
   return id;
 }
 
+// bakken (wagons) van een type zonder locs: [{lengte, loc}] — voor de indeling per wagon
+export function bakkenVan(typeId, modus) {
+  const u = uiterlijk(typeId, modus);
+  return u.bakken.map((L, i) => ({ lengte: L, loc: !!(u.loc && i < u.loc) }));
+}
 export function uiterlijk(typeId, modus) {
-  const u = U[typeId] || U[TYPE[typeId]?.basis] || STANDAARD[modus] || STANDAARD.bus; // een serie ziet eruit als zijn basistype
+  const t = TYPE[typeId];
+  if (t?.samen && !U[typeId]) { // samenstelling: de delen achter elkaar
+    const delen = t.samen.map(c => uiterlijk(c, modus)), eerste = delen[0];
+    U[typeId] = { bakken: delen.flatMap(d => d.bakken), neus: eerste.neus, kleur: (delen.find(d => !d.loc) || eerste).kleur, loc: eerste.loc || 0,
+      dd: delen.some(d => d.dd), pant: eerste.pant || [] };
+  }
+  const u = U[typeId] || U[t?.basis] || STANDAARD[modus] || STANDAARD.bus; // een serie ziet eruit als zijn basistype
   if (!u._l) {
     const tussen = u.gel ? 0.3 : 0.9;
     u._l = u.bakken.reduce((a, b) => a + b, 0) + tussen * (u.bakken.length - 1);

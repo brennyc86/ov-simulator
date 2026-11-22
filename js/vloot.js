@@ -37,6 +37,30 @@ export const VLOOT = [
   { id: 'buffel', naam: 'DM \'90 "Buffel" (diesel)', modus: 'trein', van: 1996, tot: 2021, zit: 128, sta: 80, vmax: 140, acc: 0.8, prijs: 5e6, km: 2.5, energie: 'diesel', pers: 1, leven: 30, wie: 'NS, Syntus' },
   { id: 'ice3', naam: 'ICE 3 (hogesnelheid)', modus: 'trein', van: 2000, tot: 2050, zit: 440, sta: 0, vmax: 300, acc: 0.6, prijs: 35e6, km: 7.0, energie: 'elektrisch', pers: 1, leven: 30, wie: 'DB, NS International' },
 
+  // ---------------- locomotieven en losse rijtuigen (samenstellen per lijn) ----------------
+  // soort: loc | rijtuig | stuurstand (rijtuig met cabine: de trein kan keren zonder dat de loc omloopt)
+  // jaren bij benadering (bronnen verschillen); zit/sta = standaard 2e-klasinrichting
+  { id: 'stoomloc3700', soort: 'loc', naam: 'Stoomlocomotief NS 3700 (los)', modus: 'trein', van: 1911, tot: 1958, zit: 0, sta: 0, vmax: 90, acc: 0.3, prijs: 2.5e6, km: 3.6, energie: 'kolen', pers: 2, leven: 40, wie: 'SS, NS' },
+  { id: 'loc1000', soort: 'loc', naam: 'Elektrische loc NS 1000', modus: 'trein', van: 1948, tot: 1982, zit: 0, sta: 0, vmax: 140, acc: 0.45, prijs: 4e6, km: 1.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'loc1100', soort: 'loc', naam: 'Elektrische loc NS 1100', modus: 'trein', van: 1950, tot: 2000, zit: 0, sta: 0, vmax: 135, acc: 0.45, prijs: 4e6, km: 1.7, energie: 'elektrisch', pers: 1, leven: 40, wie: 'NS' },
+  { id: 'loc1200', soort: 'loc', naam: 'Elektrische loc NS 1200', modus: 'trein', van: 1951, tot: 1999, zit: 0, sta: 0, vmax: 150, acc: 0.5, prijs: 4.5e6, km: 1.8, energie: 'elektrisch', pers: 1, leven: 40, wie: 'NS' },
+  { id: 'loc1300', soort: 'loc', naam: 'Elektrische loc NS 1300', modus: 'trein', van: 1952, tot: 2000, zit: 0, sta: 0, vmax: 135, acc: 0.5, prijs: 4.5e6, km: 1.9, energie: 'elektrisch', pers: 1, leven: 40, wie: 'NS' },
+  { id: 'loc2200', soort: 'loc', naam: 'Diesellocomotief NS 2200', modus: 'trein', van: 1955, tot: 2004, zit: 0, sta: 0, vmax: 100, acc: 0.35, prijs: 3e6, km: 2.4, energie: 'diesel', pers: 1, leven: 40, wie: 'NS' },
+  { id: 'loc1600', soort: 'loc', naam: 'Elektrische loc NS 1600', modus: 'trein', van: 1981, tot: 2025, zit: 0, sta: 0, vmax: 160, acc: 0.6, prijs: 6e6, km: 1.9, energie: 'elektrisch', pers: 1, leven: 40, wie: 'NS' },
+  { id: 'loc1700', soort: 'loc', naam: 'Elektrische loc NS 1700', modus: 'trein', van: 1991, tot: 2023, zit: 0, sta: 0, vmax: 160, acc: 0.6, prijs: 6e6, km: 1.9, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'loc186', soort: 'loc', naam: 'Bombardier TRAXX (NS 186)', modus: 'trein', van: 2015, tot: 2050, zit: 0, sta: 0, vmax: 200, acc: 0.7, prijs: 5e6, km: 1.7, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS (Intercity direct)' },
+  { id: 'loc193', soort: 'loc', naam: 'Siemens Vectron', modus: 'trein', van: 2016, tot: 2060, zit: 0, sta: 0, vmax: 200, acc: 0.75, prijs: 5e6, km: 1.6, energie: 'elektrisch', pers: 1, leven: 35, wie: 'diverse' },
+  { id: 'coupe', soort: 'rijtuig', naam: 'Coupérijtuig (hout, HSM/SS)', modus: 'trein', van: 1880, tot: 1950, zit: 50, sta: 10, vmax: 90, acc: 0, prijs: 350e3, km: 0.5, energie: '-', pers: 0, leven: 40, wie: 'HSM, SS, NS' },
+  { id: 'staalrijtuig', soort: 'rijtuig', naam: 'Stalen rijtuig (jaren \'20–\'30)', modus: 'trein', van: 1921, tot: 1965, zit: 72, sta: 20, vmax: 120, acc: 0, prijs: 500e3, km: 0.5, energie: '-', pers: 0, leven: 40, wie: 'NS' },
+  { id: 'plane', soort: 'rijtuig', naam: 'Rijtuig Plan E', modus: 'trein', van: 1955, tot: 1988, zit: 80, sta: 30, vmax: 140, acc: 0, prijs: 700e3, km: 0.55, energie: '-', pers: 0, leven: 35, wie: 'NS' },
+  { id: 'planw', soort: 'rijtuig', naam: 'Rijtuig Plan W (internationaal)', modus: 'trein', van: 1966, tot: 2000, zit: 66, sta: 20, vmax: 160, acc: 0, prijs: 800e3, km: 0.55, energie: '-', pers: 0, leven: 35, wie: 'NS' },
+  { id: 'icr', soort: 'rijtuig', naam: 'Intercityrijtuig ICR', modus: 'trein', van: 1981, tot: 2025, zit: 72, sta: 30, vmax: 160, acc: 0, prijs: 1.1e6, km: 0.6, energie: '-', pers: 0, leven: 40, wie: 'NS' },
+  { id: 'icrbvk', soort: 'stuurstand', naam: 'ICR-stuurstandrijtuig (Bvk)', modus: 'trein', van: 1988, tot: 2025, zit: 60, sta: 25, vmax: 160, acc: 0, prijs: 1.6e6, km: 0.65, energie: '-', pers: 0, leven: 35, wie: 'NS, NMBS' },
+  { id: 'ddm1', soort: 'rijtuig', naam: 'Dubbeldeksrijtuig DDM-1', modus: 'trein', van: 1985, tot: 2019, zit: 140, sta: 60, vmax: 140, acc: 0, prijs: 1.8e6, km: 0.8, energie: '-', pers: 0, leven: 35, wie: 'NS' },
+  { id: 'ddm1bvk', soort: 'stuurstand', naam: 'DDM-1-stuurstandrijtuig (Bvk)', modus: 'trein', van: 1985, tot: 2019, zit: 120, sta: 50, vmax: 140, acc: 0, prijs: 2.3e6, km: 0.85, energie: '-', pers: 0, leven: 35, wie: 'NS' },
+  { id: 'viaggio', soort: 'rijtuig', naam: 'Siemens Viaggio-rijtuig', modus: 'trein', van: 2019, tot: 2060, zit: 70, sta: 25, vmax: 200, acc: 0, prijs: 2e6, km: 0.6, energie: '-', pers: 0, leven: 40, wie: 'diverse' },
+  { id: 'viaggiobvk', soort: 'stuurstand', naam: 'Siemens Viaggio-stuurstandrijtuig', modus: 'trein', van: 2019, tot: 2060, zit: 60, sta: 25, vmax: 200, acc: 0, prijs: 2.6e6, km: 0.65, energie: '-', pers: 0, leven: 40, wie: 'diverse' },
+
   // ---------------- metro / sneltram ----------------
   { id: 'gvbm1', naam: 'GVB M1/M2 (Linke-Hofmann-Busch)', modus: 'metro', van: 1977, tot: 2015, zit: 120, sta: 200, vmax: 70, acc: 1.0, prijs: 5e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'GVB' },
   { id: 'gvbm5', naam: 'Alstom Metropolis (GVB M5)', modus: 'metro', van: 2013, tot: 2055, zit: 180, sta: 820, vmax: 70, acc: 1.2, prijs: 9e6, km: 4.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'GVB' },
@@ -105,9 +129,12 @@ export const VLOOT = [
 ];
 
 export const TYPE = Object.fromEntries(VLOOT.map(v => [v.id, v]));
+// zelfstandig rijdend materieel (geen losse loc of rijtuig)
 export function beschikbaar(jaar, modus) {
-  return VLOOT.filter(v => v.van <= jaar && v.tot >= jaar && (!modus || v.modus === modus));
+  return VLOOT.filter(v => !v.soort && v.van <= jaar && v.tot >= jaar && (!modus || v.modus === modus));
 }
+// locs en losse rijtuigen die in dit jaar te koop zijn
+export const beschikbaarLos = jaar => VLOOT.filter(v => v.soort && v.van <= jaar && v.tot >= jaar);
 // Welk materieel een bestaande vervoerder waarschijnlijk inzet voor een modus
 export function standaardType(vervoerder, modus, jaar = 2026) {
   // trolleybussen alleen waar bovenleiding hangt (bepaald door de kaart), niet als standaardtype

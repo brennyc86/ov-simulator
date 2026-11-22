@@ -4,7 +4,7 @@
 // tussen haltes (inwoners in de buurt × afstandsverval). Deterministisch per rit en dag.
 import { vraagLijn, vangst, vraagFactor, PERIODES, ZWARTRIJDEN_BASIS, pakkans, eenheden } from './spel.js';
 import { MODI, TYPE } from './vloot.js';
-import { inrichtingVan, klassenVan, vraagEffect } from './comfort.js';
+import { inrichtingVan, klassenVan, vraagEffect, klassePrijs } from './comfort.js';
 
 // pseudo-toeval dat per rit gelijk blijft
 function hash(...a) { let h = 2166136261; for (const x of a) { h ^= Math.round(x * 997) & 0xffffffff; h = Math.imul(h, 16777619); } return ((h >>> 0) % 10000) / 10000; }
@@ -19,7 +19,7 @@ const cache = new Map();
 
 // geeft { haltes:[{naam, in, uit, achter}], segmenten:[{aanBoord, metKaartje}], cap, klassen, ... } in rijvolgorde
 export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
-  const sleutel = `${spel.dag}:${lijn.sleutel || lijn.id}:${r}:${Math.round(dep)}:${typeId}:${JSON.stringify([lijn.prijzen, lijn.catering, lijn.restauratie])}`;
+  const sleutel = `${spel.dag}:${lijn.sleutel || lijn.id}:${r}:${Math.round(dep)}:${typeId}:${JSON.stringify([lijn.catering, lijn.restauratie])}:${klassePrijs('1')}:${klassePrijs('3')}`;
   if (cache.has(sleutel)) return cache.get(sleutel);
   if (cache.size > 4000) cache.clear();
   const mod = MODI[lijn.modus] || MODI.bus;
@@ -77,16 +77,20 @@ export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
   return res;
 }
 
-// verdeling van een aantal reizigers over de klassen: ieder naar zijn eigen klasse (aandeel uit prijs en comfort),
-// eerst zitten, dan staan; is een klasse vol, dan wijkt men uit naar een andere
+// verdeling van een aantal reizigers over de klassen: ieder naar zijn eigen klasse (aandeel uit prijs en comfort).
+// Met een kaartje voor een hogere klasse mag je in een lagere zitten (of staan), niet andersom.
+// klassen staan gesorteerd van hoog (Premium, 1e) naar laag; wie nergens past staat in zijn eigen klasse (overvol).
 export function bezettingKlassen(aantal, klassen) {
   const uit = klassen.map(k => ({ klasse: k.klasse, zit: 0, sta: 0, zitMax: k.zit, staMax: k.sta }));
-  const std = { P: 0.03, 1: 0.07, 2: 0.9, 3: 0.12 };
+  const std = { P: 0.03, 1: 0.07, 2: 0.9, 3: 0.12, 4: 0.12, 5: 0.12, 6: 0.12 };
   const w = klassen.map(k => k.aandeel ?? std[k.klasse] ?? 0.1), som = w.reduce((a, b) => a + b, 0) || 1;
-  let rest = 0;
-  uit.forEach((k, i) => { const wil = Math.round(aantal * w[i] / som); const z = Math.min(wil, k.zitMax); k.zit = z; rest += wil - z; });
-  rest += aantal - uit.reduce((a, k) => a + k.zit, 0) - rest; // afronding
-  for (const k of [...uit].reverse()) { const z = Math.min(rest, k.zitMax - k.zit); k.zit += z; rest -= z; } // vrije stoelen elders
-  for (const k of [...uit].reverse()) { const s = Math.min(rest, k.staMax); k.sta = s; rest -= s; }
+  const wil = w.map(x => Math.round(aantal * x / som));
+  wil[wil.length - 1] += aantal - wil.reduce((a, b) => a + b, 0); // afronding
+  for (let i = 0; i < uit.length; i++) {
+    let rest = Math.max(0, wil[i]);
+    for (let j = i; j < uit.length && rest > 0; j++) { const z = Math.min(rest, uit[j].zitMax - uit[j].zit); uit[j].zit += z; rest -= z; } // zitten: eigen of lager
+    for (let j = i; j < uit.length && rest > 0; j++) { const z = Math.min(rest, uit[j].staMax - uit[j].sta); uit[j].sta += z; rest -= z; } // staan: eigen of lager
+    uit[i].sta += rest; // past nergens: staat toch (overvol)
+  }
   return uit;
 }

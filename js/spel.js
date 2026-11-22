@@ -1,7 +1,7 @@
 // Spelkern: bedrijf, lijnen, dienstregeling, voertuigposities, geld en reizigers.
 import { MODI, TYPE, standaardType } from './vloot.js';
 import { bboxVan } from './net.js';
-import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor } from './comfort.js';
+import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor, nodigPer } from './comfort.js';
 
 export const TARIEF = {
   // instaptarief + per km (OV-chipkaart 2026, benaderd); trein degressief na 40 km
@@ -222,7 +222,8 @@ export function materieelNodig(lijn) {
   for (const r of lijn.vertrek) for (const v of r) perUur[Math.min(29, Math.floor(v / 60))] += eenheden(lijn, 0, v); // dag 0 = werkdag
   const piek = Math.max(...perUur);
   const leegTerug = lijn.richting === 'heen' && !lijn.paar ? 2 : 1; // eenrichting zonder terugweg: leeg terugrijden
-  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 * leegTerug + mod.keer) / 60));
+  const keer = mod.keer + (TYPE[lijn.typeId]?.keerExtra || 0); // loc zonder stuurstandrijtuig: omlopen bij het keren
+  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 * leegTerug + keer) / 60));
 }
 
 // positie langs de lijn op afstand s (m langs de route-punten)
@@ -426,10 +427,19 @@ export function pakkans(spel, lijn) {
 }
 
 // welk deel van het benodigde materieel heeft deze lijn (vloot wordt eerlijk verdeeld)
+// Een samenstelling (loc + rijtuigen) heeft van elk onderdeel genoeg nodig; onderdelen worden eerlijk verdeeld
+// over alle lijnen die ze gebruiken (ook als los treinstel op een andere lijn).
 function eigenDeel(spel, lijn, typeId) {
-  const totaal = spel.voertuigen[typeId] || 0;
-  const vraag = spel.lijnen.filter(l => l.actief && l.typeId === typeId).reduce((s, l) => s + l.nodig, 0);
-  return { totaal, vraag, deel: vraag <= totaal ? lijn.nodig : Math.floor(totaal * lijn.nodig / vraag) };
+  const per = nodigPer(typeId);
+  let deel = lijn.nodig, totaal = Infinity, vraag = 0;
+  for (const [c, k] of Object.entries(per)) {
+    const t = spel.voertuigen[c] || 0;
+    const v = spel.lijnen.filter(l => l.actief).reduce((s, l) => s + (nodigPer(l === lijn ? typeId : l.typeId)[c] || 0) * l.nodig, 0) + (lijn.actief ? 0 : k * lijn.nodig);
+    const d = v <= t ? lijn.nodig : Math.floor(t * lijn.nodig * k / v / k);
+    if (d < deel) deel = d;
+    totaal = Math.min(totaal, Math.floor(t / k)); vraag = Math.max(vraag, Math.ceil(v / k));
+  }
+  return { totaal, vraag, deel: Math.max(0, deel) };
 }
 // hoeveel voertuigen kan deze lijn inzetten (eigen type + eventueel alternatief type dat over is)
 export function beschikbaarVoor(spel, lijn) {

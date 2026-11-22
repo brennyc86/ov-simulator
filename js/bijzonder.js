@@ -5,7 +5,7 @@ import { VLOOT, TYPE, MODI } from './vloot.js';
 import { vangst, TARIEF, isWeekend, kmKosten, nieuwId } from './spel.js';
 
 // museummaterieel: gerestaureerd tweedehands te koop, ook als het type allang niet meer rijdt
-export const museumTypen = jaar => VLOOT.filter(v => v.tot <= jaar && v.van < jaar && ['trein', 'tram', 'bus'].includes(v.modus));
+export const museumTypen = jaar => VLOOT.filter(v => !v.soort && v.tot <= jaar && v.van < jaar && ['trein', 'tram', 'bus'].includes(v.modus));
 export const museumPrijs = t => Math.round(t.prijs * 0.35 / 1000) * 1000;
 export const isMuseum = (t, jaar) => !!t && jaar > t.tot;
 
