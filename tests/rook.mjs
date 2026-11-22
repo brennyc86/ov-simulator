@@ -290,6 +290,15 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   await spoorTest('Trolleybus-bovenleiding', [[190000, 444000], [192000, 446000]], 'trolley'); document.querySelector('[data-actie="spoor-zelf"]')?.click(); await wacht(30);
   sp.tijd += 125; globalThis.__ovTest.bouwOpleveren(); log('na 2 uur: bovenleiding klaar', (sp.bovenleiding || []).every(b => b.klaar), 'spoor klaar', sp.spoor.slice(s0).every(x => x.klaar));
   document.querySelector('[data-tool="kijk"]')?.click(); }
+// ongelijkvloerse kruisingen: bestaande op de kaart, zelf een kruising ombouwen
+{ const sp = globalThis.__ovTest.spel; const src = globalThis.__map.src.kruisingen?.data?.features || [];
+  log('kruisingen op de kaart:', src.length, src.slice(0, 3).map(f => f.properties.t + ' @' + f.geometry.coordinates.map(c => c.toFixed(3)).join(',')).join(' | '));
+  const nb = globalThis.__ovTest.stations.find(x => x.n === 'Weesp'); const G8 = await import('../js/geo.js');
+  globalThis.__map.easeTo({ center: G8.rdNaarWgs(nb.x, nb.y).reverse(), zoom: 14 }); await wacht(30);
+  document.querySelector('[data-tool="spoor"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Kruising ongelijkvloers maken').click();
+  globalThis.__map.vuur('click', { point: { x: 600, y: 400 } }); await wacht(40);
+  log('kruisingpaneel:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160));
+  document.querySelector('[data-actie="kruising-bouw"][data-s="flyover"]')?.click(); await wacht(30); log('eigen kruisingen:', JSON.stringify(sp.kruisingen || [])); document.querySelector('[data-tool="kijk"]')?.click(); }
 // lening afsluiten en aflossen
 { const sp = globalThis.__ovTest.spel; const g0 = sp.geld; document.querySelector('[data-paneel="geld"]').click(); await wacht(30);
   document.querySelector('[data-actie="lenen"][data-b="10000000"]')?.click(); await wacht(20);

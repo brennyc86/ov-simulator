@@ -291,6 +291,8 @@ function netwerkLagen() {
     const STATIONSGRIJS = '#55595e';
     if (!kaart.map.getSource('stationsgebouwen')) kaart.bron('stationsgebouwen', { type: 'FeatureCollection', features: (D.stationsgebouwen || []).map(v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [c] } }; }) });
     kaart.laag({ id: 'stationsgebouw-osm', type: 'fill', source: 'stationsgebouwen', minzoom: 13, paint: { 'fill-color': STATIONSGRIJS, 'fill-outline-color': '#2f3134' } });
+    if (!kaart.map.getSource('kruisingen')) kaart.bron('kruisingen', { type: 'FeatureCollection', features: [] });
+    kaart.laag({ id: 'kruising-tekst', type: 'symbol', source: 'kruisingen', minzoom: 11, layout: { 'text-field': ['get', 't'], 'text-size': 11, 'text-offset': [0, -1.1], 'text-allow-overlap': false, 'text-font': ['Noto Sans Bold'] }, paint: { 'text-color': ['case', ['==', ['get', 'e'], 1], spel?.kleur || '#c2412d', '#3c4147'], 'text-halo-color': '#fff', 'text-halo-width': 1.4, 'text-opacity': ['case', ['==', ['get', 'k'], 1], 1, 0.5] } });
     if (!kaart.map.getSource('gebouwen')) kaart.bron('gebouwen', { type: 'FeatureCollection', features: [] });
     kaart.laag({ id: 'gebouw-vlak', type: 'fill', source: 'gebouwen', minzoom: 12, paint: { 'fill-color': STATIONSGRIJS, 'fill-opacity': ['case', ['==', ['get', 'klaar'], 1], 0.95, 0.4] } });
     kaart.laag({ id: 'gebouw-rand', type: 'line', source: 'gebouwen', minzoom: 13, paint: { 'line-color': ['get', 'k'], 'line-width': 1.5 } });
@@ -417,6 +419,7 @@ function eigenNetBijwerken() {
     const c = []; for (let i = 0; i < v.pts.length; i += 2) c.push(lonlat(v.pts[i], v.pts[i + 1]));
     return { type: 'Feature', properties: { klaar: isKlaar(v) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
   }) });
+  try { kruisingenTekenen(); } catch (e) { console.warn('kruisingen', e); }
   kaart.bron('eigen-spoor', { type: 'FeatureCollection', features: spel.spoor.map(sp => ({ type: 'Feature', properties: { klaar: sp.klaar ? 1 : 0 }, geometry: { type: 'LineString', coordinates: sp.punten.map(p => lonlat(p[0], p[1])) } })) });
   kaart.bron('eigen-lijnen', { type: 'FeatureCollection', features: spel.lijnen.filter(l => l.route?.pts?.length >= 4).map(l => ({ type: 'Feature', properties: { id: l.id, kl: !l.actief ? '#8a8f8c' : selectie?.lijn === l ? '#f2c14e' : spel.kleur }, geometry: { type: 'LineString', coordinates: lijnGeo(l.route.pts) } })) });
   kaart.bron('eigen-haltes', { type: 'FeatureCollection', features: spel.haltes.map(h => ({ type: 'Feature', properties: { n: h.naam + (!isKlaar(h) ? ' (in aanbouw)' : ''), m: h.modus, klaar: isKlaar(h) ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(h.x, h.y) } })) });
@@ -1350,6 +1353,11 @@ const PANELEN = {
       ${d.plek ? `<div class="rij"><button class="knop hoofd" data-actie="bus-bouw">Bouwen</button><button class="knop" data-actie="bus-draai" data-g="-15">↺ 15°</button><button class="knop" data-actie="bus-draai" data-g="15">↻ 15°</button><button class="knop" data-actie="bus-draai" data-g="90">↻ 90°</button><button class="knop" data-actie="bus-plaats">Andere plek</button><button class="knop" data-actie="perron-stop">Annuleren</button></div>`
         : `<button class="knop hoofd" data-actie="bus-plaats">Plaats op de kaart</button>`}`;
   },
+  kruising(d) {
+    return `<h2>Ongelijkvloerse kruising</h2><p>Een splitsing of kruising met ${d.takken} sporen. Treinen die elkaar hier kruisen moeten nu op elkaar wachten.</p>
+      <div class="rij"><button class="knop hoofd" data-actie="kruising-bouw" data-s="flyover">Flyover (€ 60 mln)</button><button class="knop hoofd" data-actie="kruising-bouw" data-s="diveunder">Dive-under (€ 90 mln)</button><button class="knop" data-actie="perron-stop">Annuleren</button></div>
+      <p class="klein">Bouwtijd 2 speluren. Op de kaart zie je ▲ (flyover, over het andere spoor) of ▼ (dive-under, eronderdoor). Let op: het spel rekent nog niet met wachttijd bij gelijkvloerse kruisingen; dit is voorlopig vooral zichtbaar en voor later.</p>`;
+  },
   bouw() {
     const pr = bouwProjecten();
     if (!pr.length) return '<h2>Bouwprojecten</h2><p>Er wordt nu niets gebouwd.</p>';
@@ -1491,6 +1499,9 @@ function actieUit(a, d) {
       melding(`Gekocht: ${tekort.map(([c, n]) => `${n} × ${TYPE[c].naam}`).join(', ')} (${S.euroKort(kosten)}).`); ververs(); break;
     }
     case 'paneel': openPaneel(d.p); break;
+    case 'kruising-bouw': { const g = paneelData, kosten = d.s === 'flyover' ? 60e6 : 90e6; if (!betaal(kosten, d.s === 'flyover' ? 'de flyover' : 'de dive-under')) break;
+      spel.kruisingen = spel.kruisingen || []; spel.kruisingen.push({ x: g.x, y: g.y, soort: d.s, ...bouwKlaar(), kosten, projectNaam: d.s === 'flyover' ? 'Flyover' : 'Dive-under' });
+      melding(`Bouw van de ${d.s === 'flyover' ? 'flyover' : 'dive-under'} gestart, klaar over 2 speluren.`); sluitPaneel(); eigenNetBijwerken(); hud(); break; }
     case 'bus-kies': openPaneel('busstation', { station: d.naam, x: +d.x, y: +d.y, n: 4, opstelling: 'naast' }); break;
     case 'bus-plaats': { const g = paneelData; tool = 'busstation'; bouw = { bus: g }; perronVoorstelWissen(); kaart.vliegNaar(g.x, g.y, 0.8);
       hint(`Klik waar het busstation van ${g.station} moet komen.`, [['Stoppen', () => { zetTool('kijk'); openPaneel('busstation', g); }]]); break; }
@@ -1875,7 +1886,8 @@ function zetTool(t) {
   if (t === 'station') hint('Klik op het spoor waar het station moet komen.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'perron') hint('Klik bij een treinstation: er komt een voorstel voor een extra spoor met perron.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'spoor') hint('Wat wil je aanleggen?', [['Treinspoor', () => spoorBegin('trein')], ['Metrospoor', () => spoorBegin('metro')], ['Tramspoor', () => spoorBegin('tram')], ['Trolleybus-bovenleiding', () => spoorBegin('trolley')],
-    ['Spoor erbij (2e, 3e, 4e spoor)', () => zetTool('verdubbel')], ['Opstelspoor bij station', () => zetTool('perron')], ['Stoppen', () => zetTool('kijk')]]);
+    ['Spoor erbij (2e, 3e, 4e spoor)', () => zetTool('verdubbel')], ['Opstelspoor bij station', () => zetTool('perron')], ['Kruising ongelijkvloers maken', () => zetTool('kruising')], ['Stoppen', () => zetTool('kijk')]]);
+  if (t === 'kruising') hint('Klik op een gelijkvloerse kruising of splitsing van sporen: die wordt een flyover (over het andere spoor heen) of een dive-under (eronderdoor).', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'verdubbel') hint('Klik op het spoor waar een extra spoor naast moet komen (van wissel tot wissel): van enkel- naar dubbelspoor, of een 3e of 4e spoor.', [['Stoppen', () => zetTool('kijk')]]);
 }
 function kiesModus() {
@@ -2020,6 +2032,7 @@ function aanbodVoorNieuw(d) {
 function bouwProjecten() {
   const uit = new Map();
   const voeg = (sleutel, naam, x, station) => { if (!uit.has(sleutel)) uit.set(sleutel, { naam, start: x.startMin ?? (x.startDag ?? x.gereedDag - 30) * 1440, gereed: gereedMin(x), kosten: 0, delen: [], station, spoed: false }); const p = uit.get(sleutel); p.delen.push(x); p.kosten += x.kosten || 0; p.spoed = p.spoed || !!x.spoed; p.gereed = Math.max(p.gereed, gereedMin(x)); };
+  for (const k of spel.kruisingen || []) if (!isKlaar(k)) voeg(k, k.projectNaam, k);
   for (const b of spel.bovenleiding || []) if (!b.klaar && !isKlaar(b)) voeg(b.project || b, b.projectNaam || 'Bovenleiding', b);
   for (const sp of spel.spoor) if (!sp.klaar && !isKlaar(sp)) voeg(sp.project || sp, sp.projectNaam || (sp.perron ? `Spoor met perron · ${sp.perron}` : 'Nieuw spoor'), sp, sp.perron);
   for (const v of spel.perronVormen || []) if (!isKlaar(v) && v.project && uit.has(v.project)) uit.get(v.project).delen.push(v);
@@ -2054,6 +2067,34 @@ function leningBlok() {
     <p class="klein">De bank leent tot € 20 mln plus 80% van de waarde van je materieel en eigen spoor. Hoe meer je leent, hoe hoger de rente.</p>
     <div class="rij">${[1e6, 5e6, 10e6, 25e6, 100e6].filter(b => b <= ruimte).map(b => `<button class="knop klein" data-actie="lenen" data-b="${b}">＋ ${S.euroKort(b)} lenen</button>`).join('')}</div>
     ${l ? `<div class="rij">${[1e6, 5e6, 10e6].filter(b => b <= l).map(b => `<button class="knop klein" data-actie="aflossen" data-b="${b}">− ${S.euroKort(b)} aflossen</button>`).join('')}<button class="knop klein" data-actie="aflossen" data-b="${l}">Alles aflossen</button></div>` : ''}`;
+}
+// ---------------------------------------------------------------- ongelijkvloerse kruisingen
+// bestaande flyovers (spoor op een brug over ander spoor) en dive-unders (spoor in een tunnel onder ander spoor)
+function zoekOngelijkvloers() {
+  const uit = [], seg = (p, k) => [p[k], p[k + 1], p[k + 2], p[k + 3]];
+  const snijpunt = (a, b) => { const [x1, y1, x2, y2] = a, [x3, y3, x4, y4] = b, d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4); if (Math.abs(d) < 1e-9) return null;
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d, u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / d; return t > 0 && t < 1 && u > 0 && u < 1 ? [x1 + t * (x2 - x1), y1 + t * (y2 - y1)] : null; };
+  for (const t of net.takken) {
+    if (!t.hoogte || t.dienst || t.soort !== 0) continue;
+    const gezien = new Set();
+    for (let k = 0; k < t.pts.length - 2; k += 2) {
+      const s1 = seg(t.pts, k), cel = Math.floor(s1[0] / 1000) + ',' + Math.floor(s1[1] / 1000);
+      for (const o of net.tRaster.get(cel) || []) {
+        if (o === t || o.hoogte === t.hoogte || o.soort !== 0 || o.dienst || o.a === t.a || o.a === t.b || o.b === t.a || o.b === t.b) continue;
+        for (let m = 0; m < o.pts.length - 2; m += 2) { const p = snijpunt(s1, seg(o.pts, m)); if (p) { const sl = Math.round(p[0] / 80) + ',' + Math.round(p[1] / 80); if (!gezien.has(sl)) { gezien.add(sl); uit.push({ x: p[0], y: p[1], soort: t.hoogte > 0 ? 'flyover' : 'diveunder', van: Math.max(t.start || 0, o.start || 0) }); } } }
+      }
+    }
+  }
+  // dubbel getekende sporen geven meerdere snijpunten vlak bij elkaar: samenvoegen binnen 150 m
+  const samen = [];
+  for (const k of uit) if (!samen.some(q => q.soort === k.soort && Math.hypot(q.x - k.x, q.y - k.y) < 150)) samen.push(k);
+  return samen;
+}
+function kruisingenTekenen() {
+  if (!kaart?.map?.getSource) return;
+  D.ongelijk = D.ongelijk || zoekOngelijkvloers();
+  const alle = [...D.ongelijk.filter(k => !k.van || k.van <= spel.jaar), ...(spel.kruisingen || []).map(k => ({ ...k, eigen: true, klaar: isKlaar(k) }))];
+  kaart.bron('kruisingen', { type: 'FeatureCollection', features: alle.map(k => ({ type: 'Feature', properties: { t: k.soort === 'flyover' ? '▲ flyover' : '▼ dive-under', e: k.eigen ? 1 : 0, k: k.klaar === false ? 0 : 1 }, geometry: { type: 'Point', coordinates: lonlat(k.x, k.y) } })) });
 }
 // eigen bovenleiding voor trolleybussen: in het raster (herkenning) en op de kaart
 function bovenleidingToevoegen(punten) {
@@ -2329,6 +2370,16 @@ function klik(px, py) {
   }
   if (tool === 'spoor' && bouw) { bouw.punten.push({ x, y }); return; }
   if (tool === 'verdubbel') { verdubbelOntwerpen(x, y); return; }
+  if (tool === 'kruising') { const r = net.dichtsteTak(x, y, 'trein', spel.jaar, 80); if (!r) { melding('Klik op het spoor bij een kruising of splitsing.'); return; }
+    // dichtstbijzijnde knoop met 3 of meer takken (splitsing of kruising)
+    let best = null; const gez = new Set();
+    for (let i = Math.floor(x / 1000) - 1; i <= Math.floor(x / 1000) + 1; i++) for (let j = Math.floor(y / 1000) - 1; j <= Math.floor(y / 1000) + 1; j++) for (const t of net.tRaster.get(i + ',' + j) || []) for (const k of [t.a, t.b]) {
+      if (gez.has(k) || t.dienst || t.soort !== 0) continue; gez.add(k);
+      const n = (net.buren.get(k) || []).filter(b => !b.t.dienst).length, kx = net.knoopX(k), ky = net.knoopY(k), dd = Math.hypot(kx - x, ky - y);
+      if (n >= 3 && (!best || dd < best.d)) best = { k, x: kx, y: ky, d: dd, n }; }
+    if (!best || best.d > 400) { melding('Hier is geen kruising of splitsing in de buurt (binnen 400 m).'); return; }
+    if ((spel.kruisingen || []).some(q => Math.hypot(q.x - best.x, q.y - best.y) < 150)) { melding('Deze kruising is al ongelijkvloers (of in aanbouw).'); return; }
+    zetTool('kijk'); openPaneel('kruising', { x: best.x, y: best.y, takken: best.n }); return; }
   if (tool === 'busstation' && bouw?.bus) { const g = bouw.bus; const r = net.dichtsteTak(x, y, 'trein', spel.jaar, 400); let h = 0;
     if (r) { const a = net.stuk(r.t, Math.max(0, r.s - 30), Math.min(r.t.lengte, r.s + 30)); h = Math.atan2(a[a.length - 1] - a[1], a[a.length - 2] - a[0]); }
     g.plek = { x, y, hoek: h }; zetTool('kijk'); busVoorstel(g); return; }
