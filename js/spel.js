@@ -378,10 +378,15 @@ export function verrekenUur(spel, ctx, uurBegin) {
     // kosten
     const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(lijn, lijn.typeId);
     const energie = km * kmKosten(type, spel.jaar) * eh;
+    // spoorhuur: ProRail per treinkilometer en per stop; tram/metro en trolleybus huren baan en bovenleiding
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
+      : ['tram', 'metro', 'sneltram'].includes(lijn.modus) ? (lijn.eigenSpoor ? 0 : km * 0.9)
+      : TYPE[lijn.typeId]?.energie === 'bovenleiding' ? km * 0.35
       : lijn.modus === 'vlucht' ? ritten * (lijn.haltes.length - 1) * landingsgeld(lijn, type) : 0;
     // subsidie: per dienstregelingsuur (plus extra afgesproken met de provincie) en eventueel per reiziger
-    const subsidie = lijn.concessie ? voertuigUren * ((SUBSIDIE_UUR[lijn.modus] || 0) + (lijn.subsidieUurExtra || 0)) + reizigers * (lijn.subsidiePerReiziger || 0) : 0;
+    const subsidie = (lijn.concessie ? voertuigUren * ((SUBSIDIE_UUR[lijn.modus] || 0) + (lijn.subsidieUurExtra || 0)) + reizigers * (lijn.subsidiePerReiziger || 0) : 0)
+      // aangeboden subsidie (provincie): alleen zolang de lijn aan de eisen voldoet
+      + (lijn.aanbod && lijn.aanbodOk ? voertuigUren * (lijn.aanbod.perUur || 0) + reizigers * (lijn.aanbod.perReiziger || 0) : 0);
 
     m.kaartjes += kaartjes; m.boetes += boetes; m.subsidie += subsidie;
     m.personeel += personeel; m.energie += energie; m.gebruik += gebruik;

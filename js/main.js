@@ -3,6 +3,7 @@ import { Kaart } from './kaart.js';
 import { zetKaartjaren, kaartjaarVoor, rdNaarWgs } from './geo.js';
 import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
+import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst } from './subsidie.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
@@ -585,7 +586,7 @@ function lus(nu) {
     // elk vol uur afrekenen
     for (let u = Math.floor(oud / 60) + 1; u <= Math.floor(spel.tijd / 60); u++) uurVoorbij(u * 60 - 60);
     if (spel.tijd >= 29 * 60) dagVoorbij(); // speldag loopt van 05:00 tot 05:00 (nacht 00:30–05:00)
-    if (Math.floor(oud) !== Math.floor(spel.tijd)) bouwOpleveren(); // elke spelminuut
+    if (Math.floor(oud) !== Math.floor(spel.tijd)) { bouwOpleveren(); verzoekenAfhandelen(); } // elke spelminuut
   }
   kaart.render();
   hudT += dt; if (hudT > 0.25) { hudT = 0; hud(); }
@@ -594,14 +595,8 @@ function lus(nu) {
 function uurVoorbij(uurBegin) {
   for (const l of spel.lijnen) delete l._altD;
   S.verrekenUur(spel, ctx(), uurBegin);
-  // verzoeken afhandelen
-  const nu = spel.dag + spel.tijd / 1440;
-  for (const vz of spel.verzoeken) {
-    if (vz.status !== 'open' && vz.status !== 'tegen-van-speler') continue;
-    if (vz.aan === 'speler' && vz.status === 'open') continue;
-    if (nu < vz.antwoordDag) continue;
-    behandelAntwoord(vz);
-  }
+  verzoekenAfhandelen();
+  aanbiedingenToetsen();
   if (paneelSoort === 'geld' || paneelSoort === 'lijnen') ververs();
 }
 // ---------------------------------------------------------------- bouwen
@@ -622,11 +617,23 @@ function bouwOpleveren() {
   for (const h of spel.haltes) if (!h.opgeleverd && h.modus === 'trein' && (h.gereedMin != null || h.gereedDag > 0) && isKlaar(h)) { h.opgeleverd = true; if (h.startMin != null) { melding(`${h.naam} is klaar en kan gebruikt worden.`); iets = true; } }
   if (iets) { netwerkLagen(); eigenNetBijwerken(); if (paneelSoort === 'bouw' || paneelSoort === 'station') ververs(); }
 }
+function verzoekenAfhandelen() {
+  const nu = spel.dag + spel.tijd / 1440;
+  let iets = false;
+  for (const vz of spel.verzoeken) {
+    if (vz.status !== 'open' && vz.status !== 'tegen-van-speler') continue;
+    if (vz.aan === 'speler' && vz.status === 'open') continue;
+    if (nu < vz.antwoordDag) continue;
+    behandelAntwoord(vz); iets = true;
+  }
+  if (iets && paneelSoort === 'verzoeken') ververs();
+}
 function dagVoorbij() {
   spel.tijd -= 24 * 60; // naar 05:00 volgende dag
   spel.dag++;
   dienstVoorDag();
   bouwOpleveren();
+  aanbiedingenAanvullen(); aanbiedingenToetsen();
   bijzonderAfrekenen();
 
   // groepen vragen soms een eigen rit aan (alleen als je treinen hebt)
@@ -1021,6 +1028,8 @@ const PANELEN = {
       ${l.concessie ? ' · <span class="chip goed">concessie</span>' : ''} ${l.wacht ? '<span class="chip let">wacht op ProRail</span>' : ''} ${!l.actief && !l.wacht ? '<span class="chip">gestopt</span>' : ''}</p>
       <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span></li>`).join('')}</ol>
       ${richtingBlok(l)}
+      ${l.aanbod ? (() => { const a = (spel.aanbiedingen || []).find(x => x.id === l.aanbod.id); const t = a ? toetsEisen(l, a) : { ok: false, redenen: ['aanbieding bestaat niet meer'] };
+        return `<p class="chip ${t.ok ? 'goed' : 'fout'}">Subsidie ${a ? `${esc(a.a.naam)} – ${esc(a.b.naam)}: ${vergoedingTekst(a.vergoeding)}` : ''} · ${t.ok ? 'voldoet aan de eisen' : 'wordt niet uitbetaald: ' + esc(t.redenen.join('; '))}</p>`; })() : ''}
       <h3>Voertuigen op deze lijn</h3>${voertuigTabel(l)}
       <h3>Materieel</h3>
       ${l.modus === 'trein' ? `<label class="rij"><input type="checkbox" data-wijzig="spitsdubbel" data-id="${l.id}" ${l.spitsDubbel ? 'checked' : ''}> In de spits gekoppeld rijden (2 eenheden: dubbele capaciteit, meer materieel nodig)</label>` : ''}
@@ -1074,7 +1083,7 @@ const PANELEN = {
     };
     for (const v of spel.verzoeken) if (v.status !== 'open' && v.status !== 'tegen-van-speler') v.gezien = true;
     setTimeout(hud, 0);
-    return `<h2>Overleg</h2><p class="klein">Verzoeken aan en van andere vervoerders, ProRail en de provincie. Antwoorden komen na een paar speldagen.</p>
+    return `<h2>Overleg</h2>${aanbodBlok()}<h3>Verzoeken</h3><p class="klein">Verzoeken aan en van andere vervoerders, ProRail en de provincie. ProRail en de provincie antwoorden binnen een uur speltijd, vervoerders binnen een paar uur.</p>
       ${spel.verzoeken.length ? spel.verzoeken.slice(0, 40).map(kaartje).join('') : '<p>Nog geen verzoeken. Open een lijn en kies <b>Verzoek</b> bij een gedeelde halte, of vraag een treinpad, station of spoor aan.</p>'}`;
   },
   vloot() {
@@ -1156,7 +1165,7 @@ const PANELEN = {
     return `<h2>Financiën</h2><p>Kas: <b>${S.euro(spel.geld)}</b> · reputatie <b>${Math.round(spel.reputatie)}</b>/100</p>
       <h3>Lopende maand (dag ${spel.dag % 30 + 1} van 30)</h3><table class="tabel">
       ${rij('Kaartjes', m.kaartjes)}${rij('Boetes zwartrijders', m.boetes)}${rij('Subsidie (concessies)', m.subsidie)}
-      ${rij('Personeel', m.personeel, true)}${rij('Energie en onderhoud', m.energie, true)}${rij('Gebruiksvergoeding spoor', m.gebruik, true)}${m.overig ? rij('Overig / afspraken', m.overig, true) : ''}
+      ${rij('Personeel', m.personeel, true)}${rij('Energie en onderhoud', m.energie, true)}${rij('Spoorhuur (ProRail, baan en bovenleiding)', m.gebruik, true)}${m.overig ? rij('Overig / afspraken', m.overig, true) : ''}
       <tr><th>Reizigers</th><th class="getal">${Math.round(m.reizigers).toLocaleString('nl-NL')}</th></tr></table>
       ${h.length ? `<h3>Resultaat per maand</h3><div style="display:flex;align-items:flex-end;gap:3px;height:90px;border-bottom:1px solid var(--lijn)">${h.map(x => `<div title="${S.euro(x.resultaat)}" style="flex:1;height:${Math.max(2, Math.abs(x.resultaat) / max * 88)}px;background:${x.resultaat < 0 ? 'var(--rood)' : 'var(--groen)'};border-radius:2px 2px 0 0"></div>`).join('')}</div>
       <p class="klein">Resultaat inclusief afschrijving van de vloot. Laatste maand: ${S.euro(h[h.length - 1].resultaat)}.</p>` : '<p class="klein">Na 30 speldagen verschijnt hier je eerste maandresultaat.</p>'}
@@ -1260,7 +1269,8 @@ const PANELEN = {
       ${d.richting === 'heen' && !d.terugVan && !d.rond ? '<label class="rij"><input type="checkbox" id="nl-terug" checked> Daarna meteen de terugweg bouwen (andere route of andere haltes)</label>' : ''}
       <label class="rij"><input type="checkbox" id="nl-koop" checked> Benodigd materieel meteen kopen</label>
       <label class="rij"><input type="checkbox" id="nl-concessie" checked> Concessie (subsidie) aanvragen bij de provincie</label>
-      ${d.modus === 'trein' ? '<p class="klein">Voor een treinlijn vraag je ruimte op het spoor aan bij ProRail. De lijn rijdt pas als die is toegekend (behalve over je eigen spoor).</p>' : ''}
+      ${d.modus === 'trein' ? '<p class="klein">Ruimte op het spoor krijg je altijd van ProRail; je betaalt spoorhuur (€ 1,95 per treinkilometer en € 6 per stop; over je eigen spoor niets).</p>' : ['tram', 'metro', 'sneltram'].includes(d.modus) ? '<p class="klein">Je huurt de baan: € 0,90 per voertuigkilometer (over je eigen spoor niets).</p>' : ''}
+      ${aanbodVoorNieuw(d)}
       <div class="rij"><button class="knop hoofd" data-actie="lijn-maak">Lijn openen</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div></div>`;
   },
   aiLijn(a) {
@@ -1357,7 +1367,17 @@ function actieUit(a, d) {
       const vz = nieuwVerzoek(spel, { aan: 'provincie', aanNaam: 'Provincie', soort: 'concessie', lijnId: l.id, tekst: `Concessie en subsidie gevraagd voor lijn ${l.nr}.` });
       melding('Aanvraag naar de provincie gestuurd. Antwoord binnen ongeveer 8 speldagen.'); void vz; openPaneel('verzoeken'); break;
     }
-    case 'pad': padAanvragen(l); openPaneel('verzoeken'); break;
+    case 'pad': l.actief = true; l.wacht = null; padOpnieuwNodig(l); ververs(); break;
+    case 'aanbod-koppel': aanbodKoppelen(d.sub, lijnVan(d.lijn)); ververs(); break;
+    case 'aanbod-los': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (a) aanbodLos(a); ververs(); break; }
+    case 'aanbod-toon': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (!a) break;
+      kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [lonlat(a.a.x, a.a.y), lonlat(a.b.x, a.b.y)] } }] });
+      kaart.vliegNaar((a.a.x + a.b.x) / 2, (a.a.y + a.b.y) / 2, Math.max(2, Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / Math.min(kaart.W, kaart.H) * 1.6)); break; }
+    case 'aanbod-bouw': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (!a) break; sluitPaneel(); zetTool('lijn');
+      bouw = { modus: a.modus, punten: a.modus === 'trein' ? [{ ...a.a }, { ...a.b }] : [] , aanbod: a.id };
+      if (a.modus === 'trein') lijnKlaar();
+      else { kaart.vliegNaar(a.a.x, a.a.y, 4); hint(`Subsidielijn ${a.a.naam} – ${a.b.naam}: klik haltes aan, van ${a.a.naam} naar ${a.b.naam}.`, [['Klaar', lijnKlaar], ['Laatste weg', () => bouw.punten.pop()], ['Stoppen', () => zetTool('kijk')]]); }
+      break; }
     case 'verzoek-ai': {
       const ai = AI.lijnen.find(x => x.sleutel === d.ai); const h = l.haltes[+d.h];
       // beste verschuiving voor jou voorstellen
@@ -1519,7 +1539,7 @@ function wijzig(w, i) {
 function padOpnieuwNodig(l) {
   if (l.modus !== 'trein' || l.eigenSpoor) return;
   const gevraagd = Math.ceil(60 / Math.min(...Object.values(l.interval)));
-  if (gevraagd > (l.paden || 0)) { l.actief = false; l.wacht = 'pad'; padAanvragen(l); melding('Meer treinen per uur vraagt nieuwe ruimte op het spoor. Aanvraag naar ProRail gestuurd.'); }
+  if (gevraagd > (l.paden || 0)) { l.paden = gevraagd; melding(`ProRail kent ${gevraagd} trein(en) per uur per richting toe. Je betaalt spoorhuur per treinkilometer.`); }
 }
 function padAanvragen(l) {
   nieuwVerzoek(spel, { aan: 'prorail', aanNaam: 'ProRail', soort: 'pad', lijnId: l.id, tekst: `Capaciteitsaanvraag voor lijn ${l.nr}: ${Math.ceil(60 / Math.min(...Object.values(l.interval)))} trein(en) per uur per richting.` });
@@ -1544,7 +1564,7 @@ function behandelAntwoord(vz) {
   else r = { status: 'afgewezen', reden: 'Onbekend verzoek.' };
   vz.status = r.status; vz.reden = r.reden; vz.tegen = r.tegen; vz.gezien = false;
   if (r.status === 'geaccepteerd') voerUit(vz, vz.tegen || vz);
-  melding(`Antwoord van ${vz.aan === 'speler' ? vz.vanNaam : (vz.aanNaam || vz.aan)}: ${r.status === 'geaccepteerd' ? 'akkoord' : r.status}.`);
+  melding(`Antwoord van ${vz.aan === 'speler' ? vz.vanNaam : (vz.aanNaam || vz.aan)}: ${r.status === 'geaccepteerd' ? 'akkoord' : r.status}${r.status !== 'geaccepteerd' && r.reden ? ' — ' + r.reden : ''}.`, r.status === 'afgewezen' ? 10000 : undefined);
   if (paneelSoort === 'verzoeken') ververs();
 }
 function voerUit(vz, waarde) {
@@ -1735,6 +1755,53 @@ function verdubbelOntwerpen(x, y, kant = 0) {
   voorstelTekenen(o);
   openPaneel('perronVoorstel', perronOntwerp);
 }
+// ---------------------------------------------------------------- aangeboden subsidies
+function aanbiedingenAanvullen() {
+  spel.aanbiedingen = spel.aanbiedingen || [];
+  for (const a of spel.aanbiedingen) if (a.status === 'open' && spel.dag > a.tot) a.status = 'verlopen';
+  spel.aanbiedingen = spel.aanbiedingen.filter(a => a.status !== 'verlopen' || spel.dag - a.tot < 30);
+  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < 5; k++) { const a = bedenkAanbieding(spel, D.stations, D.plaatsen); if (a) spel.aanbiedingen.push(a); }
+}
+function aanbodKoppelen(id, l) {
+  const a = (spel.aanbiedingen || []).find(x => x.id === id); if (!a || !l) return;
+  if (!bedient(l, a)) { melding(`Lijn ${l.nr} bedient ${a.a.naam} en ${a.b.naam} niet allebei.`); return; }
+  if (a.lijnId && a.lijnId !== l.id) { const oud = lijnVan(a.lijnId); if (oud) oud.aanbod = null; }
+  a.lijnId = l.id; a.status = 'lopend';
+  l.aanbod = { id: a.id, ...a.vergoeding };
+  const t = toetsEisen(l, a); l.aanbodOk = t.ok;
+  melding(t.ok ? `Lijn ${l.nr} krijgt de subsidie ${a.a.naam} – ${a.b.naam}: ${vergoedingTekst(a.vergoeding)}.` : `Gekoppeld, maar lijn ${l.nr} voldoet nog niet: ${t.redenen.join('; ')}. Pas het aan, dan wordt het uitbetaald.`, 8000);
+}
+function aanbodLos(a) { const l = lijnVan(a.lijnId); if (l) { l.aanbod = null; l.aanbodOk = false; } a.lijnId = null; a.status = a.tot >= spel.dag ? 'open' : 'verlopen'; }
+// eisen controleren (dagelijks en bij wijzigingen); melding als het omslaat
+function aanbiedingenToetsen() {
+  for (const l of spel.lijnen) {
+    if (!l.aanbod) continue;
+    const a = (spel.aanbiedingen || []).find(x => x.id === l.aanbod.id);
+    const t = a ? toetsEisen(l, a) : { ok: false, redenen: ['vervallen'] };
+    if (t.ok !== l.aanbodOk) melding(t.ok ? `Lijn ${l.nr} voldoet weer aan de subsidie-eisen.` : `Lijn ${l.nr} voldoet niet meer aan de subsidie-eisen: ${t.redenen.join('; ')}. Geen uitbetaling tot het weer klopt.`, 8000);
+    l.aanbodOk = t.ok;
+  }
+}
+function aanbodBlok() {
+  const lijst = (spel.aanbiedingen || []).filter(a => a.status !== 'verlopen');
+  if (!lijst.length) return '';
+  return `<h3>Aangeboden subsidies</h3><p class="klein">De provincie wil deze verbindingen ontsluiten. Een eigen lijn die beide plaatsen bedient en aan de eisen voldoet, krijgt de vergoeding zolang hij blijft voldoen (bovenop kaartjes en een eventuele concessie).</p>
+    ${lijst.map(a => {
+      const eigen = spel.lijnen.filter(l => !l.bijzonder && bedient(l, a));
+      const gekoppeld = a.lijnId ? lijnVan(a.lijnId) : null;
+      return `<div class="kaartje"><div class="rij"><b>${MODI[a.modus].naam}: ${esc(a.a.naam)} – ${esc(a.b.naam)}</b>${gekoppeld ? '<span class="chip goed">loopt</span>' : ''}<span class="klein" style="margin-left:auto">${komma(Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / 1000)} km</span></div>
+        <p class="klein"><b>${vergoedingTekst(a.vergoeding)}</b> · eisen: ${eisenTekst(a.eisen)}${gekoppeld ? '' : ` · aanmelden kan tot dag ${a.tot + 1}`}</p>
+        ${eigen.map(l => { const t = toetsEisen(l, a); return `<p class="klein">Lijn <b>${esc(l.nr)}</b>: ${t.ok ? '✓ voldoet' : '✗ ' + esc(t.redenen.join('; '))} ${gekoppeld === l ? `<button class="knop klein" data-actie="aanbod-los" data-sub="${a.id}">Loskoppelen</button>` : `<button class="knop klein" data-actie="aanbod-koppel" data-sub="${a.id}" data-lijn="${l.id}">Koppelen</button>`}</p>`; }).join('')}
+        <div class="rij"><button class="knop klein" data-actie="aanbod-toon" data-sub="${a.id}">Toon op kaart</button>${gekoppeld ? '' : `<button class="knop klein hoofd" data-actie="aanbod-bouw" data-sub="${a.id}">Lijn bouwen</button>`}</div></div>`;
+    }).join('')}`;
+}
+// bij een nieuwe lijn: past hij bij een aangeboden subsidie?
+function aanbodVoorNieuw(d) {
+  const nep = { modus: d.modus, haltes: d.haltes };
+  const a = (spel.aanbiedingen || []).find(x => !x.lijnId && x.status === 'open' && (x.id === bouw?.aanbod || bedient(nep, x))) ;
+  if (!a || !bedient(nep, a)) return '';
+  return `<label class="rij"><input type="checkbox" id="nl-aanbod" value="${a.id}" checked> Aanmelden voor de subsidie ${esc(a.a.naam)} – ${esc(a.b.naam)}: ${vergoedingTekst(a.vergoeding)} (eisen: ${eisenTekst(a.eisen)})</label>`;
+}
 // lopende bouwprojecten: spoor (per project samengevoegd), perrons en stations
 function bouwProjecten() {
   const uit = new Map();
@@ -1836,9 +1903,11 @@ function maakNieuweLijn() {
     const t = TYPE[l.typeId], n = Math.max(0, l.nodig - (spel.voertuigen[l.typeId] || 0) + spel.lijnen.filter(x => x !== l && x.typeId === l.typeId && x.actief).reduce((s, x) => s + x.nodig, 0));
     if (n && betaal(n * t.prijs, 'materieel')) spel.voertuigen[l.typeId] = (spel.voertuigen[l.typeId] || 0) + n;
   }
-  if (d.modus === 'trein' && !eigenSpoor) { l.actief = false; l.wacht = 'pad'; padAanvragen(l); }
+  if (d.modus === 'trein' && !eigenSpoor) l.paden = Math.ceil(60 / Math.min(...Object.values(l.interval))); // ruimte op het spoor krijg je altijd; je betaalt spoorhuur
+  const aanbodId = $('nl-aanbod')?.checked ? $('nl-aanbod').value : null;
   if ($('nl-concessie').checked) nieuwVerzoek(spel, { aan: 'provincie', aanNaam: 'Provincie', soort: 'concessie', lijnId: l.id, tekst: `Concessie en subsidie gevraagd voor lijn ${l.nr}.` });
   melding(`Lijn ${l.nr} ${l.actief ? 'rijdt vanaf nu' : 'wacht op ruimte op het spoor'}. Benodigd: ${l.nodig} voertuig(en).`);
+  if (aanbodId) aanbodKoppelen(aanbodId, l);
   bouw = null; zetTool('kijk'); selectie = { lijn: l }; openPaneel('lijn', l);
   if (terugBouwen) terugwegBouwen(l);
 }
@@ -2092,6 +2161,8 @@ function begin() {
   zetPlaatsen(spel.jaar);
   $('b-bedrijf').hidden = false; $('b-naam').textContent = spel.naam; $('b-kleur').style.background = spel.kleur;
   spel._weekend = undefined; dienstVoorDag();
+  for (const l of spel.lijnen) if (l.wacht === 'pad') { l.wacht = null; l.actief = true; l.paden = Math.ceil(60 / Math.min(...Object.values(l.interval))); } // spoorruimte krijg je nu altijd
+  aanbiedingenAanvullen(); aanbiedingenToetsen();
   for (const l of spel.lijnen) if (l.bijzonder) bijzonderBijwerken(l); // vertrektijden worden niet opgeslagen
   netwerkLagen(); hud(); laadAIinBeeld();
   if (spel.jaar < 2020) historischeAI();

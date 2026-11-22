@@ -114,7 +114,8 @@ function eigenVerlies(a, k) {
 export function nieuwVerzoek(spel, v) {
   const vz = { id: nieuwId('v'), status: 'open', dag: spel.dag, tijd: spel.tijd, ...v };
   // antwoord komt na 1–3 speldagen (ProRail en provincie doen er langer over)
-  const wacht = { prorail: 6, provincie: 8 }[v.aan] ?? (1 + Math.random() * 2);
+  // antwoord: ProRail en provincie binnen ongeveer drie kwartier speltijd, andere vervoerders binnen een paar uur
+  const wacht = { prorail: 0.03, provincie: 0.03 }[v.aan] ?? (0.08 + Math.random() * 0.12);
   vz.antwoordDag = spel.dag + wacht;
   spel.verzoeken.unshift(vz);
   return vz;
@@ -228,7 +229,7 @@ export function beoordeelConcessie(spel, vz, ctx) {
   if (!lijn) return { status: 'afgewezen', reden: 'Lijn bestaat niet meer.' };
   const overlap = ctx.concurrentie(lijn);
   const v = lijn._vangst ? lijn._vangst.reduce((s, x) => s + x, 0) / lijn._vangst.length : 0;
-  if (overlap > 0.6) return { status: 'afgewezen', reden: `Deze haltes worden al grotendeels bediend door andere vervoerders (${Math.round(overlap * 100)}% overlap). Geen subsidie.` };
+  if (overlap > 0.6) return { status: 'afgewezen', reden: `Afgewezen: ${Math.round(overlap * 100)}% van je haltes wordt al bediend door andere vervoerders, en de provincie betaalt niet twee keer voor dezelfde verbinding. Wat wel kan: een route kiezen die nieuwe plaatsen ontsluit, of een van de aangeboden subsidies (Overleg → Aangeboden subsidies).` };
   if (v < 1500 && lijn.modus !== 'belbus') return { status: 'tegenvoorstel', tegen: { modus: 'belbus' }, reden: 'Te weinig inwoners voor een vaste lijn. De provincie subsidieert hier wel een belbus/regiotaxi.' };
   return { status: 'geaccepteerd', reden: `De provincie verleent een concessie voor lijn ${lijn.nr}: subsidie per dienstregelingsuur zolang je rijdt.` };
 }

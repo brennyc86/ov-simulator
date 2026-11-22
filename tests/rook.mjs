@@ -196,6 +196,16 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
       const omp = O.maakOmloop([heen, terug].map(x => (x.actief = true, x)), true); heen.paar = terug.id; S0.herbereken(heen); log('heen + aparte terugweg:', omp.voertuigen.length, 'voertuigen, lege ritten', omp.voertuigen.reduce((n, v) => n + v.ritten.filter(x => x.leeg).length, 0));
     }
   } else log('stations niet gevonden voor bouwtest'); }
+// aangeboden subsidies: aanbod, lijn bouwen via de knop, koppelen en eisen toetsen
+{ const sp = globalThis.__ovTest.spel, tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  log('aanbiedingen:', (sp.aanbiedingen || []).length, (sp.aanbiedingen || []).map(a => `${a.modus} ${a.a.naam}–${a.b.naam}`).join(' | '));
+  document.querySelector('[data-paneel="verzoeken"]').click(); await wacht(30); log('overleg:', tekst().slice(0, 420));
+  const a = sp.aanbiedingen.find(x => x.modus === 'trein');
+  if (a) { document.querySelector(`[data-actie="aanbod-bouw"][data-sub="${a.id}"]`).click(); await wacht(400);
+    log('nieuwe subsidielijn:', tekst().match(/Aanmelden voor de subsidie.{0,160}/)?.[0] || 'GEEN AANMELDVINKJE', '|', tekst().match(/Ruimte op het spoor.{0,60}/)?.[0]);
+    const v = document.getElementById('nl-aanbod'); if (v) v.checked = true;
+    document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
+    const l = sp.lijnen.at(-1); log('lijn', l.nr, 'actief', l.actief, 'wacht', l.wacht, '| aanbod', JSON.stringify(l.aanbod), 'ok', l.aanbodOk, '| melding:', document.getElementById('meldingen')?.textContent?.slice(-200)); } }
 // perrons: vormen, eilandperron bouwen, voortgang, versneld bouwen; enkelspoor verdubbelen
 { const sp = globalThis.__ovTest.spel, st = globalThis.__ovTest.stations.find(x => x.n === 'Naarden-Bussum') || globalThis.__ovTest.stations.find(x => x.s === 'trein');
   const tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
