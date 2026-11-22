@@ -99,6 +99,19 @@ if (process.env.DETAIL) { const sp = globalThis.__ovTest.spel;
   const per = {}; for (const l of sp.lijnen) { const n = l.vertrek[0].length + l.vertrek[1].length; per[l.modus] = (per[l.modus] || 0) + n; }
   console.log('vertrekken per modus per dag', JSON.stringify(per), 'duur(min) voorbeeld', sp.lijnen.slice(0, 5).map(l => `${l.naam}: ${Math.round(l.duur / 60)}min ${l.vertrek[0].slice(0, 4).map(v => (v / 60 | 0) + ':' + String(Math.round(v % 60)).padStart(2, 0)).join(',')}`).join(' | '));
   console.log('soorten', JSON.stringify(sp.lijnen.reduce((a, l) => (a[l.modus] = (a[l.modus] || 0) + 1, a), {})), 'tijd', sp.tijd); }
+// omlopen: elk voertuig bestaat op elk moment van de dag precies één keer
+{ const O = await import('../js/omloop.js'); let groepen = 0, voertuigen = 0, fout = 0; const st = {};
+  for (const [g, c] of globalThis.__ovTest.omlopen) { groepen++; voertuigen += c.om.voertuigen.length;
+    for (let tm = 240; tm < 1740; tm += 23) { const uit = O.voertuigenOmloop(c.om, tm, [], null, () => 20);
+      if (uit.length !== c.om.voertuigen.length) { if (fout++ < 3) fouten.push(`omloop ${g} om ${tm}: ${uit.length} van ${c.om.voertuigen.length} voertuigen`); }
+      if (tm === 470) for (const u of uit) st[u.wacht || 'rijdt'] = (st[u.wacht || 'rijdt'] || 0) + 1; } }
+  if (process.env.DETAIL) for (const [g, c] of [...globalThis.__ovTest.omlopen].slice(0, 12)) { const V = c.om.voertuigen;
+    console.log(g, c.lijnen[0].naam, c.lijnen[0].modus, 'lijnen', c.lijnen.length, 'ritten', c.om.ritten, 'voertuigen', V.length, 'eerste ritten:', V.slice(0, 6).map(v => v.ritten.length + 'x@' + Math.round(v.ritten[0].dep) + ' ' + v.ritten[0].van.naam + '>' + v.ritten[0].naar.naam).join(' | '),
+      'eindes:', [...new Set(c.lijnen.map(l => l.haltes[0].naam + '>' + l.haltes[l.haltes.length - 1].naam))].slice(0, 4).join(', ')); }
+  if (process.env.DETAIL) for (const [g, c] of [...globalThis.__ovTest.omlopen].slice(0, 3)) { const h = {}; for (const v of c.om.voertuigen) { const u = Math.floor(v.ritten[0].dep / 60); h[u] = (h[u] || 0) + 1; }
+    console.log('eerste rit per uur', g, JSON.stringify(h)); const laat = c.om.voertuigen.filter(v => v.ritten[0].dep > 600).slice(0, 4);
+    for (const v of laat) console.log('  laat', v.ritten.map(x => `${Math.round(x.dep)}-${Math.round(x.arr)} ${x.van.naam}>${x.naar.naam}`).join(' ; ').slice(0, 300)); }
+  log('omlopen', groepen, 'groepen,', voertuigen, 'voertuigen; om 07:50:', JSON.stringify(st), fout ? `; ${fout} keer een voertuig kwijt` : '; nooit een voertuig kwijt'); }
 // heen en terug op eigen spoor? (lijnen die twee richtingen rijden)
 { const gezien = new Set();
   for (const l of [...zl.map(v => v.lijn), ...globalThis.__ovTest.spel.lijnen]) { if (gezien.has(l) || !l._banen) continue; gezien.add(l);

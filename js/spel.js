@@ -168,38 +168,42 @@ export function puntOp(lijn, s) { // lijn: alles met .cum en .route.pts (ook een
   return [x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, Math.atan2(y1 - y0, x1 - x0)];
 }
 
+// positie van één rit (richting r, vertrek v in minuten) op tijd tm; null als de rit niet rijdt
+export function ritPositie(lijn, r, v, tm) {
+  if (v > tm) return null;
+  const verstreken = (tm - v) * 60;
+  const t = lijn.tr?.[r] || lijn.t, n = t.length;
+  if (verstreken > t[n - 1]) return null;
+  let i = 0;
+  while (i < n - 2 && t[i + 1] <= verstreken) i++;
+  const halte = MODI[lijn.modus].halteTijd;
+  // extra wachttijd bij de halte waar dit stuk begint: eerst blijven staan
+  const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
+  const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
+  const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
+  return ritPlek(lijn, r, i, f, v);
+}
+// plek tussen halte i en i+1 (in rijvolgorde van richting r), fractie f
+export function ritPlek(lijn, r, i, f, v) {
+  const n = (lijn.tr?.[r] || lijn.t).length;
+  const baan = lijn._banen?.[r];
+  if (baan && baan.km.length === n) {
+    // eigen rijbaan per richting (rechts rijden): altijd vooruit langs de baan
+    const ka = baan.km[i], kb = baan.km[i + 1];
+    const [x, y, hoek] = puntOp(baan, ka + (kb - ka) * f);
+    return { x, y, hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f, baan };
+  }
+  const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
+  const ka = lijn.km[ri], kb = lijn.km[rj];
+  const [x, y, hoek] = puntOp(lijn, ka + (kb - ka) * f);
+  return { x, y, hoek: r ? hoek + Math.PI : hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f };
+}
 // alle rijdende voertuigen van een lijn op tijd tm (minuten)
 export function voertuigenOp(lijn, tm, uit) {
-  const duurMin = lijn.duur / 60;
-  for (let r = 0; r < 2; r++) {
-    for (const v of lijn.vertrek[r]) {
-      if (v > tm) break;
-      const verstreken = (tm - v) * 60;
-      if (verstreken > lijn.duur) continue;
-      // in welk stuk tussen haltes zitten we
-      const t = lijn.tr?.[r] || lijn.t, n = t.length;
-      if (verstreken > t[n - 1]) continue;
-      let i = 0;
-      while (i < n - 2 && t[i + 1] <= verstreken) i++;
-      const halte = MODI[lijn.modus].halteTijd;
-      // extra wachttijd bij de halte waar dit stuk begint: eerst blijven staan
-      const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
-      const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
-      const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
-      const baan = lijn._banen?.[r];
-      if (baan && baan.km.length === n) {
-        // eigen rijbaan per richting (rechts rijden): altijd vooruit langs de baan
-        const ka = baan.km[i], kb = baan.km[i + 1];
-        const [x, y, hoek] = puntOp(baan, ka + (kb - ka) * f);
-        uit.push({ x, y, hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f, baan });
-        continue;
-      }
-      const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
-      const ka = lijn.km[ri], kb = lijn.km[rj];
-      const [x, y, hoek] = puntOp(lijn, ka + (kb - ka) * f);
-      uit.push({ x, y, hoek: r ? hoek + Math.PI : hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f });
-    }
-    void duurMin;
+  for (let r = 0; r < 2; r++) for (const v of lijn.vertrek[r]) {
+    if (v > tm) break;
+    const p = ritPositie(lijn, r, v, tm);
+    if (p) uit.push(p);
   }
   return uit;
 }
