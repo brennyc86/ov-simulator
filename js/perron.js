@@ -317,3 +317,34 @@ export function ontwerpStation(net, perrons, x, y, jaar, { sporen = 0, doorgaand
   const lengteSpoor = sporenUit.reduce((s, p) => s + p.reduce((a2, q, i) => i ? a2 + Math.hypot(q[0] - p[i - 1][0], q[1] - p[i - 1][1]) : 0, 0), 0);
   return { doorsnede, bestaand, sporen: sporenUit, vlakken, lengte: lengteSpoor, eilanden: doorsnede.filter((e, i) => e === 'P' && breedte(i) === 8).length, x: raak.x, y: raak.y, punten: sporenUit[0] || [[raak.x, raak.y]] };
 }
+
+// ---------------------------------------------------------------- busstation
+// n haltes in een opstelling rond (x,y), gedraaid over 'hoek' (radialen). Geeft haltepunten en perronvlakken.
+// rij = achter elkaar langs één perron; naast = naast elkaar met elk een eigen perron (zoals Naarden-Bussum);
+// zaagtand = schuin insteken langs één perron; hoekjes = inrijhoekjes in paren rond eilandperrons (zoals P+R Muiden)
+export function busstationOntwerp(n, opstelling, x, y, hoek = 0) {
+  const ux = Math.cos(hoek), uy = Math.sin(hoek), nx = -uy, ny = ux;
+  const P = (u, v) => [x + ux * u + nx * v, y + uy * u + ny * v];
+  const rh = (u0, v0, l, b, scheef = 0) => { const v = []; for (const [a, c] of [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]) { const [px, py] = P(u0 + a * l + c * scheef, v0 + c * b); v.push(Math.round(px * 10) / 10, Math.round(py * 10) / 10); } return v; };
+  const haltes = [], vlakken = [];
+  if (opstelling === 'naast') {
+    for (let i = 0; i < n; i++) { const v = (i - (n - 1) / 2) * 9; haltes.push(P(0, v)); vlakken.push(rh(-9, v + 2.2, 18, 2.6)); }
+  } else if (opstelling === 'zaagtand') {
+    const L = n * 9 + 6;
+    for (let i = 0; i < n; i++) haltes.push(P(-L / 2 + 6 + i * 9, -4));
+    vlakken.push(rh(-L / 2, 0, L, 3.5));
+    for (let i = 0; i < n; i++) vlakken.push(rh(-L / 2 + 3 + i * 9, -0.8, 1.2, 0.8, 0)); // zaagtand-neusjes in de stoeprand
+  } else if (opstelling === 'hoekjes') {
+    const paren = Math.ceil(n / 2);
+    for (let p = 0; p < paren; p++) {
+      const u = (p - (paren - 1) / 2) * 22;
+      vlakken.push(rh(u - 8, -2, 16, 4, 3)); // eilandje met schuine kopse kanten
+      haltes.push(P(u - 2, -5)); if (haltes.length < n) haltes.push(P(u + 2, 5));
+    }
+  } else { // rij
+    const L = n * 18 + 4;
+    for (let i = 0; i < n; i++) haltes.push(P(-L / 2 + 11 + i * 18, -2.5));
+    vlakken.push(rh(-L / 2, 0, L, 3.2));
+  }
+  return { haltes: haltes.map(([a, b]) => ({ x: Math.round(a), y: Math.round(b) })), vlakken };
+}
