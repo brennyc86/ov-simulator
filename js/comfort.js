@@ -39,10 +39,17 @@ export function kenmerk(typeId) {
 export const KLASSEN = ['P', '1', '2', '3', '4', '5', '6'];
 export const klasseNaam = k => k === 'P' ? 'Premium' : `${k}e klas`;
 export const KLASSE_NAAM = Object.fromEntries(KLASSEN.map(k => [k, klasseNaam(k)]));
-export const STD_PRIJS = { P: 2.6, 1: 1.7, 2: 1, 3: 0.7, 4: 0.5, 5: 0.38, 6: 0.3 };
-let PRIJS = { ...STD_PRIJS };
+// tot 1956 had de trein drie klassen (3e = gewoon tarief); in 1956 werd de 3e klas in heel Europa afgeschaft:
+// de oude 2e werd 1e, de oude 3e werd 2e
+export const DRIE_KLASSEN_TOT = 1956;
+let JAAR = 2026;
+const STD_NU = { P: 2.6, 1: 1.7, 2: 1, 3: 0.7, 4: 0.5, 5: 0.38, 6: 0.3 }, STD_OUD = { P: 3.2, 1: 2.2, 2: 1.5, 3: 1, 4: 0.7, 5: 0.5, 6: 0.4 };
+export let STD_PRIJS = { ...STD_NU };
+let PRIJS = { ...STD_PRIJS }, EIGEN_PRIJS = null;
+// het speljaar bepaalt standaardinrichting, klassen en standaardprijzen
+export const zetJaar = j => { JAAR = j; STD_PRIJS = j < DRIE_KLASSEN_TOT ? { ...STD_OUD } : { ...STD_NU }; PRIJS = { ...STD_PRIJS, ...(EIGEN_PRIJS || {}) }; };
 // toeslagen per klasse instellen (spel.klassePrijs, factor t.o.v. het standaardtarief)
-export const zetKlassePrijzen = p => { PRIJS = { ...STD_PRIJS, ...(p || {}) }; };
+export const zetKlassePrijzen = p => { EIGEN_PRIJS = p || null; PRIJS = { ...STD_PRIJS, ...(p || {}) }; };
 export const klassePrijs = k => PRIJS[k] ?? 1;
 // rangorde: hoe hoger de klasse, hoe kleiner het getal (Premium = 0)
 const rang = k => k === 'P' ? 0 : +k;
@@ -69,6 +76,47 @@ export const VOORZ = {
   pantry:     { naam: 'keukentje: gebak, broodjes en warme dranken', plekken: 22, comfort: 1.0, uur: 40, prijs: 120000, bemand: true },
   restaurant: { naam: 'restaurantkeuken met restaurant', plekken: 70, comfort: 1.6, uur: 90, prijs: 650000, bemand: true, minZit: 250 },
 };
+// stroom bij de stoel: USB-poortjes en/of stopcontacten (per zitdeel), beschikbaar vanaf een jaar per soort vervoer
+export const STROOM = {
+  '': { naam: 'geen', comfort: 0, prijs: 0 },
+  usb: { naam: 'USB-poortjes', comfort: 0.2, prijs: 60 },
+  stopcontact: { naam: 'stopcontacten', comfort: 0.4, prijs: 150 },
+  beide: { naam: 'stopcontacten + USB', comfort: 0.5, prijs: 190 },
+};
+const STROOM_VANAF = { usb: 2010, stopcontact: { trein: 1995, metro: 1995, sneltram: 1995, tram: 1995, veer: 1990, vlucht: 2005, bus: 2012, hov: 2012, belbus: 2012, watertaxi: 2012 } };
+export function stroomMag(soort, modus, jaar = JAAR) {
+  if (!soort) return true;
+  const u = jaar >= STROOM_VANAF.usb, s = jaar >= (STROOM_VANAF.stopcontact[modus] ?? 2012);
+  return soort === 'usb' ? u : soort === 'stopcontact' ? s : u && s;
+}
+// standaard stroom per klasse door de jaren: in de trein eerst stopcontacten in de 1e, later ook de 2e, daarna ook USB;
+// bus en tram sinds een paar jaar USB; metro nog niet standaard
+export function stroomStandaard(modus, klasse, jaar = JAAR) {
+  const eerste = klasse === '1' || klasse === 'P';
+  if (modus === 'trein') return jaar >= 2018 ? 'beide' : jaar >= (eerste ? 2005 : 2015) ? 'stopcontact' : '';
+  if (['bus', 'hov'].includes(modus)) return jaar >= 2020 ? 'usb' : '';
+  if (['tram', 'sneltram'].includes(modus)) return jaar >= 2021 ? 'usb' : '';
+  if (modus === 'veer') return jaar >= 2015 ? 'stopcontact' : '';
+  return '';
+}
+// standaard stoel per klasse door de jaren: houten bankjes → beklede bankjes → stoelen, de hogere klasse eerst
+export function stoelStandaard(modus, klasse, jaar = JAAR) {
+  const eerste = klasse === '1' || klasse === 'P';
+  if (modus === 'trein') {
+    if (jaar < DRIE_KLASSEN_TOT) return klasse === '3' ? 'hout' : klasse === '2' ? 'bank' : jaar >= 1930 ? 'bekleed' : 'bank';
+    return eerste ? 'bekleed' : jaar >= 1975 ? 'bekleed' : 'bank';
+  }
+  if (['bus', 'hov', 'belbus'].includes(modus)) return jaar < 1930 ? 'hout' : jaar < 1975 ? 'bank' : 'bekleed';
+  if (['tram', 'sneltram'].includes(modus)) return jaar < 1930 ? 'hout' : jaar < 1960 ? 'bank' : jaar < 1990 ? 'hard' : 'bekleed';
+  if (modus === 'metro') return jaar < 2000 ? 'hard' : 'bekleed';
+  return 'bekleed';
+}
+// hoeveel stoelen naast elkaar kunnen er maximaal (breedte van het voertuig)
+export function maxBreed(typeId) {
+  const t = TYPE[typeId], m = t?.modus;
+  if (m === 'trein') return (t?.breedte || 0) >= 3.1 ? 6 : 5;
+  return { metro: 5, sneltram: 4, tram: 4, bus: 4, hov: 4, belbus: 3, watertaxi: 4, veer: 8, vlucht: 6 }[m] || 4;
+}
 // restauratie in een trein: een deel van een wagon (half = beperkte restauratie/bistro, heel = restauratierijtuig)
 export const REST = {
   beperkt: { naam: 'beperkte restauratie (halve wagon)', comfort: 1.0, uur: 45, prijs: 250000 },
@@ -86,7 +134,8 @@ export const CATERING = [
 // ---------------------------------------------------------------- interieur per wagon
 // ink = { wagons: [{ delen: [{ soort:'zit', klasse, stoel, breed, been, len } | { soort:'rest', len }] }], voorz: ['koffie', …] }
 export const wagonsVan = (typeId, modus) => bakkenVan(typeId, modus || TYPE[typeId]?.modus).filter(b => !b.loc);
-const zitDeel = (klasse, modus, stoel, len) => ({ soort: 'zit', klasse, stoel, breed: klasse === '1' || klasse === 'P' ? Math.max(2, (STD_BREED[modus] || 4) - 1) : STD_BREED[modus] || 4, been: klasse === '1' || klasse === 'P' ? 'ruim' : 'normaal', len });
+const zitDeel = (klasse, modus, stoel, len) => ({ soort: 'zit', klasse, stoel: stoel === 'hout' ? 'hout' : stoelStandaard(modus, klasse), stroom: stroomStandaard(modus, klasse),
+  breed: klasse === '1' || klasse === 'P' ? Math.max(2, (STD_BREED[modus] || 4) - 1) : STD_BREED[modus] || 4, been: klasse === '1' || klasse === 'P' ? 'ruim' : 'normaal', len });
 // wagons vullen met klassen naar aandeel (in volgorde), knippen op de grenzen
 function vul(n, aandelen, modus, stoel) {
   const wagons = Array.from({ length: n }, () => ({ delen: [] }));
@@ -107,7 +156,8 @@ export function standaardInrichting(typeId, modus) {
   const n = Math.max(1, wagonsVan(typeId, modus).length), t = TYPE[typeId];
   const stoel = kenmerk(typeId).comfort < 3 ? 'hout' : 'bekleed';
   if (t?.soort === 'loc') return { wagons: [], voorz: [] };
-  const aandelen = modus === 'trein' && n >= 2 && !t?.soort ? [['1', Math.min(0.5, 0.6 / n + 0.05)], ['2', 1]] : [['2', 1]];
+  const oud = JAAR < DRIE_KLASSEN_TOT && modus === 'trein';
+  const aandelen = modus === 'trein' && n >= 2 && !t?.soort ? (oud ? [['1', 0.1], ['2', 0.25], ['3', 0.65]] : [['1', Math.min(0.5, 0.6 / n + 0.05)], ['2', 1]]) : [[oud ? '3' : '2', 1]];
   const s = aandelen.reduce((a, x) => a + x[1], 0);
   return { wagons: vul(n, aandelen.map(([k, a]) => [k, a / s]), modus, stoel), voorz: [] };
 }
@@ -157,12 +207,14 @@ export function plaatsenPerWagon(ink, typeId) {
     const Lw = wagons[i]?.lengte || L / Math.max(1, ink.wagons.length);
     return w.delen.map(d => {
       if (d.soort !== 'zit') return { ...d, zit: 0, sta: 0 };
-      const pitch = BEEN[d.been] || 80, st = STOEL[d.stoel] || STOEL.bekleed;
-      const zit = zitM * Lw * d.len * (d.breed / sb) * (80 / pitch) * st.plaats;
+      const pitch = BEEN[d.been] || 80, st = STOEL[d.stoel] || STOEL.bekleed, breed = Math.min(d.breed, maxBreed(typeId));
+      const zit = zitM * Lw * d.len * (breed / sb) * (80 / pitch) * st.plaats;
       const sta = staanMag(d.klasse) && d.stoel !== 'massage' ? staM * Lw * d.len * (d.breed <= sb ? 1 + (sb - d.breed) * 0.15 : Math.max(0, 1 - (d.breed - sb) * 0.25)) : 0;
       return { ...d, zit: Math.round(zit), sta: Math.round(sta), lengte: Lw * d.len };
     });
   });
+  // bus: op de achterste rij (geen doorloop) past één stoel extra
+  if (['bus', 'hov', 'belbus'].includes(modus)) { const w = per[per.length - 1], d = w && [...w].reverse().find(x => x.soort === 'zit'); if (d) d.zit += 1; }
   // voorzieningen kosten plaatsen: van het grootste zitdeel
   let kost = (ink.voorz || []).reduce((a, v) => a + (VOORZ[v]?.plekken || 0), 0);
   const alle = per.flat().filter(d => d.soort === 'zit').sort((a, b) => b.zit - a.zit);
@@ -182,7 +234,7 @@ export function klassenVan(lijnInk, typeId, modus) {
     for (const d of plaatsenPerWagon(ink, c).flat()) {
       if (d.soort !== 'zit') continue;
       const pitch = BEEN[d.been] || 80, st = STOEL[d.stoel] || STOEL.bekleed;
-      const comfort = Math.max(0, Math.min(10, basis + (sb - d.breed) * 0.9 + (pitch - 80) / 12 + st.comfort + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) + restComfort));
+      const comfort = Math.max(0, Math.min(10, basis + (sb - Math.min(d.breed, maxBreed(c))) * 0.9 + (pitch - 80) / 12 + st.comfort + (STROOM[d.stroom || '']?.comfort || 0) + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) + restComfort));
       const k = som.get(d.klasse) || { klasse: d.klasse, zit: 0, sta: 0, cw: 0, stoelen: {}, lengte: 0 };
       k.zit += d.zit; k.sta += d.sta; k.cw += comfort * Math.max(1, d.zit); k.n = (k.n || 0) + Math.max(1, d.zit); k.lengte += d.lengte || 0;
       k.stoelen[d.stoel] = (k.stoelen[d.stoel] || 0) + d.zit;
@@ -195,7 +247,8 @@ export function klassenVan(lijnInk, typeId, modus) {
 
 // ---------------------------------------------------------------- vraag
 // vraageffect van interieur, catering en prijs: factor op het aantal reizigers, aandeel per klasse, gemiddelde prijsfactor
-const BASIS_AANDEEL = { P: 0.03, 1: 0.07, 2: 0.9, 3: 0.12, 4: 0.12, 5: 0.12, 6: 0.12 };
+const BASIS_NU = { P: 0.03, 1: 0.07, 2: 0.9, 3: 0.12, 4: 0.12, 5: 0.12, 6: 0.12 }, BASIS_OUD = { P: 0.02, 1: 0.04, 2: 0.22, 3: 0.74, 4: 0.1, 5: 0.1, 6: 0.1 };
+const BASIS_AANDEEL = new Proxy({}, { get: (_, k) => (JAAR < DRIE_KLASSEN_TOT ? BASIS_OUD : BASIS_NU)[k] });
 const ELAST = { P: 0.25, 1: 0.35, 2: 0.55, 3: 0.75, 4: 0.85, 5: 0.95, 6: 1 };
 const COMFORT_VERSCHIL = { P: 4, 1: 2, 2: 0, 3: -2, 4: -3, 5: -4, 6: -5 };
 export function vraagEffect(lijn, typeId, comfortConcurrent = null) {
@@ -203,10 +256,11 @@ export function vraagEffect(lijn, typeId, comfortConcurrent = null) {
   if (!kl.length) return { factor: 1, aandeel: [], klassen: kl, gemPrijs: 1, gemComfort: kenmerk(typeId).comfort, marktaandeel: 0.5 };
   const sid = delenVan(typeId).map(basisId).find(c => TYPE[c]?.soort !== 'loc') || basisId(typeId);
   const std = klassenVan(standaardInrichting(sid, lijn.modus), sid, lijn.modus);
-  const stdComfort = std.find(k => k.klasse === '2')?.comfort ?? std[0]?.comfort ?? 5;
+  const refK = JAAR < DRIE_KLASSEN_TOT ? '3' : '2', ref = COMFORT_VERSCHIL[refK]; // het gewone tarief: vroeger 3e, nu 2e klas
+  const stdComfort = std.find(k => k.klasse === refK)?.comfort ?? std[0]?.comfort ?? 5;
   let som = 0;
   const w = kl.map(k => {
-    const m = Math.pow(Math.max(0.1, k.prijs) / (STD_PRIJS[k.klasse] ?? 1), -(ELAST[k.klasse] ?? 0.8)) * Math.max(0.2, 1 + 0.07 * (k.comfort - (stdComfort + (COMFORT_VERSCHIL[k.klasse] ?? 0))));
+    const m = Math.pow(Math.max(0.1, k.prijs) / (STD_PRIJS[k.klasse] ?? 1), -(ELAST[k.klasse] ?? 0.8)) * Math.max(0.2, 1 + 0.07 * (k.comfort - (stdComfort + (COMFORT_VERSCHIL[k.klasse] ?? 0) - ref)));
     const x = (BASIS_AANDEEL[k.klasse] ?? 0.1) * m; som += x; return x;
   });
   const basisSom = kl.reduce((a, k) => a + (BASIS_AANDEEL[k.klasse] ?? 0.1), 0);
@@ -221,7 +275,7 @@ export function vraagEffect(lijn, typeId, comfortConcurrent = null) {
 }
 
 // ---------------------------------------------------------------- kosten
-const stoelKosten = (ink, typeId) => plaatsenPerWagon(ink, typeId).flat().reduce((a, d) => a + (d.soort === 'zit' ? d.zit * (STOEL[d.stoel] || STOEL.bekleed).prijs : d.soort === 'rest' ? REST[restSoort(d.len)].prijs : 0), 0)
+const stoelKosten = (ink, typeId) => plaatsenPerWagon(ink, typeId).flat().reduce((a, d) => a + (d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + (STROOM[d.stroom || '']?.prijs || 0)) : d.soort === 'rest' ? REST[restSoort(d.len)].prijs : 0), 0)
   + (ink.voorz || []).reduce((a, v) => a + (VOORZ[v]?.prijs || 0), 0);
 // meerprijs van een interieur bij nieuwbouw t.o.v. het standaardinterieur (kan negatief zijn: kale bankjes)
 export function interieurMeerprijs(ink, basis) {
@@ -234,7 +288,7 @@ export function ombouwKosten(oud, nieuw, typeId) {
   const per = plaatsenPerWagon(nieuw, typeId);
   nieuw.wagons.forEach((w, i) => {
     if (JSON.stringify(w) === JSON.stringify(oud.wagons[i])) return;
-    for (const d of per[i]) k += d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + 250) : REST[restSoort(d.len)].prijs * 0.8;
+    for (const d of per[i]) k += d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + (STROOM[d.stroom || '']?.prijs || 0) + 250) : REST[restSoort(d.len)].prijs * 0.8;
   });
   for (const v of nieuw.voorz || []) if (!(oud.voorz || []).includes(v)) k += VOORZ[v]?.prijs || 0;
   return Math.round(k / 1000) * 1000;
@@ -248,7 +302,7 @@ export function uurKosten(lijn, typeId) {
 export const haltetijdFactor = typeId => 1 / kenmerk(typeId).deuren;
 // zelfde interieur? (om een bestaande serie terug te vinden)
 export const zelfdeInterieur = (a, b) => JSON.stringify(norm(a)) === JSON.stringify(norm(b));
-const norm = i => ({ v: [...(i.voorz || [])].sort(), w: (i.wagons || []).map(w => w.delen.map(d => d.soort === 'zit' ? [d.klasse, d.stoel, d.breed, d.been, Math.round(d.len * 100)] : ['rest', Math.round(d.len * 100)])) });
+const norm = i => ({ v: [...(i.voorz || [])].sort(), w: (i.wagons || []).map(w => w.delen.map(d => d.soort === 'zit' ? [d.klasse, d.stoel, d.breed, d.been, Math.round(d.len * 100), d.stroom || ''] : ['rest', Math.round(d.len * 100)])) });
 // welke voorzieningen passen: niet meer dan ~70% van de zitplaatsen
 export function voorzMag(id, typeId) {
   const t = TYPE[typeId], v = VOORZ[id];

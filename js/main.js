@@ -13,7 +13,7 @@ import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter } from './bijzonder.js';
-import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, delenVan, restauratieOpen } from './comfort.js';
+import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute, bboxVan } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, beschikbaarLos, standaardType } from './vloot.js';
@@ -775,7 +775,7 @@ function dagVoorbij() {
     spel.lening_rente = leningRente(); gebouwenMaand(); S.maandAfsluiten(spel);
     const m = spel.historie[spel.historie.length - 1];
     melding(`Maand afgesloten: resultaat ${S.euro(m.resultaat)}, ${Math.round(m.reizigers).toLocaleString('nl-NL')} reizigers.`, 6000);
-    if (spel.dag % 360 === 0) { spel.jaar++; jaarBijwerken(); melding(`Gelukkig nieuwjaar: het is nu ${spel.jaar}.`); }
+    if (spel.dag % 360 === 0) { spel.jaar++; zetJaar(spel.jaar); zetKlassePrijzen(spel.klassePrijs); for (const l of spel.lijnen) l._eff = null; if (spel.jaar === 1956) melding('1956: de 3e klas is afgeschaft. De oude 2e klas heet nu 1e klas, de oude 3e klas is de nieuwe 2e klas.', 12000); jaarBijwerken(); melding(`Gelukkig nieuwjaar: het is nu ${spel.jaar}.`); }
   }
   // reputatie volgt uitval en bezetting
   const uitval = spel.lijnen.filter(l => l.actief && S.beschikbaarVoor(spel, l) < l.nodig).length;
@@ -1247,7 +1247,8 @@ const PANELEN = {
         <td>${sel(i, j, 'soort', trein ? [['zit', 'zitplaatsen'], ['rest', 'restauratie']] : [['zit', 'zitplaatsen']], dl.soort)}</td>
         ${w.delen.length > 1 ? `<td><input type="number" min="10" max="90" step="5" value="${Math.round(dl.len * 100)}" data-wijzig="sw" data-w="${i}" data-d="${j}" data-veld="len" style="width:3.6em">%</td>` : '<td></td>'}
         ${dl.soort === 'zit' ? `<td>${sel(i, j, 'klasse', KLASSEN.map(k => [k, KLASSE_NAAM[k]]), dl.klasse)}</td><td>${sel(i, j, 'stoel', Object.entries(STOEL).map(([v, st]) => [v, st.naam]), dl.stoel)}</td>
-          <td>${sel(i, j, 'breed', [1, 2, 3, 4, 5, 6].map(x => [x, x + ' naast elkaar']), dl.breed)}</td><td>${sel(i, j, 'been', Object.entries(BEEN).map(([v, cm]) => [v, `${v} (${cm} cm)`]), dl.been)}</td>
+          <td>${sel(i, j, 'breed', Array.from({ length: maxBreed(d.basis) }, (_, k) => k + 1).map(x => [x, x + ' naast elkaar']), Math.min(dl.breed, maxBreed(d.basis)))}</td>
+          <td>${sel(i, j, 'stroom', Object.entries(STROOM).filter(([v]) => stroomMag(v, modus, spel.jaar) || v === (dl.stroom || '')).map(([v, x]) => [v, x.naam]), dl.stroom || '')}</td><td>${sel(i, j, 'been', Object.entries(BEEN).map(([v, cm]) => [v, `${v} (${cm} cm)`]), dl.been)}</td>
           <td class="getal"><b>${per[i]?.[j]?.zit ?? 0}</b> zit${per[i]?.[j]?.sta ? ` + ${per[i][j].sta} sta` : ''}</td>`
         : `<td colspan="5">${dl.len >= 0.75 ? REST.vol.naam : REST.beperkt.naam}</td>`}
         <td>${w.delen.length > 1 ? `<button class="knop klein" data-actie="sw-weg" data-w="${i}" data-d="${j}" title="deel weghalen">✕</button>` : ''}</td></tr>`).join('')}</table></div>`;
@@ -2563,7 +2564,7 @@ async function bewaar(hand) {
 }
 async function laadSpel(data, nieuwSlot) {
   spel = data; slot = nieuwSlot;
-  spel.series = spel.series || []; registreerSeries(spel.series); zetKlassePrijzen(spel.klassePrijs);
+  zetJaar(spel.jaar); spel.series = spel.series || []; registreerSeries(spel.series); zetKlassePrijzen(spel.klassePrijs);
   for (const l of spel.lijnen) samenstellingVan(l.typeId); // samengestelde treinen opnieuw aanmaken
   // oude genummerde haltes ("Plaats, Halte 3") krijgen hun echte naam, ook in de lijnen die er stoppen
   for (const h of spel.haltes || []) {
@@ -2611,7 +2612,7 @@ async function nieuwSpelStarten() {
     if (!vervoerder && !hist) { melding('Kies eerst een vervoerder.'); return; }
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
-  registreerSeries([]); zetKlassePrijzen(null);
+  zetJaar(jaar); registreerSeries([]); zetKlassePrijzen(null);
   spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 25e6) });
   if (hist) {
     zetPlaatsen(jaar);
