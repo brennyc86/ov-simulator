@@ -290,12 +290,14 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const energie = km * (type?.km || 1);
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
       : lijn.modus === 'vlucht' ? ritten * (lijn.haltes.length - 1) * landingsgeld(lijn, type) : 0;
-    const subsidie = lijn.concessie ? voertuigUren * (SUBSIDIE_UUR[lijn.modus] || 0) : 0;
+    // subsidie: per dienstregelingsuur (plus extra afgesproken met de provincie) en eventueel per reiziger
+    const subsidie = lijn.concessie ? voertuigUren * ((SUBSIDIE_UUR[lijn.modus] || 0) + (lijn.subsidieUurExtra || 0)) + reizigers * (lijn.subsidiePerReiziger || 0) : 0;
 
     m.kaartjes += kaartjes; m.boetes += boetes; m.subsidie += subsidie;
     m.personeel += personeel; m.energie += energie; m.gebruik += gebruik;
     m.reizigers += reizigers; m.zwart += zwart; m.betrapt += betrapt;
     lijn.stat = lijn.stat || { reizigers: 0, opbrengst: 0, kosten: 0, ritten: 0, uitval: 0 };
+    lijn.stat.vu = (lijn.stat.vu || 0) + voertuigUren; lijn.stat.subsidie = (lijn.stat.subsidie || 0) + subsidie; lijn.stat.kaartjes = (lijn.stat.kaartjes || 0) + kaartjes + boetes;
     lijn.stat.reizigers += reizigers; lijn.stat.opbrengst += kaartjes + boetes + subsidie;
     lijn.stat.kosten += personeel + energie + gebruik; lijn.stat.ritten += ritten;
     lijn.stat.uitval += ritten / Math.max(rijdt, 0.001) - ritten;

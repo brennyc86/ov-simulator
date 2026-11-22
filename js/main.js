@@ -11,7 +11,7 @@ import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voert
 import { Net, wegRoute } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
 import * as S from './spel.js';
-import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie,
+import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
 import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN } from './historie.js';
@@ -670,6 +670,23 @@ function reizigersBlok(rr, nuAan, v) {
   return html;
 }
 
+// drukte en zwartrijden per traject over alle ritten van vandaag (beide richtingen), voor gerichte controle
+function trajectTabel(l) {
+  const typeId = typeVoor(l, spel.jaar, standaardType), c = ctx(), seg = new Map();
+  for (let r = 0; r < 2; r++) for (const v of l.vertrek[r] || []) {
+    const rr = ritReizigers(spel, l, r, v, typeId, c);
+    rr.segmenten.forEach((sg, i) => {
+      const a = rr.haltes[i].naam, b = rr.haltes[i + 1].naam, k = a < b ? `${a} – ${b}` : `${b} – ${a}`;
+      const x = seg.get(k) || { reizigers: 0, zwart: 0, vol: 0 };
+      x.reizigers += sg.aanBoord; x.zwart += sg.aanBoord - sg.metKaartje; x.vol = Math.max(x.vol, sg.aanBoord / rr.cap); seg.set(k, x);
+    });
+  }
+  const rijen = [...seg].sort((a, b) => b[1].zwart - a[1].zwart).slice(0, 8);
+  if (!rijen.length) return '';
+  return `<table class="tabel"><tr><th>Traject</th><th class="getal">reizigers</th><th class="getal">zonder kaartje</th><th class="getal">drukst</th></tr>${rijen.map(([k, x]) => `<tr><td>${esc(k)}</td><td class="getal">${Math.round(x.reizigers).toLocaleString('nl-NL')}</td><td class="getal" style="color:${x.zwart / Math.max(1, x.reizigers) > 0.05 ? 'var(--rood)' : ''}">${Math.round(x.zwart)} (${(x.zwart / Math.max(1, x.reizigers) * 100).toFixed(1).replace('.', ',')}%)</td><td class="getal">${Math.round(x.vol * 100)}%</td></tr>`).join('')}</table>
+    <p class="klein">Geschat voor vandaag, alle ritten samen (reizigers per traject, beide richtingen). Hoe meer zwartrijders, hoe meer een controleploeg hier oplevert.</p>`;
+}
+
 // ---------------------------------------------------------------- panelen
 function openPaneel(soort, data) {
   paneelSoort = soort; selectie = data?.selectie ?? (soort === 'lijn' ? selectie : null);
@@ -791,13 +808,18 @@ const PANELEN = {
       <label class="veld">Verschuiving (min)<input type="number" min="-30" max="30" value="${l.offset}" data-wijzig="offset" data-id="${l.id}"></label></div>
       <p class="klein">Vertrek ${esc(l.haltes[0].naam)}: ${l.vertrek[0].filter(v => v >= 12 * 60 && v < 14 * 60).map(S.klok).join(', ') || '—'} (12–14 uur)</p>
       ${st ? `<h3>Deze maand</h3><table class="tabel"><tr><td>Reizigers</td><td class="getal">${Math.round(st.reizigers).toLocaleString('nl-NL')}</td></tr>
-        <tr><td>Opbrengst (kaartjes, boetes, subsidie)</td><td class="getal">${S.euro(st.opbrengst)}</td></tr><tr><td>Kosten</td><td class="getal">${S.euro(-st.kosten)}</td></tr>
+        <tr><td>Kaartjes en boetes</td><td class="getal">${S.euro(st.kaartjes ?? st.opbrengst - (st.subsidie || 0))}</td></tr><tr><td>Subsidie${l.subsidiePerReiziger ? ` (incl. € ${l.subsidiePerReiziger.toFixed(2).replace('.', ',')}/reiziger)` : ''}</td><td class="getal">${S.euro(st.subsidie || 0)}</td></tr>
+        <tr><td>Kosten</td><td class="getal">${S.euro(-st.kosten)}</td></tr>
+        <tr><td><b>Resultaat</b></td><td class="getal"><b style="color:${st.opbrengst - st.kosten < 0 ? 'var(--rood)' : 'var(--groen)'}">${S.euro(st.opbrengst - st.kosten)}</b></td></tr>
         <tr><td>Bezetting</td><td class="getal">${Math.round((l.bezetting || 0) * 100)}%</td></tr>${st.uitval > 0.5 ? `<tr><td>Uitgevallen ritten</td><td class="getal" style="color:var(--rood)">${Math.round(st.uitval)}</td></tr>` : ''}</table>` : ''}
+      <h3>Drukte en zwartrijden per traject</h3>${trajectTabel(l)}
       <h3>Kaartcontrole op deze lijn</h3>
       <label class="rij"><input type="checkbox" data-wijzig="conducteur" data-id="${l.id}" ${l.conducteur ? 'checked' : ''}> Conducteur op elke rit (+${S.euro(S.LOON.conducteur)} per voertuiguur)</label>
       ${l.modus === 'bus' ? `<label class="rij"><input type="checkbox" data-wijzig="chauffeur" data-id="${l.id}" ${l.chauffeurControle ? 'checked' : ''}> Chauffeur controleert bij instappen (+5 s per halte)</label>` : ''}
       <h3>Overleg</h3>
       ${!l.concessie ? `<button class="knop" data-actie="concessie" data-id="${l.id}">Concessie (subsidie) aanvragen bij de provincie</button>` : ''}
+      ${l.concessie && st && st.opbrengst < st.kosten ? `<div class="raster2"><label class="veld">Extra subsidie €/maand<input type="number" min="0" step="1000" id="sub-bedrag" value="${Math.ceil((st.kosten - st.opbrengst) / ((spel.dag % 30) + 1) * 30 / 1000) * 1000}"></label></div>
+        <button class="knop" data-actie="subsidie" data-id="${l.id}">Meer subsidie aanvragen (lijn is verliesgevend)</button>` : ''}
       ${l.modus === 'trein' && l.wacht ? `<button class="knop" data-actie="pad" data-id="${l.id}">Opnieuw ruimte op het spoor aanvragen</button>` : ''}
       ${uniekeAI.length ? `<p class="klein">Overstappen met andere vervoerders (12–13 uur):</p><table class="tabel">${uniekeAI.slice(0, 12).map(g => `<tr><td>${esc(g.halte.naam)}</td><td><span class="lijnnr" style="background:${esc(g.ai.kleur)}">${esc(g.ai.nr)}</span> ${esc(g.ai.vervoerderNaam)}</td><td class="getal">${overstappen(l, g.ai, g.halte.x, g.halte.y)}</td><td><button class="knop" data-actie="verzoek-ai" data-id="${l.id}" data-ai="${esc(g.ai.sleutel)}" data-h="${l.haltes.indexOf(g.halte)}">Verzoek</button></td></tr>`).join('')}</table>` : '<p class="klein">Geen gedeelde haltes met andere vervoerders in beeld. Zoom in op je lijn zodat hun dienstregeling laadt.</p>'}
       <h3>Lijn</h3>
@@ -974,6 +996,12 @@ function actieUit(a, d) {
     case 'aanuit': l.actief = !l.actief; ververs(); break;
     case 'opheffen': if (d.zeker) { spel.lijnen = spel.lijnen.filter(x => x !== l); sluitPaneel(); melding(`Lijn ${l.nr} opgeheven.`); }
       else { const b = document.querySelector('[data-actie="opheffen"]'); b.textContent = 'Zeker weten? Klik nog eens'; b.dataset.zeker = '1'; } break;
+    case 'subsidie': {
+      const bedrag = Math.max(0, Math.round(+$('sub-bedrag')?.value || 0));
+      if (!bedrag) { melding('Vul een bedrag in.'); break; }
+      nieuwVerzoek(spel, { aan: 'provincie', aanNaam: 'Provincie', soort: 'subsidie', lijnId: l.id, bedrag, tekst: `Extra subsidie gevraagd voor lijn ${l.nr}: ${S.euro(bedrag)} per maand om het verlies te dekken.` });
+      melding('Aanvraag naar de provincie gestuurd.'); break;
+    }
     case 'concessie': {
       const vz = nieuwVerzoek(spel, { aan: 'provincie', aanNaam: 'Provincie', soort: 'concessie', lijnId: l.id, tekst: `Concessie en subsidie gevraagd voor lijn ${l.nr}.` });
       melding('Aanvraag naar de provincie gestuurd. Antwoord binnen ongeveer 8 speldagen.'); void vz; openPaneel('verzoeken'); break;
@@ -1106,6 +1134,7 @@ function behandelAntwoord(vz) {
   else if (vz.soort === 'pad') r = beoordeelPad(spel, vz, c);
   else if (vz.soort === 'spoor' || vz.soort === 'station') r = beoordeelBouw(spel, vz, c);
   else if (vz.soort === 'concessie') r = beoordeelConcessie(spel, vz, c);
+  else if (vz.soort === 'subsidie') r = beoordeelSubsidie(spel, vz, c);
   else r = { status: 'afgewezen', reden: 'Onbekend verzoek.' };
   vz.status = r.status; vz.reden = r.reden; vz.tegen = r.tegen; vz.gezien = false;
   if (r.status === 'geaccepteerd') voerUit(vz, vz.tegen || vz);
@@ -1152,6 +1181,11 @@ function voerUit(vz, waarde) {
   }
   if (vz.soort === 'spoor') spel.spoor.push({ punten: vz.punten, sporen: vz.sporen, eigenaar: 'prorail', gereedDag: spel.dag + (vz.bouwDagen || 120), klaar: false });
   if (vz.soort === 'station') spel.haltes.push({ id: S.nieuwId('h'), naam: vz.naam, modus: 'trein', x: vz.x, y: vz.y, eigen: false, gereedDag: spel.dag + 45 });
+  if (vz.soort === 'subsidie') {
+    const l = lijnVan(vz.lijnId); if (!l) return;
+    if (waarde.perReiziger) { l.subsidiePerReiziger = (l.subsidiePerReiziger || 0) + waarde.perReiziger; melding(`Extra subsidie voor lijn ${l.nr}: € ${waarde.perReiziger.toFixed(2).replace('.', ',')} per reiziger.`); }
+    else if (waarde.bedrag) { const vuMaand = (l.stat?.vu || 1) / ((spel.dag % 30) + 1) * 30; l.subsidieUurExtra = (l.subsidieUurExtra || 0) + waarde.bedrag / Math.max(1, vuMaand); melding(`Extra subsidie voor lijn ${l.nr}: ${S.euro(waarde.bedrag)} per maand.`); }
+  }
   if (vz.soort === 'concessie') {
     const l = lijnVan(vz.lijnId); if (!l) return;
     if (waarde.modus === 'belbus') { l.modus = 'belbus'; l.typeId = 'taxibus'; S.herbereken(l); }

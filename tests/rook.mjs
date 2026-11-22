@@ -116,6 +116,11 @@ if (process.env.VRAAG) { const S = await import('../js/spel.js'); const sp = glo
     console.log('eerste rit per uur', g, JSON.stringify(h)); const laat = c.om.voertuigen.filter(v => v.ritten[0].dep > 600).slice(0, 4);
     for (const v of laat) console.log('  laat', v.ritten.map(x => `${Math.round(x.dep)}-${Math.round(x.arr)} ${x.van.naam}>${x.naar.naam}`).join(' ; ').slice(0, 300)); }
   log('omlopen', groepen, 'groepen,', voertuigen, 'voertuigen; om 07:50:', JSON.stringify(st), fout ? `; ${fout} keer een voertuig kwijt` : '; nooit een voertuig kwijt'); }
+// eigen lijnpaneel: trajecten en geld
+{ const sp = globalThis.__ovTest.spel; const l = sp.lijnen.find(x => x.actief && x.modus === "trein" && x.haltes.length > 6) || sp.lijnen.find(x => x.actief); if (l) {
+  document.querySelector('[data-paneel="lijnen"]').click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${l.id}"]`)?.click(); await wacht(200);
+  const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
+  log('eigen lijnpaneel', l.naam, '|', t.slice(t.indexOf('Drukte en'), t.indexOf('Drukte en') + 260), '|', t.slice(t.indexOf('Deze maand'), t.indexOf('Deze maand') + 200)); } }
 // heen en terug op eigen spoor? (lijnen die twee richtingen rijden)
 { const gezien = new Set();
   for (const l of [...zl.map(v => v.lijn), ...globalThis.__ovTest.spel.lijnen]) { if (gezien.has(l) || !l._banen) continue; gezien.add(l);

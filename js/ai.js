@@ -233,6 +233,24 @@ export function beoordeelConcessie(spel, vz, ctx) {
   return { status: 'geaccepteerd', reden: `De provincie verleent een concessie voor lijn ${lijn.nr}: subsidie per dienstregelingsuur zolang je rijdt.` };
 }
 
+// Provincie: extra subsidie voor een verliesgevende lijn. Ze kijkt naar maatschappelijk nut (reizigers per
+// dienstregelingsuur, inwoners langs de lijn) en betaalt liever per reiziger dan een vast bedrag.
+export function beoordeelSubsidie(spel, vz, ctx) {
+  const lijn = spel.lijnen.find(l => l.id === vz.lijnId), st = lijn?.stat;
+  if (!lijn || !st) return { status: 'afgewezen', reden: 'Er zijn nog geen cijfers van deze lijn.' };
+  if (!lijn.concessie) return { status: 'afgewezen', reden: 'Deze lijn heeft geen concessie. Vraag eerst een concessie aan.' };
+  const drempel = { trein: 40, metro: 35, sneltram: 25, tram: 20, bus: 6, hov: 8, belbus: 1.5, veer: 10 }[lijn.modus] || 6;
+  const perUur = st.reizigers / Math.max(1, st.vu);
+  const inwoners = lijn._vangst ? lijn._vangst.reduce((a, b) => a + b, 0) / lijn._vangst.length : 0;
+  const nut = Math.min(1.2, 0.35 * perUur / drempel + 0.25 * Math.min(1, inwoners / 8000) + (spel.goodwill.provincie || 0) / 200 + (1 - ctx.concurrentie(lijn)) * 0.25);
+  if (nut < 0.35) return { status: 'afgewezen', reden: `Te weinig reizigers voor extra geld (${perUur.toFixed(1).replace('.', ',')} per dienstregelingsuur). Rij minder vaak of zet kleiner materieel in.` };
+  const maandReizigers = st.reizigers / ((spel.dag % 30) + 1) * 30;
+  if (nut >= 0.9) return { status: 'geaccepteerd', reden: `De provincie vindt lijn ${lijn.nr} belangrijk en betaalt ${euro(vz.bedrag)} per maand extra.` };
+  const deel = Math.max(0.3, Math.min(0.85, nut));
+  const perReiziger = Math.round(deel * vz.bedrag / Math.max(1, maandReizigers) * 100) / 100;
+  return { status: 'tegenvoorstel', tegen: { perReiziger }, reden: `De provincie wil niet het hele tekort dekken, maar betaalt € ${perReiziger.toFixed(2).replace('.', ',')} per reiziger extra (ongeveer ${Math.round(deel * 100)}% van wat je vroeg). Meer reizigers = meer subsidie.` };
+}
+
 // AI-vervoerders vragen zelf ook dingen aan jou
 export function bedenkAIVerzoek(spel) {
   const kandidaten = [];
