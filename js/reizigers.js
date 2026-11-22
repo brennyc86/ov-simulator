@@ -1,0 +1,87 @@
+// Reizigers per rit: wie stapt waar in en uit, hoe vol is het voertuig, wie bleef achter op het perron
+// en hoeveel reizigers hebben een kaartje. Afgeleid van de dagvraag van de lijn (spel.vraagLijn):
+// verdeeld over dagdeel/weekdag, dan over de ritten van dat uur, dan over herkomst-bestemmingsparen
+// tussen haltes (inwoners in de buurt × afstandsverval). Deterministisch per rit en dag.
+import { vraagLijn, vangst, vraagFactor, PERIODES, ZWARTRIJDEN_BASIS, pakkans } from './spel.js';
+import { MODI, TYPE } from './vloot.js';
+
+// pseudo-toeval dat per rit gelijk blijft
+function hash(...a) { let h = 2166136261; for (const x of a) { h ^= Math.round(x * 997) & 0xffffffff; h = Math.imul(h, 16777619); } return ((h >>> 0) % 10000) / 10000; }
+
+// indeling per voertuig: klassen met zit- en staplaatsen. Treinen: 1e klas ~12% van de zitplaatsen.
+export function indeling(typeId, modus, lijn) {
+  if (lijn?.indeling) return lijn.indeling;
+  const t = TYPE[typeId] || { zit: 60, sta: 40 };
+  if (modus === 'trein') {
+    const z1 = Math.round(t.zit * 0.12);
+    return [{ klasse: '1', zit: z1, sta: 0 }, { klasse: '2', zit: t.zit - z1, sta: t.sta }];
+  }
+  return [{ klasse: '2', zit: t.zit, sta: t.sta }];
+}
+
+const TOTAAL = PERIODES.reduce((s, p) => s + p.vraag * (p.tot - p.van) / 60, 0);
+const cache = new Map();
+
+// geeft { haltes:[{naam, in, uit, achter}], segmenten:[{aanBoord, metKaartje}], cap, klassen, ... } in rijvolgorde
+export function ritReizigers(spel, lijn, r, dep, typeId, ctx) {
+  const sleutel = `${spel.dag}:${lijn.sleutel || lijn.id}:${r}:${Math.round(dep)}:${typeId}:${lijn.indeling ? JSON.stringify(lijn.indeling) : ''}`;
+  if (cache.has(sleutel)) return cache.get(sleutel);
+  if (cache.size > 4000) cache.clear();
+  const mod = MODI[lijn.modus] || MODI.bus;
+  if (!lijn._vangst) lijn._vangst = lijn.haltes.map(h => vangst(ctx.plaatsen, h.x, h.y, mod.bereik));
+  const n = lijn.haltes.length;
+  const volg = r ? [...lijn.haltes].reverse() : lijn.haltes;
+  const V = r ? [...lijn._vangst].reverse() : lijn._vangst;
+  const km = r ? lijn.km.map(k => lijn.km[n - 1] - k).reverse() : lijn.km;
+  // reizigers op deze rit
+  if (lijn._vraagDag !== spel.dag) { lijn._vraagDag = spel.dag; lijn._vraag = vraagLijn(lijn, ctx.plaatsen, lijn.ai ? 0 : ctx.concurrentie(lijn)).perDag; }
+  const periode = PERIODES.find(p => dep >= p.van && dep < p.tot) || PERIODES[PERIODES.length - 1];
+  const perUur = lijn._vraag * vraagFactor(spel.dag, periode) / TOTAAL;
+  const rittenUur = Math.max(1, (lijn.vertrek[0].filter(v => v >= dep - 30 && v < dep + 30).length + lijn.vertrek[1].filter(v => v >= dep - 30 && v < dep + 30).length));
+  let totaal = perUur / rittenUur * (lijn.ai ? 1 : 0.6 + 0.4 * (spel.reputatie / 100)) * (0.75 + 0.5 * hash(dep, r, spel.dag));
+  // herkomst-bestemming
+  const w = [];
+  let som = 0;
+  for (let i = 0; i < n; i++) { w.push(new Float64Array(n)); for (let j = i + 1; j < n; j++) { const d = Math.abs(km[j] - km[i]) / 1000; const x = V[i] * V[j] / Math.pow(d + 2, 1.3) * (0.6 + 0.8 * hash(dep, i, j)); w[i][j] = x; som += x; } }
+  const klassen = indeling(typeId, lijn.modus, lijn).map(k => ({ ...k }));
+  const cap = klassen.reduce((s, k) => s + k.zit + k.sta, 0);
+  // halte voor halte
+  const uit = new Float64Array(n), haltes = [], segmenten = [];
+  let aanBoord = 0;
+  const maxV = Math.max(1, ...V);
+  const basis = ZWARTRIJDEN_BASIS[lijn.modus] ?? 0.03;
+  const controle = lijn.ai ? 1 : Math.exp(-pakkans(spel, lijn) * 6) * 1.6 * (spel.controle.poortjes && (lijn.modus === 'trein' || lijn.modus === 'metro') ? 0.35 : 1);
+  const laat = dep >= 21 * 60 ? 1.7 : dep >= 19 * 60 ? 1.25 : 1;
+  let zwart = 0;
+  for (let i = 0; i < n; i++) {
+    const af = uit[i];
+    aanBoord -= af;
+    let vraag = 0;
+    for (let j = i + 1; j < n; j++) vraag += som ? totaal * w[i][j] / som : 0;
+    const ruimte = Math.max(0, cap - aanBoord);
+    const instap = Math.min(vraag, ruimte), achter = vraag - instap;
+    if (vraag > 0) for (let j = i + 1; j < n; j++) uit[j] += (som ? totaal * w[i][j] / som : 0) * instap / vraag;
+    // zwartrijders: meer in de stad en 's avonds; wie uitstapt neemt zijn deel mee
+    const fr = Math.min(0.6, basis * (0.5 + 1.4 * V[i] / maxV) * laat * controle * (0.7 + 0.6 * hash(dep, i, 7)));
+    zwart = aanBoord > 0 ? zwart * (aanBoord) / (aanBoord + af) : 0;
+    zwart += instap * fr;
+    aanBoord += instap;
+    haltes.push({ naam: volg[i].naam, in: Math.round(instap), uit: Math.round(af), achter: Math.round(achter) });
+    if (i < n - 1) segmenten.push({ aanBoord: Math.round(aanBoord), metKaartje: Math.round(aanBoord - zwart) });
+  }
+  const res = { haltes, segmenten, cap, klassen, totaal: Math.round(haltes.reduce((s, h) => s + h.in, 0)), achter: haltes.reduce((s, h) => s + h.achter, 0) };
+  cache.set(sleutel, res);
+  return res;
+}
+
+// verdeling van een aantal reizigers over de klassen: eerst zitten, dan staan (1e klas: ~6% van de reizigers)
+export function bezettingKlassen(aantal, klassen) {
+  const uit = klassen.map(k => ({ klasse: k.klasse, zit: 0, sta: 0, zitMax: k.zit, staMax: k.sta }));
+  let rest = aantal;
+  const k1 = uit.find(k => k.klasse === '1');
+  if (k1) { const a = Math.min(Math.round(aantal * 0.06), k1.zitMax); k1.zit = a; rest -= a; }
+  for (const k of uit) { if (k === k1) continue; const z = Math.min(rest, k.zitMax); k.zit = z; rest -= z; }
+  if (k1 && rest > 0) { const z = Math.min(rest, k1.zitMax - k1.zit); k1.zit += z; rest -= z; } // vol: 2e-klassers gaan in de 1e klas zitten
+  for (const k of uit) { const s = Math.min(rest, k.staMax); k.sta = s; rest -= s; }
+  return uit;
+}

@@ -6,6 +6,7 @@ import { Wegen } from './wegen.js';
 import { Perrons, ontwerpPerron, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
+import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht } from './voertuig.js';
 import { Net, wegRoute } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, standaardType } from './vloot.js';
@@ -387,7 +388,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; } }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; } }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- omlopen
 let opstel = null, groepIdx = null, groepIdxSig = '';
 const omlopen = new Map();
@@ -654,6 +655,21 @@ function voertuigTabel(l) {
   return `<table class="tabel">${voertuigLijst.map((e, i) => `<tr data-actie="toon-voertuig" data-i="${i}" style="cursor:pointer"><td>#${e.omloop.nr}</td><td>${tekst(e)}${groep.includes(e.wacht && e.volgende ? e.volgende.l : e.lijn) ? '' : ` <span class="klein">· nu op lijn ${esc((e.wacht && e.volgende ? e.volgende.l : e.lijn).nr || '')}</span>`}</td><td class="getal klein">${e.omloop.ritten.length} ritten</td></tr>`).join('')}</table>`;
 }
 
+// bezetting nu (per klasse, zit/sta), kaartjes, en de hele rit
+function reizigersBlok(rr, nuAan, v) {
+  const pct = x => rr.cap ? Math.round(x / rr.cap * 100) : 0;
+  let html = '<h3>Reizigers</h3>';
+  if (nuAan) {
+    const kl = bezettingKlassen(nuAan.aanBoord, rr.klassen);
+    const zwart = nuAan.aanBoord - nuAan.metKaartje;
+    html += `<p>Nu aan boord: <b>${nuAan.aanBoord}</b> van ${rr.cap} plaatsen (${pct(nuAan.aanBoord)}%) · met kaartje <b>${nuAan.metKaartje}</b>${zwart > 0 ? ` · <span style="color:var(--rood)">~${zwart} zonder</span>` : ''}</p>
+      <table class="tabel"><tr><th>Klasse</th><th class="getal">zitten</th><th class="getal">staan</th></tr>${kl.map(k => `<tr><td>${k.klasse}e klas</td><td class="getal">${k.zit} / ${k.zitMax}</td><td class="getal">${k.staMax ? `${k.sta} / ${k.staMax}` : '—'}</td></tr>`).join('')}</table>`;
+  } else html += `<p class="klein">${v.wacht ? 'Het voertuig rijdt nu geen rit; hieronder de verwachting voor de rit.' : 'De rit is nog niet vertrokken of al aangekomen.'}</p>`;
+  const vol = Math.max(0, ...rr.segmenten.map(x => x.aanBoord));
+  html += `<p class="klein">Deze rit: ${rr.totaal} reizigers, drukst ${vol} aan boord (${pct(vol)}%)${rr.achter ? ` · <b style="color:var(--rood)">${Math.round(rr.achter)} achtergebleven op het perron</b>` : ' · niemand achtergebleven'}.</p>`;
+  return html;
+}
+
 // ---------------------------------------------------------------- panelen
 function openPaneel(soort, data) {
   paneelSoort = soort; selectie = data?.selectie ?? (soort === 'lijn' ? selectie : null);
@@ -688,10 +704,18 @@ const PANELEN = {
     const wachtKey = i => eigen ? `${r}:${i}` : i;
     const extra = i => (eigen ? l.halteWacht?.[`${r}:${i}`] : l.dw?.[i]) || 0;
     // tijden: aankomst = vertrek + t[i]; vertrek bij de halte = aankomst + extra wachttijd
+    const rr = ritReizigers(spel, l, r, v.vertrek, typeId, ctx());
+    // huidig stuk: na vertrek bij halte i en voor aankomst bij i+1
+    let seg = -1;
+    for (let i = 0; i < n - 1; i++) if (v.vertrek + t[i] / 60 + extra(i) <= nu) seg = i;
+    const klaar = nu > v.vertrek + t[n - 1] / 60;
+    const nuAan = !v.wacht && seg >= 0 && !klaar ? rr.segmenten[seg] : null;
     const rijen = volg.map((h, i) => {
       const aan = v.vertrek + t[i] / 60, weg = aan + extra(i);
       const voorbij = weg < nu, hier = aan <= nu && nu <= weg + 0.5;
+      const hr = rr.haltes[i];
       return `<tr class="${voorbij ? 'voorbij' : ''}${hier ? ' hier' : ''}"><td>${esc(h.naam)}</td><td class="getal">${i ? S.klok(Math.round(aan)) : ''}</td><td class="getal">${i < n - 1 ? S.klok(Math.round(weg)) : ''}</td>
+        <td class="getal klein">${hr.in ? '+' + hr.in : ''}${hr.uit ? ' −' + hr.uit : ''}${hr.achter ? ` <b style="color:var(--rood)" title="achtergebleven: voertuig vol">⚠${hr.achter}</b>` : ''}</td>
         <td>${eigen ? `<input type="number" min="0" max="15" value="${extra(i)}" data-wijzig="halte-wacht" data-id="${l.id}" data-k="${wachtKey(i)}" title="extra minuten wachten" style="width:3.4em">` : (i < n - 1 ? `<button class="knop klein" data-actie="rit-wacht" data-i="${i}">langer wachten</button>` : '')}</td></tr>`;
     }).join('');
     // frequentie per periode in deze richting
@@ -708,7 +732,8 @@ const PANELEN = {
       ${v.omloop ? `<p class="klein">Voertuig #${v.omloop.nr} (${l._omloopN || '?'} in de pool van ${esc(eigenaar)} met dit materieel) · vandaag ${v.omloop.ritten.length} ritten${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size > 1 ? ` op ${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size} lijnen` : ''}: ${v.omloop.ritten.slice(0, 8).map(x => `${S.klok(x.dep)}${x.l.nr && x.l.nr !== l.nr ? ` (${esc(x.l.nr)})` : ''}`).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
       <div class="rij"><button class="knop" data-actie="sel-lijn">☰ Toon lijn</button>${v.omloop ? `<button class="knop ${volg === v.omloop ? 'hoofd' : ''}" data-actie="volg">${volg === v.omloop ? '◉ Stop volgen' : '◎ Volg'}</button>` : ''}</div>
       <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volg[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volg[n - 1].naam)}.</p>
-      <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
+      <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th class="getal" title="instappers + / uitstappers −">in/uit</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
+      ${reizigersBlok(rr, nuAan, v)}
       <h3>Hoe vaak</h3>
       <p class="klein">Eerste rit ${vt.length ? S.klok(vt[0]) : '—'}, laatste rit ${vt.length ? S.klok(vt[vt.length - 1]) : '—'} · ${vt.length} ritten per dag in deze richting.</p>
       <table class="tabel">${freq}</table>

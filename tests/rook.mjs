@@ -100,6 +100,9 @@ if (process.env.DETAIL) { const sp = globalThis.__ovTest.spel;
   const per = {}; for (const l of sp.lijnen) { const n = l.vertrek[0].length + l.vertrek[1].length; per[l.modus] = (per[l.modus] || 0) + n; }
   console.log('vertrekken per modus per dag', JSON.stringify(per), 'duur(min) voorbeeld', sp.lijnen.slice(0, 5).map(l => `${l.naam}: ${Math.round(l.duur / 60)}min ${l.vertrek[0].slice(0, 4).map(v => (v / 60 | 0) + ':' + String(Math.round(v % 60)).padStart(2, 0)).join(',')}`).join(' | '));
   console.log('soorten', JSON.stringify(sp.lijnen.reduce((a, l) => (a[l.modus] = (a[l.modus] || 0) + 1, a), {})), 'tijd', sp.tijd); }
+if (process.env.VRAAG) { const S = await import('../js/spel.js'); const sp = globalThis.__ovTest.spel; let tot = 0; const r = [];
+  for (const l of sp.lijnen) { const v = S.vraagLijn(l, globalThis.__ovTest.plaatsen, 0); tot += v.perDag; r.push([Math.round(v.perDag), l.naam, l.vertrek[0].length + l.vertrek[1].length]); }
+  r.sort((a, b) => b[0] - a[0]); console.log('vraag per dag totaal eigen lijnen', Math.round(tot), 'lijnen', sp.lijnen.length, JSON.stringify(r.slice(0, 8))); }
 // omlopen: elk voertuig bestaat op elk moment van de dag precies één keer
 { const O = await import('../js/omloop.js'); let groepen = 0, voertuigen = 0, fout = 0; const st = {};
   for (const [g, c] of globalThis.__ovTest.omlopen) { groepen++; voertuigen += c.om.voertuigen.length;
@@ -132,6 +135,12 @@ if (zl.length) {
   const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
   log('ritpaneel:', t.slice(0, 220));
   for (const b of document.querySelectorAll('#paneel-inhoud button')) { try { b.click(); } catch (e) { fouten.push('knop ' + b.textContent + ': ' + e.stack); } await wacht(20); }
+  { const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('reizigers:', t.slice(t.indexOf('Reizigers'), t.indexOf('Reizigers') + 330)); }
+  // ook een trein bekijken (eigen of ander), als die in beeld is
+  const trein = zl.find(x => x.lijn.modus === 'trein' && !x.wacht);
+  if (trein) { globalThis.__map.vuur('click', { point: { x: trein.px, y: trein.py } }); await wacht(150);
+    const t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('trein', trein.lijn.naam, '→', t.slice(t.indexOf('Halteaan'), t.indexOf('Halteaan') + 420), '…', t.slice(t.indexOf('Reizigers'), t.indexOf('Reizigers') + 330)); }
+  globalThis.__map.vuur('click', { point: { x: v.px, y: v.py } }); await wacht(100);
   log('alle knoppen in ritpaneel geklikt');
   globalThis.__map.vuur('click', { point: { x: v.px, y: v.py } }); await wacht(100);
   document.querySelector('[data-actie="volg"]')?.click(); await wacht(1500);
