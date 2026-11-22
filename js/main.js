@@ -35,6 +35,7 @@ async function laadData() {
   const [po, hs, tr] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json'].map(json));
   // bovenleiding voor trolleybussen: lijnen + raster (50 m) om bussen op die wegen te herkennen
   D.trolley = (tr?.w || []).map(w => ontpakDelta(w.d));
+  D.trolleyNrs = new Set((tr?.w || []).flatMap(w => w.l || []));
   D.trolleyRaster = new Set();
   for (const p of D.trolley) for (let k = 0; k < p.length - 2; k += 2) { const n = Math.ceil(Math.hypot(p[k + 2] - p[k], p[k + 3] - p[k + 1]) / 25); for (let q = 0; q <= n; q++) { const x = p[k] + (p[k + 2] - p[k]) * q / n, y = p[k + 1] + (p[k + 3] - p[k + 1]) * q / n; D.trolleyRaster.add(Math.floor(x / 50) + ',' + Math.floor(y / 50)); } }
   D.polders = (po?.p || []).map(p => ({ ...p, ringen: p.r.map(ontpak) }));
@@ -122,7 +123,9 @@ function isTrolley(l) {
   if (l.modus !== 'bus' || !D.trolleyRaster?.size) return (l._trolley = false);
   const p = l.route.pts; let n = 0, raak = 0;
   for (let k = 0; k < p.length; k += 2 * Math.max(1, Math.floor(p.length / 120))) { n++; if (D.trolleyRaster.has(Math.floor(p[k] / 50) + ',' + Math.floor(p[k + 1] / 50))) raak++; }
-  return (l._trolley = n > 4 && raak / n > 0.7);
+  // lijnnummer bekend als trolleylijn (OSM route=trolleybus): ruime overlap genoeg; anders bijna volledig onder de draad
+  const bekend = D.trolleyNrs?.size ? D.trolleyNrs.has(String(l.nr)) : null;
+  return (l._trolley = n > 4 && (bekend === true ? raak / n > 0.4 : bekend === false ? false : raak / n > 0.85));
 }
 
 function klasseVan(t) {
