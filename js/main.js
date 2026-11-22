@@ -36,7 +36,8 @@ async function json(pad) {
 async function laadData() {
   const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(json));
-  const [po, hs, tr] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json'].map(json));
+  const [po, hs, tr, sg] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json'].map(json));
+  D.stationsgebouwen = (sg?.g || []).map(ontpakDelta); // bestaande stationsgebouwen en perrongebouwtjes (OSM)
   // bovenleiding voor trolleybussen: lijnen + raster (50 m) om bussen op die wegen te herkennen
   D.trolley = (tr?.w || []).map(w => ontpakDelta(w.d));
   D.trolleyNrs = new Set((tr?.w || []).flatMap(w => w.l || []));
@@ -286,9 +287,13 @@ function netwerkLagen() {
     kaart.laag({ id: 'perron-rand', type: 'line', source: 'perrons', minzoom: 14, filter: ['all', ['==', ['get', 'v'], 1], jaarFilter(jaar)], paint: { 'line-color': PERRONRAND, 'line-width': meters(0.4, 0.6) } });
     kaart.laag({ id: 'perron-lijn', type: 'line', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 0], layout: { 'line-cap': 'butt' }, paint: { 'line-color': PERRON, 'line-width': meters(4.5, 1.2) } });
     kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': spel?.kleur || '#c2412d' } });
+    // stationsgebouwen en gebouwtjes op perrons (wachtkamers, winkels, horeca) in donkergrijs: herkenbaar als station
+    const STATIONSGRIJS = '#55595e';
+    if (!kaart.map.getSource('stationsgebouwen')) kaart.bron('stationsgebouwen', { type: 'FeatureCollection', features: (D.stationsgebouwen || []).map(v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [c] } }; }) });
+    kaart.laag({ id: 'stationsgebouw-osm', type: 'fill', source: 'stationsgebouwen', minzoom: 13, paint: { 'fill-color': STATIONSGRIJS, 'fill-outline-color': '#2f3134' } });
     if (!kaart.map.getSource('gebouwen')) kaart.bron('gebouwen', { type: 'FeatureCollection', features: [] });
-    kaart.laag({ id: 'gebouw-vlak', type: 'fill', source: 'gebouwen', minzoom: 12, paint: { 'fill-color': ['get', 'k'], 'fill-opacity': ['case', ['==', ['get', 'klaar'], 1], 0.95, 0.45] } });
-    kaart.laag({ id: 'gebouw-rand', type: 'line', source: 'gebouwen', minzoom: 13, paint: { 'line-color': '#4a3b30', 'line-width': 1 } });
+    kaart.laag({ id: 'gebouw-vlak', type: 'fill', source: 'gebouwen', minzoom: 12, paint: { 'fill-color': STATIONSGRIJS, 'fill-opacity': ['case', ['==', ['get', 'klaar'], 1], 0.95, 0.4] } });
+    kaart.laag({ id: 'gebouw-rand', type: 'line', source: 'gebouwen', minzoom: 13, paint: { 'line-color': ['get', 'k'], 'line-width': 1.5 } });
     kaart.laag({ id: 'perron-voorstel', type: 'fill', source: 'perron-voorstel', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': 'rgba(255,255,255,.75)', 'fill-outline-color': '#111' } });
     kaart.laag({ id: 'perron-voorstel-spoor', type: 'line', source: 'perron-voorstel', filter: ['==', ['geometry-type'], 'LineString'], paint: { 'line-color': '#111', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } });
     kaart.laag({ id: 'hist-water', type: 'fill', source: 'polders', filter: ['>', ['get', 'j'], jaar], paint: { 'fill-color': THEMA.water } });

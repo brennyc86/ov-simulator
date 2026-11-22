@@ -150,6 +150,33 @@ def perrons(bbox, uit):
     schrijf(uit, "perrons.json", {"uitleg": "[1=vlak/0=lijn, x0, y0, dx, dy, ...] RD-meters", "p": lijst})
 
 
+def stationsgebouwen(bbox, uit):
+    """Stationsgebouwen en gebouwtjes op perrons (wachtkamers, kiosken, winkels): vlakken in RD-meters."""
+    voor, g = gebied(bbox)
+    q = (f'[out:json][timeout:900];{voor}(way["building"="train_station"]{g};way["building"]["railway"="station"]{g};'
+         f'way["building"]["public_transport"="station"]{g};relation["building"="train_station"]{g};)->.st;'
+         f'(way["railway"="platform"]{g};way["public_transport"="platform"]["train"="yes"]{g};)->.p;'
+         f'.p map_to_area->.pa;way["building"]["building"!="roof"](area.pa)->.op;(.st;.op;);out tags geom;')
+    res = overpass(q)
+    gezien, lijst = set(), []
+    for el in res.get("elements", []):
+        if el["id"] in gezien:
+            continue
+        gezien.add(el["id"])
+        geoms = [el["geometry"]] if el["type"] == "way" and "geometry" in el else [m["geometry"] for m in el.get("members", []) if m.get("role") == "outer" and "geometry" in m]
+        for geom in geoms:
+            pts = [rd_int(p["lat"], p["lon"]) for p in geom if p]
+            if len(pts) < 4 or not in_nl(*pts[0]):
+                continue
+            rij, vx, vy = [], 0, 0
+            for x, y in pts:
+                rij += [x - vx, y - vy]
+                vx, vy = x, y
+            lijst.append(rij)
+    print(f"  {len(lijst)} stationsgebouwen en perrongebouwtjes", flush=True)
+    schrijf(uit, "stationsgebouwen.json", {"uitleg": "[x0, y0, dx, dy, ...] RD-meters, gesloten vlakken", "g": lijst})
+
+
 # --------------------------------------------------------------------------- spoor
 def spoor(bbox, uit):
     voor, g = gebied(bbox)
@@ -559,6 +586,9 @@ def main():
     if a.alleen == "trolley":
         trolley(a.bbox, a.uit)
         return
+    if a.alleen == "gebouwen":
+        stationsgebouwen(a.bbox, a.uit)
+        return
     if a.alleen == "perrons":
         os.makedirs(a.uit, exist_ok=True)
         perrons(a.bbox, a.uit)
@@ -567,6 +597,10 @@ def main():
     stations(a.bbox, a.uit, takken)
     wissels(a.bbox, a.uit)
     perrons(a.bbox, a.uit)
+    try:
+        stationsgebouwen(a.bbox, a.uit)
+    except Exception as e:  # noqa: BLE001
+        print("stationsgebouwen mislukt:", e, flush=True)
     print("plaatsen, veren en vliegvelden ophalen (eerst even wachten, Overpass remt af na zware verzoeken)…", flush=True)
     time.sleep(45)
     rest = overig_ophalen(a.bbox)
