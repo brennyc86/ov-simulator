@@ -175,7 +175,7 @@ let lagenGemaakt = false;
 function netwerkLagen() {
   if (!kaart?.klaar) return;
   const jaar = spel?.jaar ?? 2026;
-  const sporen = { type: 'FeatureCollection', features: net.takken.filter(t => !t.weg).map(t => {
+  const sporen = { type: 'FeatureCollection', features: [...net.takken, ...net.eigen].filter(t => !t.weg).map(t => {
     const j = jaarVan(t), m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
     if (land > j.van) j.van = land; // in een polder: pas na de drooglegging
     return { type: 'Feature', properties: { k: klasseVan(t), ...j, n: t.sporen, h: t.hoogte || 0 }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } };
@@ -184,7 +184,7 @@ function netwerkLagen() {
   kaart.bron('spoor', sporen);
   kaart.bron('trolley', { type: 'FeatureCollection', features: (D.trolley || []).map(p => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lijnGeo(p) } })) });
   kaart.bron('veren', { type: 'FeatureCollection', features: D.veren.map(v => ({ type: 'Feature', properties: { n: v.n }, geometry: { type: 'LineString', coordinates: lijnGeo(v.c) } })) });
-  const w = D.wissels, wf = [];
+  const w = [...D.wissels, ...net.eigen.flatMap(t => (t.wissels || []).flat())], wf = [];
   for (let i = 0; i < w.length; i += 2) wf.push({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: lonlat(w[i], w[i + 1]) } });
   kaart.bron('wissels', { type: 'FeatureCollection', features: wf });
   // oude haltes (OpenHistoricalMap) op de plek van een huidig station: hun naam is de oude naam van dat station
@@ -297,14 +297,17 @@ function netwerkLagen() {
     kaart.laag({ id: 'perron-rand', type: 'line', source: 'perrons', minzoom: 14, filter: ['all', ['==', ['get', 'v'], 1], jaarFilter(jaar)], paint: { 'line-color': PERRONRAND, 'line-width': meters(0.4, 0.6) } });
     kaart.laag({ id: 'perron-lijn', type: 'line', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 0], layout: { 'line-cap': 'butt' }, paint: { 'line-color': PERRON, 'line-width': meters(4.5, 1.2) } });
     kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': spel?.kleur || '#c2412d' } });
-    // bebouwing door de tijd (BAG) in het eigen thema: in historische jaren in plaats van de bebouwing van nu
-    if (D.bebouwing?.r && !kaart.map.getSource('bebouwing-hist')) {
-      const c = D.bebouwing.cel || 100, fs = [];
-      for (const r of D.bebouwing.r) { const j = r[0]; for (let q = 1; q < r.length; q += 4) { const i0 = r[q], n = r[q + 1], x0 = i0 * c, x1 = (i0 + n) * c, y0 = j * c, y1 = y0 + c;
-        fs.push({ type: 'Feature', properties: { j: r[q + 2], f: r[q + 3] }, geometry: { type: 'Polygon', coordinates: [[lonlat(x0, y0), lonlat(x1, y0), lonlat(x1, y1), lonlat(x0, y1), lonlat(x0, y0)]] } }); } }
-      kaart.bron('bebouwing-hist', { type: 'FeatureCollection', features: fs });
-      kaart.laag({ id: 'bebouwing-hist', type: 'fill', source: 'bebouwing-hist', layout: { visibility: 'none' },
-        paint: { 'fill-color': ['match', ['get', 'f'], 1, '#e0a04a', 2, '#c9655a', 3, '#8e9ccc', '#d9705f'], 'fill-antialias': false } }, kaart.map.getLayer('zand-landuse') ? 'zand-landuse' : undefined);
+    // bebouwing door de tijd (BAG) in het eigen thema: één afbeelding (100 m per pixel) over heel Nederland
+    if (D.bebouwing?.r && !kaart.map.getSource('bebouwing-hist') && typeof document !== 'undefined') {
+      const c = D.bebouwing.cel || 100; let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
+      for (const r of D.bebouwing.r) { j0 = Math.min(j0, r[0]); j1 = Math.max(j1, r[0]); for (let q = 1; q < r.length; q += 4) { i0 = Math.min(i0, r[q]); i1 = Math.max(i1, r[q] + r[q + 1]); } }
+      const cv = document.createElement('canvas'); cv.width = i1 - i0; cv.height = j1 - j0 + 1; cv.id = 'bebouwing-canvas';
+      D.bebouwingVlak = { cv, i0, j0, j1, c };
+      const x0 = i0 * c, x1 = i1 * c, y0 = j0 * c, y1 = (j1 + 1) * c;
+      try {
+        kaart.map.addSource('bebouwing-hist', { type: 'canvas', canvas: cv, animate: false, coordinates: [lonlat(x0, y1), lonlat(x1, y1), lonlat(x1, y0), lonlat(x0, y0)] });
+        kaart.laag({ id: 'bebouwing-hist', type: 'raster', source: 'bebouwing-hist', layout: { visibility: 'none' }, paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 0 } }, kaart.map.getLayer('zand-landuse') ? 'zand-landuse' : undefined);
+      } catch (e) { console.warn('bebouwing', e); }
     }
     // stationsgebouwen en gebouwtjes op perrons (wachtkamers, winkels, horeca) in donkergrijs: herkenbaar als station
     const STATIONSGRIJS = '#55595e';
@@ -321,7 +324,7 @@ function netwerkLagen() {
     kaart.laag({ id: 'hist-water-naam', type: 'symbol', source: 'polders', minzoom: 8, filter: ['>', ['get', 'j'], jaar], layout: { 'text-field': ['concat', ['get', 'n'], '\n(droog in ', ['to-string', ['get', 'j']], ')'], 'text-font': ['Noto Sans Italic'], 'text-size': 11 }, paint: { 'text-color': THEMA.waterTekst, 'text-halo-color': '#fff', 'text-halo-width': 1 } });
     // echte spoortjes (ver ingezoomd) onder alle netwerklagen
     for (const l of spoorLagen()) kaart.laag({ ...l, filter: ['all', l.filter, jaarFilter(jaar)] });
-    const lijn = (id, bron, filter, kleur, breedte, extra = {}) => kaart.laag({ id, type: 'line', source: bron, filter, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': kleur, 'line-width': breedte, ...(bron === 'spoor' ? { 'line-opacity': SPOOR_UIT } : {}), ...extra } });
+    const lijn = (id, bron, filter, kleur, breedte, extra = {}) => kaart.laag({ id, type: 'line', source: bron, ...(filter ? { filter } : {}), layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': kleur, 'line-width': breedte, ...(bron === 'spoor' ? { 'line-opacity': SPOOR_UIT } : {}), ...extra } });
     const zoomB = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 6, a, 11, b, 16, c];
     const k = c => ['==', ['get', 'k'], c];
     lijn('net-veer', 'veren', null, NK.veer, zoomB(1, 1.6, 2.5), { 'line-dasharray': [3, 2.5] });
@@ -338,7 +341,8 @@ function netwerkLagen() {
     lijn('net-hoofd-halo', 'spoor', hoofd, NK.halo, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 4.5, 'h2', 3.5, 2.6], 13, ['match', ['get', 'k'], 'h3', 6, 'h2', 5, 3.6], 16, 3]);
     lijn('net-hoofd', 'spoor', hoofd, NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4]);
     lijn('net-enkel', 'spoor', ['all', k('h1'), jaarFilter(jaar)], NK.halo, ['interpolate', ['linear'], ['zoom'], 6, 0.5, 13, 0.8, 16, 0], { 'line-dasharray': [1, 3] });
-    lijn('net-eigen-spoor', 'eigen-spoor', ['==', ['get', 'klaar'], 1], spel?.kleur || '#c2412d', zoomB(2, 3, 4));
+    // eigen spoor: uitgezoomd in de bedrijfskleur, ingezoomd zie je de rails (die zitten in de gewone spoorlaag)
+    lijn('net-eigen-spoor', 'eigen-spoor', ['==', ['get', 'klaar'], 1], spel?.kleur || '#c2412d', zoomB(2, 3, 4), { 'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.9, 13.5, 0] });
     lijn('net-eigen-bouw', 'eigen-spoor', ['==', ['get', 'klaar'], 0], spel?.kleur || '#c2412d', zoomB(2, 3, 4), { 'line-dasharray': [2, 2] });
     lijn('net-lijnen-halo', 'eigen-lijnen', null, '#ffffff', zoomB(4, 6, 9), { 'line-opacity': 0.75 });
     lijn('net-lijnen', 'eigen-lijnen', null, ['get', 'kl'], zoomB(2, 3.5, 6));
@@ -355,7 +359,7 @@ function netwerkLagen() {
       paint: { 'text-color': KD ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
     void stFilter;
     kaart.laag({ id: 'net-vlieg', type: 'symbol', source: 'vliegvelden', filter: ['any', ['==', ['get', 'groot'], 1], ['>=', ['zoom'], 8]],
-      layout: { 'text-field': ['case', ['>=', ['zoom'], 9], ['concat', '✈ ', ['get', 'l']], '✈'], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [-0.4, 0] },
+      layout: { 'text-field': ['step', ['zoom'], '✈', 9, ['concat', '✈ ', ['get', 'l']]], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [-0.4, 0] },
       paint: { 'text-color': ['case', ['==', ['get', 'mil'], 1], '#7d7a8c', '#5b4bb7'], 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
     // geselecteerde lijn (eigen of van een ander): geel gemarkeerd met haltes
     kaart.bron('selectie', { type: 'FeatureCollection', features: [] }); kaart.bron('selectie-haltes', { type: 'FeatureCollection', features: [] });
@@ -369,6 +373,14 @@ function netwerkLagen() {
   }
   jaarBijwerken();
   if (!wegen) { wegen = new Wegen(kaart); wegen.start('grens'); }
+}
+// bebouwing van dat jaar op de afbeelding tekenen (kleur naar functie: wonen, winkels, bedrijven, voorzieningen)
+function bebouwingTekenen(jaar) {
+  const B = D.bebouwingVlak; if (!B || B.jaar === jaar) return; B.jaar = jaar;
+  const k = B.cv.getContext('2d'), kl = [THEMA.bebouwd || '#d9705f', '#e0a04a', THEMA.industrie || '#c9655a', '#8e9ccc'];
+  k.clearRect(0, 0, B.cv.width, B.cv.height);
+  for (let f = 0; f < 4; f++) { k.fillStyle = kl[f]; for (const r of D.bebouwing.r) { const y = B.j1 - r[0]; for (let q = 1; q < r.length; q += 4) if (r[q + 3] === f && r[q + 2] <= jaar) k.fillRect(r[q] - B.i0, y, r[q + 1], 1); } }
+  const src = kaart.map.getSource('bebouwing-hist'); if (src?.play) { src.play(); setTimeout(() => src.pause?.(), 50); }
 }
 function jaarBijwerken() {
   if (!lagenGemaakt) return;
@@ -385,7 +397,7 @@ function jaarBijwerken() {
   m.setLayoutProperty('net-oud', 'visibility', jaar < 2000 || kaart.achtergrond === 'historisch' ? 'visible' : 'none');
   // historische bebouwing (BAG) in plaats van de bebouwing en gebouwen van nu
   const hist = !!m.getLayer('bebouwing-hist') && jaar < 2020;
-  if (m.getLayer('bebouwing-hist')) { m.setLayoutProperty('bebouwing-hist', 'visibility', hist ? 'visible' : 'none'); m.setFilter('bebouwing-hist', ['<=', ['get', 'j'], jaar]); }
+  if (m.getLayer('bebouwing-hist')) { m.setLayoutProperty('bebouwing-hist', 'visibility', hist ? 'visible' : 'none'); if (hist) bebouwingTekenen(jaar); }
   for (const id of ['bebouwd', 'industrie', 'gebouw', 'gebouw-schaduw']) if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', hist ? 'none' : 'visible');
   if (spel) for (const id of ['net-eigen-spoor', 'net-eigen-bouw']) m.setPaintProperty(id, 'line-color', spel.kleur);
   if (spel) m.setPaintProperty('net-eigen-haltes', 'circle-stroke-color', spel.kleur);
@@ -397,7 +409,7 @@ const origFilter = {};
 function historischUiterlijk(jaar) {
   const m = kaart.map, oud = jaar < 2025;
   if (!m.getSource('bag')) {
-    m.addSource('bag', { type: 'vector', tiles: ['https://api.pdok.nl/kadaster/bag/ogc/v2/tiles/WebMercatorQuad/{z}/{y}/{x}?f=mvt'], minzoom: 17, maxzoom: 17, tileSize: 256,
+    m.addSource('bag', { type: 'vector', tiles: ['https://api.pdok.nl/kadaster/bag/ogc/v2/tiles/WebMercatorQuad/{z}/{y}/{x}?f=mvt'], minzoom: 17, maxzoom: 17, tileSize: 512, // MapLibre accepteert alleen 512 voor vectortegels
       bounds: [3.2, 50.7, 7.3, 53.6], attribution: '© Kadaster (BAG)' });
     const voor = m.getLayer('gebouw') ? 'gebouw' : undefined;
     m.addLayer({ id: 'bag-schaduw', type: 'fill', source: 'bag', 'source-layer': 'pand', minzoom: 16, paint: { 'fill-color': 'rgba(60,25,20,0.35)', 'fill-translate': [3, 3], 'fill-antialias': false } }, voor);
@@ -457,7 +469,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -2805,7 +2817,7 @@ async function nieuwSpelStarten() {
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
   zetJaar(jaar); registreerSeries([]); zetKlassePrijzen(null);
-  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 25e6) });
+  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: $('s-kleur').value || hist?.kleur, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 25e6) });
   if (hist) {
     zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });

@@ -445,6 +445,14 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     log('rijbanen', l.naam, 'afstand heen-terug mediaan', ds[ds.length >> 1].toFixed(1), 'm; deel >2 m:', (ds.filter(d => d > 2).length / ds.length).toFixed(2), '; rechts rijden waar dubbelspoor:', (rechts / (n2 || 1)).toFixed(2));
   }
   log('lijnen met eigen rijbaan per richting:', gezien.size); }
+// netjes op het spoor? afstand van getekende rail-voertuigen tot het dichtstbijzijnde spoor
+{ const net = globalThis.__ovTest.net, sp = globalThis.__ovTest.spel; const afst = [];
+  for (const v of zl) { const m = v.lijn?.modus; if (!['trein', 'metro', 'tram', 'sneltram'].includes(m) || v.verborgen) continue;
+    const r = net.dichtsteTak(v.x, v.y, m === 'sneltram' ? 'sneltram' : m, sp.jaar, 60); afst.push(r ? r.d : 60); }
+  afst.sort((a, b) => a - b);
+  const ergst = zl.filter(v => ['trein', 'metro', 'tram', 'sneltram'].includes(v.lijn?.modus) && !v.verborgen).map(v => ({ v, d: (net.dichtsteTak(v.x, v.y, v.lijn.modus, sp.jaar, 60) || { d: 60 }).d })).filter(x => x.d > 3).sort((a, b) => b.d - a.d).slice(0, 8);
+  for (const { v, d } of ergst) log('  naast spoor', d.toFixed(0), 'm:', v.lijn.modus, v.lijn.nr || v.lijn.naam, '| wacht', v.wacht || '-', '| baan', v.baan ? (v.baan === v.lijn._banen?.[0] ? 'heen' : v.baan === v.lijn._banen?.[1] ? 'terug' : 'opstel') : 'route', '| spoor', v.lijn._spoor, '| f', v.f?.toFixed?.(2));
+  if (afst.length) log('op het spoor:', afst.length, 'voertuigen; mediaan', afst[afst.length >> 1].toFixed(1), 'm; >3 m:', afst.filter(d => d > 3).length, '; >10 m:', afst.filter(d => d > 10).length, '; ergste', afst.slice(-5).map(d => d.toFixed(0)).join(',')); }
 if (zl.length) {
   if (process.env.DETAIL) for (const v of zl.slice(0, 2)) { const l = v.lijn; console.log(JSON.stringify({ naam: l.naam, modus: l.modus, spoor: l._spoor, n: l.route.pts.length / 2, lengte: Math.round(l.route.lengte), bbox: l.bbox, haltes: l.haltes.map(h => [h.naam, Math.round(h.x), Math.round(h.y)]), km: l.km?.map(Math.round), pos: [Math.round(v.x), Math.round(v.y)], vertrek: v.vertrek, r: v.r })); }
   const v = zl.find(v => v.px > 0 && v.px < W && v.py > 0 && v.py < H) || zl[0];

@@ -58,15 +58,16 @@ export function opSpoor(net, pts, modus, jaar) {
     else { uit.push(x, y); vorige = null; }
   }
   if (geraakt < (p.length / 2) * 0.5) return null;
-  // sprongen tussen sporen uitvlakken: voortschrijdend gemiddelde, daarna hoeken afronden
-  const gl = [uit[0], uit[1]];
-  for (let i = 2; i < uit.length - 2; i += 2) {
-    let sx = 0, sy = 0, n = 0;
-    for (let k = -4; k <= 4; k += 2) { const q = Math.max(0, Math.min(uit.length - 2, i + k)); sx += uit[q]; sy += uit[q + 1]; n++; }
-    gl.push(sx / n, sy / n);
+  // Punten blijven precies op het spoor (geen gemiddelde: dat snijdt bochten af en legt de trein tussen twee sporen).
+  // Alleen waar de trein van spoor wisselt een korte, rechte overgang (zoals over een wissel), ~70 m lang.
+  const gl = uit.slice(), n = uit.length / 2, W = 3;
+  for (let i = 1; i < n; i++) {
+    const sprong = Math.hypot(uit[i * 2] - uit[i * 2 - 2], uit[i * 2 + 1] - uit[i * 2 - 1]);
+    if (sprong < 16) continue; // gewone stap (~12 m): zelfde spoor
+    const a = Math.max(0, i - 1 - W), b = Math.min(n - 1, i + W);
+    for (let k = a + 1; k < b; k++) { const f = (k - a) / (b - a); gl[k * 2] = uit[a * 2] + (uit[b * 2] - uit[a * 2]) * f; gl[k * 2 + 1] = uit[a * 2 + 1] + (uit[b * 2 + 1] - uit[a * 2 + 1]) * f; }
   }
-  gl.push(uit[uit.length - 2], uit[uit.length - 1]);
-  return glad(gl, 30);
+  return glad(gl, 6);
 }
 
 // lijn bijwerken: nieuwe route, cumulatieve afstanden en haltes opnieuw op de route geprojecteerd

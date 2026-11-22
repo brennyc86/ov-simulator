@@ -364,15 +364,39 @@ export class Net {
       return nk;
     };
     const a = koppel(punten[0]), b = koppel(punten[punten.length - 1]);
+    const wissels = [];
+    for (const k of [a, b]) if (k >= 0 || this.extra.has(k)) { if ((this.buren.get(k) || []).length >= 2) wissels.push([this.knoopX(k), this.knoopY(k)]); }
     const pts = [this.knoopX(a), this.knoopY(a)];
     for (const p of punten.slice(1, -1)) pts.push(p[0], p[1]);
     pts.push(this.knoopX(b), this.knoopY(b));
     let lengte = 0;
     for (let k = 2; k < pts.length; k += 2) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
     const t = { i: 1e6 + this.eigen.length, a, b, soort, dienst, gebruik: 0, sporen, vmax: dienst ? 30 : soort === 3 ? 50 : soort === 2 ? 80 : 140, elek: 1,
-      start: jaar, eind: 0, naam: 0, pts, lengte, bbox: bboxVan(pts), eigenaar };
+      start: jaar, eind: 0, naam: 0, pts, lengte, bbox: bboxVan(pts), eigenaar, wissels };
     this.eigen.push(t);
     this.bouwBuren();
+    // op dubbelspoor aansluiten: ook een overloopwissel naar het andere spoor, zodat je beide kanten op kunt
+    if (!dienst && lengte > 150) for (const eind of [0, 1]) {
+      const k = eind ? b : a, kx = this.knoopX(k), ky = this.knoopY(k);
+      const n = pts.length, bin = eind ? [pts[n - 2], pts[n - 1], pts[n - 4], pts[n - 3]] : [pts[0], pts[1], pts[2], pts[3]];
+      // punt 60 m het nieuwe spoor in
+      let sx = bin[2] - bin[0], sy = bin[3] - bin[1]; const sl = Math.hypot(sx, sy) || 1; sx /= sl; sy /= sl;
+      const px = kx + sx * 60, py = ky + sy * 60;
+      for (const o of this.takkenBij(kx, ky, modus, jaar, 9, 9, 6)) {
+        if (o.t === t || o.t.dienst || this.buren.get(k)?.some(x => x.t === o.t) || o.d < 3) continue; // het spoor waar we al op zitten
+        const q = this.stuk(o.t, Math.max(0, o.s - 1), Math.min(o.t.lengte, o.s + 1)); const ux = q[q.length - 2] - q[0], uy = q[q.length - 1] - q[1];
+        if (Math.abs(ux * sx + uy * sy) / (Math.hypot(ux, uy) || 1) < 0.7) continue; // niet evenwijdig
+        const ov = this.dichtsteTak(px, py, modus, jaar, 12); if (!ov || ov.t !== o.t) continue;
+        const kn = this.splits(ov.t, ov.s), splitsIn = this.dichtsteTak(px, py, modus, jaar, 2);
+        const kNieuw = splitsIn && this.eigen.includes(splitsIn.t) ? this.splits(splitsIn.t, splitsIn.s) : null;
+        if (kNieuw == null) break;
+        const cp = [this.knoopX(kNieuw), this.knoopY(kNieuw), this.knoopX(kn), this.knoopY(kn)];
+        const c = { i: 1e6 + this.eigen.length, a: kNieuw, b: kn, soort, dienst: 0, gebruik: 0, sporen: 1, vmax: 40, elek: 1, start: jaar, eind: 0, naam: 0, pts: cp,
+          lengte: Math.hypot(cp[2] - cp[0], cp[3] - cp[1]), bbox: bboxVan(cp), eigenaar, wissels: [[cp[0], cp[1]], [cp[2], cp[3]]] };
+        this.eigen.push(c); this.bouwBuren();
+        break;
+      }
+    }
     return t;
   }
 }
