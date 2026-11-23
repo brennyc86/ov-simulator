@@ -112,21 +112,23 @@ function vergoedingUit(r, perReiziger) {
 }
 
 // een nieuwe aanbieding bedenken: twee plaatsen of stations die beter verbonden moeten worden
-export function bedenkAanbieding(spel, stations, plaatsen) {
-  const jaar = spel.jaar;
-  const trein = Math.random() < 0.45;
+// opties: { modus: 'trein' | 'bus' | 'hov' (vast), binnen: (x, y) => bool (vertrekpunt in deze regio) }
+export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
+  const jaar = spel.jaar, binnen = opties.binnen || (() => true);
+  const trein = opties.modus ? opties.modus === 'trein' : Math.random() < 0.45;
   let a, b, modus;
   if (trein) {
-    const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar));
-    for (let k = 0; k < 40 && !b; k++) { a = kies(st); const ver = st.filter(s => { const d = afst(a, s); return d > 12000 && d < 60000; }); if (ver.length) b = kies(ver); }
+    const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar)), start = st.filter(s => binnen(s.x, s.y));
+    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = st.filter(s => { const d = afst(a, s); return d > 12000 && d < 60000; }); if (ver.length) b = kies(ver); }
     modus = 'trein';
     if (b) { a = { naam: a.n, x: a.x, y: a.y }; b = { naam: b.n, x: b.x, y: b.y }; }
   }
+  if (!b && opties.modus === 'trein') return null;
   if (!b) {
-    const pl = plaatsen.filter(p => p[3] >= 3000);
-    for (let k = 0; k < 40 && !b; k++) { a = kies(pl); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > 5000 && d < 25000; }); if (ver.length) b = kies(ver); }
+    const pl = plaatsen.filter(p => p[3] >= 3000), start = pl.filter(p => binnen(p[1], p[2]));
+    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > 5000 && d < 25000; }); if (ver.length) b = kies(ver); }
     if (!b) return null;
-    modus = Math.hypot(b[1] - a[1], b[2] - a[2]) > 15000 && jaar >= 1990 && Math.random() < 0.4 ? 'hov' : 'bus';
+    modus = opties.modus || (Math.hypot(b[1] - a[1], b[2] - a[2]) > 15000 && jaar >= 1990 && Math.random() < 0.4 ? 'hov' : 'bus');
     a = { naam: a[0], x: a[1], y: a[2] }; b = { naam: b[0], x: b[1], y: b[2] };
   }
   if ((spel.aanbiedingen || []).some(x => x.status !== 'verlopen' && [x.a.naam, x.b.naam].sort().join() === [a.naam, b.naam].sort().join())) return null;

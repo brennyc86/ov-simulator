@@ -1241,6 +1241,20 @@ const PANELEN = {
       <div class="rij"><button class="knop" data-actie="aanuit" data-id="${l.id}">${l.actief ? 'Tijdelijk stoppen' : 'Weer laten rijden'}</button>
       <button class="knop gevaar" data-actie="opheffen" data-id="${l.id}">Opheffen</button></div>`;
   },
+  subsidies() {
+    const f = subFilter, provs = territorium?.prov || [];
+    const passend = subsidieLijst();
+    const chip = (w, v, aan, tekst) => `<label class="chipkeuze"><input type="checkbox" data-wijzig="${w}" value="${v}" ${aan ? 'checked' : ''}> ${tekst}</label>`;
+    return `<h2>Subsidies</h2>
+      <p class="klein">De provincie wil verbindingen ontsluiten en rekent ze door: reizigers, kaartjes, kosten en investering. Minder reizigers = meer subsidie. Een nieuwe lijn die beide plaatsen bedient en aan de eisen voldoet, krijgt de startbijdrage (de investering, in 2 dagen) en daarna de doorlopende vergoeding zolang hij blijft voldoen.</p>
+      <div class="kaartje"><b>Filter</b>
+        <div class="rij" style="flex-wrap:wrap">${SUB_MODI.map(m => chip('sub-modus', m, f.modus.includes(m), MODI[m].naam)).join('')}</div>
+        <div class="rij" style="flex-wrap:wrap"><label class="veld" style="margin:0">Land <select data-wijzig="sub-land"><option value="NL" selected>Nederland</option></select></label></div>
+        ${provs.length ? `<div class="rij" style="flex-wrap:wrap">${provs.map((p, i) => chip('sub-prov', i, f.prov.includes(i), esc(p.naam))).join('')}</div>` : '<p class="klein">Provincies laden nog…</p>'}
+        <div class="rij"><button class="knop klein" data-actie="sub-alles">Filter wissen</button><button class="knop klein hoofd" data-actie="sub-meer">Meer aanbiedingen zoeken${f.prov.length || f.modus.length ? ' in deze selectie' : ''}</button></div>
+        <p class="klein">${passend.length} van ${(spel.aanbiedingen || []).filter(a => a.status !== 'verlopen').length} aanbiedingen passen bij het filter.</p></div>
+      ${aanbodBlok(passend)}`;
+  },
   verzoeken() {
     const kaartje = v => {
       const titel = v.aan === 'speler' ? `Van ${esc(v.vanNaam)}` : `Aan ${esc(v.aanNaam || v.aan)}`;
@@ -1260,7 +1274,7 @@ const PANELEN = {
     };
     for (const v of spel.verzoeken) if (v.status !== 'open' && v.status !== 'tegen-van-speler') v.gezien = true;
     setTimeout(hud, 0);
-    return `<h2>Overleg</h2>${aanbodBlok()}<h3>Verzoeken</h3><p class="klein">Verzoeken aan en van andere vervoerders, ProRail en de provincie. ProRail en de provincie antwoorden binnen een uur speltijd, vervoerders binnen een paar uur.</p>
+    return `<h2>Overleg</h2><p class="klein">Aangeboden subsidies van de provincie staan onder <button class="knop klein" data-actie="open-subsidies">€ Subsidie</button>.</p><h3>Verzoeken</h3><p class="klein">Verzoeken aan en van andere vervoerders, ProRail en de provincie. ProRail en de provincie antwoorden binnen een uur speltijd, vervoerders binnen een paar uur.</p>
       ${spel.verzoeken.length ? spel.verzoeken.slice(0, 40).map(kaartje).join('') : '<p>Nog geen verzoeken. Open een lijn en kies <b>Verzoek</b> bij een gedeelde halte, of vraag een treinpad, station of spoor aan.</p>'}`;
   },
   vloot() {
@@ -1738,6 +1752,9 @@ function actieUit(a, d) {
     case 'pad': l.actief = true; l.wacht = null; padOpnieuwNodig(l); ververs(); break;
     case 'aanbod-koppel': aanbodKoppelen(d.sub, lijnVan(d.lijn)); ververs(); break;
     case 'aanbod-los': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (a) aanbodLos(a); ververs(); break; }
+    case 'open-subsidies': openPaneel('subsidies'); break;
+    case 'sub-alles': subFilter = { modus: [], prov: [] }; ververs(); break;
+    case 'sub-meer': { const n = subsidiesZoeken(subsidieLijst().filter(a => a.status === 'open').length + 3); melding(n ? `${n} nieuwe aanbieding${n > 1 ? 'en' : ''} gevonden.` : 'Hier vond de provincie geen nieuwe verbindingen die het ondersteunen waard zijn.'); ververs(); break; }
     case 'aanbod-toon': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (!a) break;
       kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [lonlat(a.a.x, a.a.y), lonlat(a.b.x, a.b.y)] } }] });
       kaart.vliegNaar((a.a.x + a.b.x) / 2, (a.a.y + a.b.y) / 2, Math.max(2, Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / Math.min(kaart.W, kaart.H) * 1.6)); break; }
@@ -1864,6 +1881,10 @@ function wijzig(w, i) {
   const tijd = v => { const [h, m] = v.split(':').map(Number); let t = h * 60 + m; if (t < 4 * 60) t += 1440; return t; };
   switch (w) {
     case 'spitsdubbel': l.spitsDubbel = i.checked; S.herbereken(l); break;
+    case 'sub-modus': case 'sub-prov': { const lijst = w === 'sub-modus' ? subFilter.modus : subFilter.prov, v = w === 'sub-modus' ? i.value : +i.value;
+      const k = lijst.indexOf(v); if (i.checked && k < 0) lijst.push(v); else if (!i.checked && k >= 0) lijst.splice(k, 1);
+      if (lijst.length) subsidiesZoeken(3); ververs(); return; }
+    case 'sub-land': ververs(); return;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
     case 'nl-type': paneelData.typeKeuze = i.value; paneelData.spitsIn = $('nl-spits')?.value; paneelData.dalIn = $('nl-dal')?.value; paneelData.avondIn = $('nl-avond')?.value; paneelData.nrIn = $('nl-nr')?.value; paneelData.naamIn = $('nl-naam')?.value; i.blur(); setTimeout(() => ververs(), 0); return;
@@ -2213,7 +2234,7 @@ function aanbiedingenAanvullen() {
   spel.aanbiedingen = spel.aanbiedingen || [];
   for (const a of spel.aanbiedingen) if (a.status === 'open' && spel.dag > a.tot) a.status = 'verlopen';
   spel.aanbiedingen = spel.aanbiedingen.filter(a => a.status !== 'verlopen' || spel.dag - a.tot < 30);
-  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < 5; k++) { const a = bedenkAanbieding(spel, D.stations, D.plaatsen); if (a) spel.aanbiedingen.push(a); }
+  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < 8; k++) { const a = bedenkAanbieding(spel, D.stations, D.plaatsen); if (a) spel.aanbiedingen.push(a); }
 }
 function aanbodKoppelen(id, l) {
   const a = (spel.aanbiedingen || []).find(x => x.id === id); if (!a || !l) return;
@@ -2235,11 +2256,30 @@ function aanbiedingenToetsen() {
     l.aanbodOk = t.ok;
   }
 }
-function aanbodBlok() {
-  const lijst = (spel.aanbiedingen || []).filter(a => a.status !== 'verlopen');
-  if (!lijst.length) return '';
-  return `<h3>Aangeboden subsidies</h3><p class="klein">De provincie wil deze verbindingen ontsluiten en rekent ze door: hoeveel reizigers, wat kaartjes opbrengen, wat het kost en wat je moet investeren. Minder reizigers betekent meer subsidie. Een nieuwe lijn die beide plaatsen bedient en aan de eisen voldoet, krijgt de startbijdrage (de investering, in 2 dagen) en daarna de doorlopende vergoeding zolang hij blijft voldoen.</p>
-    ${lijst.map(a => {
+// filter voor het subsidiescherm: vervoerssoorten en provincies (leeg = alles)
+const SUB_MODI = ['trein', 'bus', 'hov'];
+let subFilter = { modus: [], prov: [] };
+function provinciesVan(a) {
+  if (!a.provincies && territorium?.gem.length) a.provincies = [...new Set([territorium.provincieVan(a.a.x, a.a.y), territorium.provincieVan(a.b.x, a.b.y)])].filter(p => p >= 0);
+  return a.provincies || [];
+}
+const pastBijFilter = a => (!subFilter.modus.length || subFilter.modus.includes(a.modus)) && (!subFilter.prov.length || provinciesVan(a).some(p => subFilter.prov.includes(p)));
+const subsidieLijst = () => (spel.aanbiedingen || []).filter(a => a.status !== 'verlopen' && pastBijFilter(a)).sort((p, q) => (q.lijnId ? 1 : 0) - (p.lijnId ? 1 : 0));
+// aanbiedingen bij het filter erbij zoeken (tot er minstens n open passen)
+function subsidiesZoeken(n = 4) {
+  spel.aanbiedingen = spel.aanbiedingen || [];
+  const binnen = subFilter.prov.length && territorium ? (x, y) => subFilter.prov.includes(territorium.provincieVan(x, y)) : undefined;
+  let gevonden = 0;
+  for (let k = 0; k < 40 && subsidieLijst().filter(a => a.status === 'open').length < n; k++) {
+    const modus = subFilter.modus.length ? subFilter.modus[k % subFilter.modus.length] : undefined;
+    const a = bedenkAanbieding(spel, D.stations, D.plaatsen, { modus, binnen });
+    if (a && pastBijFilter(a)) { spel.aanbiedingen.push(a); gevonden++; }
+  }
+  return gevonden;
+}
+function aanbodBlok(lijst = (spel.aanbiedingen || []).filter(a => a.status !== 'verlopen')) {
+  if (!lijst.length) return '<p>Geen aanbiedingen bij dit filter. Klik op <b>Meer aanbiedingen zoeken</b>.</p>';
+  return `${lijst.map(a => {
       const eigen = spel.lijnen.filter(l => !l.bijzonder && bedient(l, a));
       const gekoppeld = a.lijnId ? lijnVan(a.lijnId) : null;
       return `<div class="kaartje"><div class="rij"><b>${MODI[a.modus].naam}: ${esc(a.a.naam)} – ${esc(a.b.naam)}</b>${gekoppeld ? '<span class="chip goed">loopt</span>' : ''}<span class="klein" style="margin-left:auto">${komma(Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / 1000)} km</span></div>
@@ -2890,7 +2930,7 @@ async function nieuwSpelStarten() {
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
   zetJaar(jaar); registreerSeries([]); zetKlassePrijzen(null);
-  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: $('s-kleur').value || hist?.kleur, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 25e6) });
+  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: $('s-kleur').value || hist?.kleur, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 200e6) });
   if (hist) {
     zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });

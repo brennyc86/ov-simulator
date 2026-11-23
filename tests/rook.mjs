@@ -218,8 +218,14 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
 // aangeboden subsidies: aanbod, lijn bouwen via de knop, koppelen en eisen toetsen
 { const sp = globalThis.__ovTest.spel, tekst = () => document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ');
   log('aanbiedingen:', (sp.aanbiedingen || []).length, (sp.aanbiedingen || []).map(a => `${a.modus} ${a.a.naam}–${a.b.naam}`).join(' | '));
-  document.querySelector('[data-paneel="verzoeken"]').click(); await wacht(30); log('overleg:', tekst().slice(0, 420));
-  const a = sp.aanbiedingen.find(x => x.modus === 'trein');
+  document.querySelector('[data-paneel="verzoeken"]').click(); await wacht(30); log('overleg:', tekst().slice(0, 200));
+  document.querySelector('[data-paneel="subsidies"]').click(); await wacht(30);
+  { const c = document.querySelector('[data-wijzig="sub-modus"][value="trein"]'); c.checked = true; c.dispatchEvent(new window.Event('change')); await wacht(30);
+    const pv = document.querySelector('[data-wijzig="sub-prov"]'); log('subsidies: provincies', document.querySelectorAll('[data-wijzig="sub-prov"]').length, '|', tekst().match(/\d+ van \d+ aanbiedingen passen/)?.[0]);
+    if (pv) { const ut = [...document.querySelectorAll('[data-wijzig="sub-prov"]')].find(x => x.parentElement.textContent.includes('Utrecht')) || pv; ut.checked = true; ut.dispatchEvent(new window.Event('change')); await wacht(30); }
+    log('subsidies gefilterd:', tekst().match(/\d+ van \d+ aanbiedingen passen/)?.[0], '|', [...sp.aanbiedingen].slice(-3).map(x => `${x.modus} ${x.a.naam}–${x.b.naam} ${x.provincies}`).join(' ; '));
+    log('raming:', tekst().match(/Raming provincie.{0,200}/)?.[0]); }
+  const knopA = document.querySelector('[data-actie="aanbod-bouw"]'), a = knopA && sp.aanbiedingen.find(x => x.id === knopA.dataset.sub);
   if (a) { document.querySelector(`[data-actie="aanbod-bouw"][data-sub="${a.id}"]`).click(); await wacht(400);
     log('nieuwe subsidielijn:', tekst().match(/Aanmelden voor de subsidie.{0,160}/)?.[0] || 'GEEN AANMELDVINKJE', '|', tekst().match(/Ruimte op het spoor.{0,60}/)?.[0]);
     const v = document.getElementById('nl-aanbod'); if (v) v.checked = true;

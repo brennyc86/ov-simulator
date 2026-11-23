@@ -171,3 +171,6 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
 .bouwkaart .foto { height: 120px; display: flex; align-items: center; justify-content: center; background: #f2f2f0; border-radius: 6px; overflow: hidden; }
 .bouwkaart .foto img { max-width: 100%; max-height: 120px; object-fit: cover; }
 .bouw-erbij { flex: 0 0 44px; font-size: 22px; }
+.chipkeuze { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1px solid var(--lijn); border-radius: 999px; font-size: 12px; margin: 2px; cursor: pointer; user-select: none; }
+.chipkeuze input { margin: 0; }
+.chipkeuze:has(input:checked) { background: var(--accent); color: var(--vlak); border-color: var(--accent); }

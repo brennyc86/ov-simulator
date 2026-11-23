@@ -68,6 +68,7 @@ export class Territorium {
     k.laag({ id: 'grens-provincie', type: 'line', source: 'grenzen', filter: ['==', ['get', 'n'], 2], layout: { 'line-join': 'round' },
       paint: { 'line-color': '#5e4a7a', 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1, 10, 2, 14, 3.2] } }, voor);
   }
+  provincieVan(x, y) { const g = this.gemeenteVan(x, y); return g < 0 ? -1 : this.gem[g].p; }
   gemeenteVan(x, y) { for (let i = 0; i < this.gem.length; i++) if (binnen(this.gem[i], x, y)) return i; return -1; }
 
   // haltes: [{x, y}, ...] (RD). Bepaalt welke gebieden in kleur, lichter of zwart-wit staan.
