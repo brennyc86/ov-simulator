@@ -1,14 +1,14 @@
 // Grenzen en territorium.
 // Gemeente-, provincie- en landsgrenzen, steeds duidelijker. Je territorium (waar je haltes hebt) staat in de
 // gewone kleuren, één stap erbuiten wat lichter, de rest zwart-wit.
-//  - territorium: per provincie de gemeenten waar je haltes hebt; vanaf 4 gemeenten in een provincie de hele provincie
-//  - één stap erbuiten: heb je ergens een hele provincie, dan de rest van dat land; anders de rest van de
-//    provincies waarin je actief bent
-//  - een ander land telt pas als één stap erbuiten als je er een hele provincie hebt; anders alleen die provincie
-//    (voor later: er is nu één land)
+//  - kleur: de gemeenten waar je haltes hebt (al bij één halte); vanaf 5 gemeenten in een provincie de hele provincie
+//  - licht: de rest van elke provincie waar je haltes hebt; en heb je in een land een hele provincie, dan alle
+//    andere provincies van dat land
+//  - grijs: provincies waar je nog niet bent (zolang je in dat land geen hele provincie hebt) en het buitenland
+//  Dit geldt per land; nu is er alleen Nederland (provincies zonder land-code horen bij NL).
 import { rdNaarWgs } from './geo.js';
 
-const HELE_PROVINCIE = 4;
+const HELE_PROVINCIE = 5; // vanaf zoveel gemeenten met haltes telt de hele provincie
 const merc = (x, y) => { const [la, lo] = rdNaarWgs(x, y), f = la * Math.PI / 180; return [(lo + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + f / 2)) / Math.PI) / 2]; };
 
 function gebied(code, naam, rruwe) {
@@ -51,7 +51,7 @@ export class Territorium {
     try {
       const r = await fetch(url); if (!r.ok) return false;
       const d = await r.json();
-      this.prov = d.p.map(([c, n, ...rr]) => gebied(c, n, rr));
+      this.prov = d.p.map(([c, n, ...rr]) => ({ ...gebied(c, n, rr), land: d.land?.[c] || 'NL' }));
       this.gem = d.g.map(([c, n, p, ...rr]) => ({ ...gebied(c, n, rr), p }));
       this.lagen();
       return true;
@@ -81,13 +81,12 @@ export class Territorium {
     this.actief = actief.size > 0;
     const perProv = new Map(); for (const g of actief) { const p = this.gem[g].p; perProv.set(p, (perProv.get(p) || 0) + 1); }
     const heel = new Set([...perProv].filter(([, n]) => n >= HELE_PROVINCIE).map(([p]) => p));
-    // één land (Nederland): met een hele provincie is de rest van het land één stap erbuiten
-    const kleur = [], licht = [];
+    const kleur = [], licht = [], heelLand = new Set([...heel].map(pi => this.prov[pi].land));
     this.prov.forEach((p, pi) => {
       if (heel.has(pi)) { kleur.push(p); return; }
       const deel = perProv.has(pi), gem = this.gem.filter(g => g.p === pi);
       if (deel) { for (const g of gem) (actief.has(this.gem.indexOf(g)) ? kleur : licht).push(g); return; }
-      if (heel.size) licht.push(p);
+      if (heelLand.has(p.land)) licht.push(p);
     });
     this.kleur = kleur; this.licht = licht;
     this.kaart.map.triggerRepaint?.();
