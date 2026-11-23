@@ -37,7 +37,7 @@ function binnen(g, x, y) {
 
 export class Territorium {
   constructor(kaart) {
-    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.sleutel = ''; this.actief = false;
+    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.sleutel = null; this.actief = false; this.heeftHaltes = false;
     const m = kaart.map;
     if (!m?.getCanvasContainer) { this.cv = null; return; } // testkaart zonder canvas
     this.cv = document.createElement('canvas');
@@ -78,7 +78,7 @@ export class Territorium {
     const sleutel = [...cel].sort().join(';'); if (sleutel === this.sleutel) return; this.sleutel = sleutel;
     const actief = new Set(), cache = new Map();
     for (const c of cel) { const [i, j] = c.split(',').map(Number); if (!cache.has(c)) cache.set(c, this.gemeenteVan(i * 250, j * 250)); const g = cache.get(c); if (g >= 0) actief.add(g); }
-    this.actief = actief.size > 0;
+    this.actief = true; this.heeftHaltes = actief.size > 0; // zonder haltes: heel Nederland zwart-wit
     const perProv = new Map(); for (const g of actief) { const p = this.gem[g].p; perProv.set(p, (perProv.get(p) || 0) + 1); }
     const heel = new Set([...perProv].filter(([, n]) => n >= HELE_PROVINCIE).map(([p]) => p));
     const kleur = [], licht = [], heelLand = new Set([...heel].map(pi => this.prov[pi].land));
@@ -92,7 +92,7 @@ export class Territorium {
     this.kaart.map.triggerRepaint?.();
   }
   uitleg() {
-    if (!this.actief) return 'Nog geen territorium: plaats haltes of start een lijn.';
+    if (!this.heeftHaltes) return 'Nog geen territorium: plaats haltes of start een lijn.';
     return `Territorium: ${this.kleur.map(g => g.naam).join(', ')}`;
   }
 
