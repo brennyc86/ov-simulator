@@ -40,6 +40,17 @@ jobs:
           LU=$(curl -sS https://data.public.lu/api/1/datasets/horaires-et-arrets-des-transport-publics-gtfs/ | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['resources'], key=lambda r: r.get('last_modified') or '')[-1]['url'])")
           curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/lu.zip "$LU" && python3 tools/gtfs.py --zip /tmp/lu.zip --uit uit --toevoegen --land LU || echo "Luxemburg mislukt, overgeslagen"
           exit 0
+      - name: Duitsland en Frankrijk, lange afstand (DB Fernverkehr via gtfs.de, SNCF TGV en Intercités)
+        run: |
+          set +e
+          for bron in "defv DE https://download.gtfs.de/germany/fv_free/latest.zip" \
+                      "tgv FR https://eu.ftp.opendatasoft.com/sncf/gtfs/export_gtfs_voyages.zip" \
+                      "ic FR https://eu.ftp.opendatasoft.com/sncf/gtfs/export-intercites-gtfs-last.zip"; do
+            set -- $bron
+            curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/$1.zip "$3" && python3 tools/gtfs.py --zip /tmp/$1.zip --uit uit --toevoegen --land $2 || echo "$1 mislukt, overgeslagen"
+            rm -f /tmp/$1.zip
+          done
+          exit 0
       - uses: actions/upload-artifact@v4
         with:
           name: gtfs
@@ -47,13 +58,13 @@ jobs:
 
   osm:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 340  # NL, BE, LU volledig + het landelijke spoornet van DE en FR (in stukken)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: OpenStreetMap (spoor, stations, wissels, plaatsen, veren, vliegvelden)
+      - name: OpenStreetMap (spoor, stations, wissels, plaatsen, veren, vliegvelden; NL, BE, LU, DE, FR)
         run: |
           python3 -u tools/osm.py --uit uit
           python3 -u tools/ohm.py --uit uit || echo "OpenHistoricalMap mislukt, vorige versie blijft"

@@ -1,9 +1,23 @@
 // Routes van andere vervoerders (vormen uit de dienstregeling) op het echte spoor leggen, zodat
 // treinen, metro's en trams netjes over de getekende sporen rijden. In Nederland rijden treinen
-// rechts: bij meer sporen naast elkaar kiezen we het spoor rechts van de rijrichting.
-import { glad } from './net.js';
+// rechts: bij meer sporen naast elkaar kiezen we het spoor rechts van de rijrichting. In België, Luxemburg en
+// Frankrijk rijden treinen op het hoofdspoor links (trams en metro's rijden er wel rechts).
+import { glad, LINKS } from './net.js';
+import { wgsNaarRd } from './geo.js';
 
 const SOORTEN = { trein: [0, 4, 8], sneltram: [1, 3, 2], metro: [2, 1], tram: [3, 1] };
+
+// Elzas en Moezel (Frans, maar het spoor is in de Duitse tijd aangelegd: daar rijden treinen rechts). Grove omtrek.
+const ELZAS = [[49.48, 5.94], [49.2, 6.02], [48.95, 6.1], [48.85, 6.3], [48.75, 6.7], [48.55, 6.9], [48.35, 7.1], [48.1, 7.05], [47.75, 6.85],
+  [47.42, 7.0], [47.55, 7.6], [48.0, 7.6], [48.97, 8.23], [49.05, 7.9], [49.15, 7.4], [49.11, 7.1], [49.24, 6.95], [49.3, 6.6], [49.47, 6.37]].map(([la, lo]) => wgsNaarRd(la, lo));
+export function elzas(x, y) {
+  let n = 0;
+  for (let i = 0, j = ELZAS.length - 1; i < ELZAS.length; j = i++) {
+    const [ax, ay] = ELZAS[j], [bx, by] = ELZAS[i];
+    if ((ay > y) !== (by > y) && x < ax + (y - ay) * (bx - ax) / (by - ay)) n++;
+  }
+  return n % 2 === 1;
+}
 
 function herbemonster(pts, stap) {
   const uit = [pts[0], pts[1]];
@@ -47,7 +61,8 @@ export function opSpoor(net, pts, modus, jaar) {
           if (d > 30) continue;
           const l = Math.sqrt(l2), richting = Math.abs((dx * ux + dy * uy) / l);
           if (richting < 0.85) continue;                         // dwars liggend spoor (overweg, wissel naar elders)
-          const rechts = uy * (px - x) - ux * (py - y);          // > 0: spoor ligt rechts van de rijrichting
+          let rechts = uy * (px - x) - ux * (py - y);            // > 0: spoor ligt rechts van de rijrichting
+          if (LINKS[t.land || 0] && (t.soort === 0 || t.soort === 4) && !elzas(px, py)) rechts = -rechts; // linksrijden
           // rechts houden: het spoor direct rechts krijgt voorrang, maar niet verder dan het naastgelegen spoor
           const kosten = d - 1.25 * Math.max(-6, Math.min(rechts, 6)) + (t.dienst ? 8 : 0) + (vorige && vorige !== t ? 1.5 : 0) + (1 - richting) * 40;
           if (kosten < bk) { bk = kosten; beste = { px, py, t }; }

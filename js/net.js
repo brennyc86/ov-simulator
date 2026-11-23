@@ -27,12 +27,17 @@ export function glad(pts, max = 60) {
   return uit;
 }
 
+// spoorbeheerder per land (kolom land in spoor.json: 0 NL, 1 BE, 2 LU, 3 DE, 4 FR)
+export const BEHEERDER = ['ProRail', 'Infrabel', 'CFL Infrastructure', 'DB InfraGO', 'SNCF Réseau'];
+// linksrijden op het hoofdspoor: België, Luxemburg en Frankrijk (behalve Elzas-Moezel, dat rijdt rechts zoals Duitsland)
+export const LINKS = [false, true, true, false, true];
+
 export class Net {
   constructor(spoor) {
     this.knopen = spoor ? Float64Array.from(spoor.knopen) : new Float64Array();
     this.namen = spoor?.namen || [];
     this.takken = (spoor?.takken || []).map((t, i) => {
-      const [a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, tussen, hoogte = 0] = t;
+      const [a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, tussen, hoogte = 0, land = 0] = t;
       let pts = [this.knopen[a * 2], this.knopen[a * 2 + 1]];
       let x = pts[0], y = pts[1];
       for (let k = 0; k < tussen.length; k += 2) { x += tussen[k]; y += tussen[k + 1]; pts.push(x, y); }
@@ -43,7 +48,7 @@ export class Net {
         if (k) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
         x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]);
       }
-      return { i, a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, hoogte, pts, lengte, bbox: [x0, y0, x1, y1], eigenaar: 'prorail' };
+      return { i, a, b, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, hoogte, land, pts, lengte, bbox: [x0, y0, x1, y1], eigenaar: 'prorail' }; // eigenaar = de spoorbeheerder van dat land (zie BEHEERDER)
     });
     this.eigen = []; // door spelers aangelegd spoor
     this.bouwBuren();

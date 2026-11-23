@@ -40,6 +40,20 @@ export const VLOOT = [
   { id: 'buffel', naam: 'DM \'90 "Buffel" (diesel)', modus: 'trein', van: 1996, tot: 2021, zit: 128, sta: 80, vmax: 140, acc: 0.8, prijs: 5e6, km: 2.5, energie: 'diesel', pers: 1, leven: 30, wie: 'NS, Syntus' },
   { id: 'ice3', naam: 'ICE 3 (hogesnelheid)', modus: 'trein', van: 2000, tot: 2050, zit: 440, sta: 0, vmax: 300, acc: 0.6, prijs: 35e6, km: 7.0, energie: 'elektrisch', pers: 1, leven: 30, wie: 'DB, NS International' },
 
+  // ---------------- buurlanden (van/tot = jaren in dienst in hun eigen land) ----------------
+  { id: 'icngb', naam: 'ICNG-B Benelux (5-delig, 3 spanningen)', modus: 'trein', van: 2025, tot: 2065, zit: 286, sta: 240, vmax: 200, acc: 0.7, prijs: 16e6, km: 3.3, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS, NMBS, SNCB (Eurocity Direct, IC Brussel)' },
+  { id: 'flirt3ms', naam: 'Stadler FLIRT drielandentrein (3 spanningen)', modus: 'trein', van: 2024, tot: 2065, zit: 180, sta: 200, vmax: 160, acc: 1.1, prijs: 9.5e6, km: 2.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'Arriva (Maastricht–Aken–Luik)' },
+  { id: 'am08', naam: 'NMBS AM08 Desiro (3-delig)', modus: 'trein', van: 2012, tot: 2055, zit: 280, sta: 180, vmax: 160, acc: 1.0, prijs: 8e6, km: 2.3, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
+  { id: 'am96', naam: 'NMBS AM96 (3-delig)', modus: 'trein', van: 1996, tot: 2035, zit: 230, sta: 120, vmax: 160, acc: 0.8, prijs: 7e6, km: 2.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
+  { id: 'nmbsm7', naam: 'NMBS M7 dubbeldekker met HLE 18 (6 rijtuigen)', modus: 'trein', van: 2018, tot: 2060, zit: 620, sta: 300, vmax: 200, acc: 0.6, prijs: 18e6, km: 4.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
+  { id: 'cflkiss', naam: 'CFL Stadler KISS dubbeldekker (3-delig)', modus: 'trein', van: 2014, tot: 2060, zit: 300, sta: 200, vmax: 160, acc: 1.0, prijs: 12e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'CFL' },
+  { id: 'cfl2200', naam: 'CFL Z2N 2200 dubbeldekker (3-delig)', modus: 'trein', van: 2004, tot: 2050, zit: 280, sta: 180, vmax: 160, acc: 0.9, prijs: 10e6, km: 3.1, energie: 'elektrisch', pers: 1, leven: 35, wie: 'CFL' },
+  { id: 'talent2', naam: 'DB Talent 2 (4-delig)', modus: 'trein', van: 2011, tot: 2055, zit: 200, sta: 200, vmax: 160, acc: 1.0, prijs: 8e6, km: 2.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'DB, DB Regio' },
+  { id: 'ice4', naam: 'ICE 4 (12-delig)', modus: 'trein', van: 2017, tot: 2060, zit: 918, sta: 0, vmax: 250, acc: 0.5, prijs: 45e6, km: 9.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'DB, DB Fernverkehr' },
+  { id: 'regio2n', naam: 'SNCF Regio 2N dubbeldekker (6-delig)', modus: 'trein', van: 2014, tot: 2060, zit: 500, sta: 300, vmax: 200, acc: 0.9, prijs: 14e6, km: 3.6, energie: 'elektrisch', pers: 1, leven: 35, wie: 'SNCF, TER' },
+  { id: 'tgvduplex', naam: 'TGV Duplex (2×8 dubbeldeks)', modus: 'trein', van: 1996, tot: 2045, zit: 1020, sta: 0, vmax: 320, acc: 0.5, prijs: 60e6, km: 12, energie: 'elektrisch', pers: 1, leven: 35, wie: 'SNCF, TGV inOui, Ouigo' },
+  { id: 'thalys', naam: 'Eurostar/Thalys PBKA (4 spanningen)', modus: 'trein', van: 1996, tot: 2040, zit: 377, sta: 0, vmax: 300, acc: 0.5, prijs: 40e6, km: 9.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'Eurostar, Thalys' },
+  { id: 'hle18', soort: 'loc', naam: 'Siemens Eurosprinter HLE 18/19 (NMBS)', modus: 'trein', van: 2009, tot: 2055, zit: 0, sta: 0, vmax: 200, acc: 0.7, prijs: 5e6, km: 1.7, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
   // ---------------- locomotieven en losse rijtuigen (samenstellen per lijn) ----------------
   // soort: loc | rijtuig | stuurstand (rijtuig met cabine: de trein kan keren zonder dat de loc omloopt)
   // jaren bij benadering (bronnen verschillen); zit/sta = standaard 2e-klasinrichting
@@ -153,5 +167,5 @@ export function standaardType(vervoerder, modus, jaar = 2026) {
   // geen naam-match: een gangbaar type voor deze modus (geen hogesnelheidstrein of museumstuk)
   const gangbaar = { trein: ['sng4', 'slt6', 'flirt4', 'icm', 'sgm', 'planv', 'hondekop', 'mat36', 'stoom3700'], tram: ['urbos15g', 'citadis302', 'combino', 'gtl8', 'gvb9g', 'pcc', 'tweeasser', 'stoomtram', 'paardentram'] }[modus];
   for (const id of gangbaar || []) { const t = lijst.find(v => v.id === id); if (t) return t; }
-  return lijst.filter(v => v.id !== 'ice3').pop() || lijst[lijst.length - 1];
+  return lijst.filter(v => !['ice3', 'ice4', 'tgvduplex', 'thalys'].includes(v.id)).pop() || lijst[lijst.length - 1];
 }

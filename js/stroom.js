@@ -17,9 +17,11 @@ export const SYSTEMEN = {
 const ELEKTRISCH_KM = 1.2e6; // nieuwe bovenleiding per km (spoor zonder elektrificatie)
 
 // welk systeem hoort bij een gemeten spanning (OSM voltage) en soort spoor (0 trein, 1 light rail, 2 metro, 3 tram)
-function systeemVoor(elek, soort, vmax) {
+// spanning op hoofdspoor als OSM alleen 'elektrisch' zegt, per land (0 NL, 1 BE, 2 LU, 3 DE, 4 FR)
+const LAND_STANDAARD = ['1500DC', '3000DC', '25kVAC', '15kVAC', '25kVAC'];
+function systeemVoor(elek, soort, vmax, land = 0) {
   if (!elek) return null;
-  if (elek === 1) return soort === 2 ? '750DC3' : soort === 1 ? '750DC' : soort === 3 ? '600DC' : vmax >= 250 ? '25kVAC' : '1500DC';
+  if (elek === 1) return soort === 2 ? '750DC3' : soort === 1 ? '750DC' : soort === 3 ? '600DC' : vmax >= 250 ? (land === 3 ? '15kVAC' : '25kVAC') : LAND_STANDAARD[land] || '1500DC';
   if (elek < 0) return '750DC3';
   if (elek >= 20000) return '25kVAC';
   if (elek >= 10000) return '15kVAC';
@@ -34,13 +36,13 @@ export function spanningVan(spel, t) {
   const eigen = spel?.spanning?.[t.i];
   if (eigen !== undefined) return eigen || null;
   if (!t.elek || !elektrischIn(t, spel?.jaar ?? 2026)) return null;
-  return systeemVoor(t.elek, t.soort, t.vmax);
+  return systeemVoor(t.elek, t.soort, t.vmax, t.land || 0);
 }
 // Was dit spoor in dat jaar al elektrisch? Grove benadering van de geschiedenis (per lijn zijn de jaren niet bekend):
 // treinspoor vanaf 1924 in de Randstad (Amsterdam–Haarlem–Leiden–Rotterdam), vanaf 1939 het grootste deel van het midden,
 // vanaf 1956 ook noord, oost en zuid; tram elektrisch vanaf ~1900; metro vanaf 1968. Eigen spoor is altijd zoals gebouwd.
 function elektrischIn(t, jaar) {
-  if (t.i >= 1e6 || jaar >= 1980) return true;
+  if (t.i >= 1e6 || jaar >= 1980 || t.land) return true; // buitenland: geen elektrificatiegeschiedenis bekend
   const m = (t.pts.length >> 2) * 2, x = t.pts[m], y = t.pts[m + 1];
   if (t.soort === 2) return jaar >= 1968;
   if (t.soort === 1 || t.soort === 3) return jaar >= 1900;
@@ -57,6 +59,10 @@ export const systemenVoorSoort = soort => Object.entries(SYSTEMEN).filter(([, s]
 // welke systemen kan een voertuig(type) aan? null = niet elektrisch (rijdt overal, mits spoorwijdte past)
 const EIGEN = {
   icng5: ['1500DC', '25kVAC'], ice3: ['1500DC', '15kVAC', '25kVAC', '3000DC'], loc186: ['1500DC', '25kVAC', '3000DC'], loc193: ['1500DC', '3000DC', '15kVAC', '25kVAC'],
+  // buurlanden: België 3 kV (HSL's 25 kV), Luxemburg 25 kV (en 3 kV naar België), Duitsland 15 kV, Frankrijk 1,5 kV en 25 kV
+  icngb: ['1500DC', '3000DC', '25kVAC'], flirt3ms: ['1500DC', '3000DC', '15kVAC'], am08: ['3000DC', '25kVAC'], am96: ['3000DC', '25kVAC'],
+  nmbsm7: ['3000DC', '25kVAC'], hle18: ['3000DC', '25kVAC', '15kVAC'], cflkiss: ['25kVAC', '15kVAC'], cfl2200: ['25kVAC', '3000DC'],
+  talent2: ['15kVAC'], ice4: ['15kVAC'], regio2n: ['1500DC', '25kVAC'], tgvduplex: ['1500DC', '25kVAC'], thalys: ['1500DC', '3000DC', '15kVAC', '25kVAC'],
   retrsg3: ['750DC3', '750DC'], regiocitadis: ['600DC', '750DC'], sigsneltram: ['750DC', '600DC'], urbos100: ['750DC'], gvbm5: ['750DC3', '600DC'], gvbm7: ['750DC3', '600DC'],
 };
 export function spanningenVan(typeId) {

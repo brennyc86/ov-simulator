@@ -73,7 +73,10 @@ def binnen(x, y, geom):
 # België en Luxemburg: geoBoundaries (open, vereenvoudigd, WGS84) omgezet naar RD.
 # België: provincies (ADM2, met Brussel) en gemeenten (ADM4); Luxemburg: kantons (ADM1) en gemeenten (ADM2).
 GB = "https://www.geoboundaries.org/api/current/gbOpen/{c}/"
-BUITENLAND = [("BE", "BEL/ADM2", "BEL/ADM4"), ("LU", "LUX/ADM1", "LUX/ADM2")]
+# Duitsland: deelstaten (ADM1) en regierungsbezirke (ADM2, als 'gemeente'); Frankrijk: regio's (ADM1) en departementen (ADM2).
+# (land, provincies, gemeenten, tolerantie provincie, tolerantie gemeente in meters)
+BUITENLAND = [("BE", "BEL/ADM2", "BEL/ADM4", 25, 15), ("LU", "LUX/ADM1", "LUX/ADM2", 25, 15),
+              ("DE", "DEU/ADM1", "DEU/ADM2", 300, 200), ("FR", "FRA/ADM1", "FRA/ADM2", 300, 200)]
 NAAM = {"Brussels": "Brussel", "Limburg": "Limburg (BE)", "Luxemburg": "Luxemburg (BE)"}
 
 
@@ -90,6 +93,13 @@ def naar_rd_geom(g):
     conv = lambda ring: [list(naar_rd(la, lo)) for lo, la, *_ in ring]
     polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
     return {"type": "MultiPolygon", "coordinates": [[conv(r) for r in poly] for poly in polys]}
+
+
+def eerste_punt(g):
+    c = g["coordinates"]
+    while isinstance(c[0], list):
+        c = c[0]
+    return c
 
 
 def binnenpunt(g):
@@ -109,12 +119,15 @@ def binnenpunt(g):
 
 
 def buitenland(P, G, land):
-    for code, cp, cg in BUITENLAND:
+    for code, cp, cg, tp, tg in BUITENLAND:
         try:
             prov, gem = haal_gb(cp), haal_gb(cg)
         except Exception as e:
             print(f"  {code}: ophalen mislukt ({e}), overgeslagen", file=sys.stderr)
             continue
+        # alleen Europees grondgebied (Frankrijk heeft overzeese regio's; daar geldt RD niet)
+        europees = lambda f: (lambda c: 41 < c[1] < 56 and -6 < c[0] < 16)(eerste_punt(f["geometry"]))
+        prov = [f for f in prov if europees(f)]; gem = [f for f in gem if europees(f)]
         prov.sort(key=lambda f: f["properties"]["shapeName"])
         start = len(P)
         geoms = []
@@ -123,12 +136,12 @@ def buitenland(P, G, land):
             naam = f["properties"]["shapeName"]
             naam = NAAM.get(naam, naam).replace("Canton ", "Kanton ")
             pc = f["properties"].get("shapeISO") or f"{code}-P{i}"
-            P.append([pc, naam, *ringen(g, 25)]); land[pc] = code
+            P.append([pc, naam, *ringen(g, tp)]); land[pc] = code
         n = 0
         for f in sorted(gem, key=lambda f: f["properties"]["shapeName"]):
             g = naar_rd_geom(f["geometry"]); x, y = binnenpunt(g)
             pi = next((start + i for i, pg in enumerate(geoms) if binnen(x, y, pg)), -1)
-            G.append([f"{code}-{f['properties']['shapeID'][:10]}", f["properties"]["shapeName"], pi, *ringen(g, 15)]); n += 1
+            G.append([f"{code}-{f['properties']['shapeID'][:10]}", f["properties"]["shapeName"], pi, *ringen(g, tg)]); n += 1
         print(f"  {code}: {len(prov)} provincies/kantons, {n} gemeenten", flush=True)
 
 
@@ -160,7 +173,7 @@ def main():
     os.makedirs(a.uit, exist_ok=True)
     pad = os.path.join(a.uit, "grenzen.json")
     with open(pad, "w") as fh:
-        json.dump({"jaar": a.jaar, "bron": "CBS gebiedsindelingen (PDOK); België en Luxemburg: geoBoundaries (gbOpen)", "landen": {"NL": "Nederland", "BE": "België", "LU": "Luxemburg"},
+        json.dump({"jaar": a.jaar, "bron": "CBS gebiedsindelingen (PDOK); België, Luxemburg, Duitsland en Frankrijk: geoBoundaries (gbOpen)", "landen": {"NL": "Nederland", "BE": "België", "LU": "Luxemburg", "DE": "Duitsland", "FR": "Frankrijk"},
                    "land": land, "p": P, "g": G}, fh, separators=(",", ":"), ensure_ascii=False)
     print(f"→ {pad} ({os.path.getsize(pad) / 1e3:.0f} kB)", flush=True)
     return 0

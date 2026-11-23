@@ -16,7 +16,7 @@ import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter } from './bijzonder.js';
 import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht, bakkenVan, vervoerderKleur, dof, tekenIcoon } from './voertuig.js';
-import { Net, wegRoute, bboxVan } from './net.js';
+import { Net, wegRoute, bboxVan, BEHEERDER } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, beschikbaarLos, standaardType } from './vloot.js';
 import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
@@ -1455,7 +1455,7 @@ const PANELEN = {
     const conflict = sys => lijnenOpBaanvak(bv.takken).filter(x => kanOp(x.typeId, nu) && !kanOp(x.typeId, sys) && !(x.lijn.sleeploc && kanOp(x.lijn.sleeploc, sys)));
     const keuze = d.kies !== undefined ? d.kies : undefined, kc = keuze !== undefined ? conflict(keuze) : [];
     return `<h2>${soortNaam[0].toUpperCase() + soortNaam.slice(1)}${t.naam && typeof t.naam === 'string' ? ' · ' + esc(t.naam) : ''}</h2>
-      <p class="klein">Baanvak ${komma(km)} km · ${t.sporen >= 2 ? t.sporen + ' sporen' : 'enkelspoor'} · max ${t.vmax || '?'} km/u · spoorwijdte ${t.soort === 4 ? 'smalspoor' : 'normaalspoor (1435 mm)'} · ${t.eigenaar === 'speler' ? 'van jou' : 'ProRail'}${t.hoogte > 0 ? ' · viaduct' : t.hoogte < 0 ? ' · tunnel' : ''}</p>
+      <p class="klein">Baanvak ${komma(km)} km · ${t.sporen >= 2 ? t.sporen + ' sporen' : 'enkelspoor'} · max ${t.vmax || '?'} km/u · spoorwijdte ${t.soort === 4 ? 'smalspoor' : 'normaalspoor (1435 mm)'} · ${t.eigenaar === 'speler' ? 'van jou' : BEHEERDER[t.land || 0]}${t.hoogte > 0 ? ' · viaduct' : t.hoogte < 0 ? ' · tunnel' : ''}</p>
       <p>Elektrificatie: <b>${nu ? SYSTEMEN[nu].naam : 'geen bovenleiding'}</b></p>
       <div class="veld"><label>Andere spanning voor dit baanvak</label>${opties.map(sys => { const c = sys === nu ? [] : conflict(sys); return `<label class="rij" style="${c.length ? 'opacity:.45' : ''}"><input type="radio" name="sv" data-wijzig="sv-kies" value="${sys || ''}" ${sys === (keuze !== undefined ? keuze : nu) ? 'checked' : ''}> ${sys ? SYSTEMEN[sys].naam : 'geen bovenleiding (alleen diesel, stoom, accu)'}${sys === nu ? ' (nu)' : c.length ? ` <span class="klein">— ${c.length} lijn(en) kunnen dan niet rijden</span>` : sys ? ` <span class="klein">${S.euroKort(ombouwKostenStroom(nu, sys, km))}</span>` : ''}</label>`; }).join('')}</div>
       ${keuze !== undefined && keuze !== nu ? (kc.length ? `<div class="kaartje"><b>Deze lijnen kunnen dan niet meer rijden:</b>${kc.map(x => `<p class="klein">${x.lijn.ai ? esc(x.lijn.vervoerderNaam || '') : 'Jouw lijn'} <b>${esc(x.lijn.nr || x.lijn.naam || '')}</b> (${esc(TYPE[x.typeId]?.naam || x.typeId)})

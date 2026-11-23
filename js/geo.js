@@ -5,11 +5,26 @@ const L = [[1,0,5260.52916],[1,1,105.94684],[1,2,2.45656],[3,0,-0.81885],[1,3,0.
 const R = [[0,1,190094.945],[1,1,-11832.228],[2,1,-114.221],[0,3,-32.391],[1,0,-0.705],[3,1,-2.340],[1,3,-0.608],[0,2,-0.008],[2,3,0.148]];
 const S = [[1,0,309056.544],[0,2,3638.893],[2,0,73.077],[1,2,-157.984],[3,0,59.788],[0,1,0.433],[2,2,-6.439],[1,1,-0.032],[0,4,0.092],[1,4,-0.054]];
 
-export function rdNaarWgs(x, y) {
+function rdNaarWgsReeks(x, y) {
   const dx = (x - 155000) * 1e-5, dy = (y - 463000) * 1e-5;
   let lat = 52.15517440, lon = 5.38720621;
   for (const [p, q, k] of K) lat += k * dx ** p * dy ** q / 3600;
   for (const [p, q, l] of L) lon += l * dx ** p * dy ** q / 3600;
+  return [lat, lon];
+}
+// De reeks is gemaakt voor Nederland; verder weg (Duitsland, Frankrijk) wijkt hij tientallen meters af.
+// Daar een paar Newton-stappen met de heenweg, zodat heen en terug weer precies op elkaar passen.
+export function rdNaarWgs(x, y) {
+  let [lat, lon] = rdNaarWgsReeks(x, y);
+  if (Math.abs(x - 155000) < 180000 && Math.abs(y - 463000) < 220000) return [lat, lon];
+  for (let i = 0; i < 3; i++) {
+    const [fx, fy] = wgsNaarRd(lat, lon), e = 1e-4;
+    const [ax, ay] = wgsNaarRd(lat + e, lon), [bx, by] = wgsNaarRd(lat, lon + e);
+    const j11 = (ax - fx) / e, j21 = (ay - fy) / e, j12 = (bx - fx) / e, j22 = (by - fy) / e, d = j11 * j22 - j12 * j21;
+    const rx = x - fx, ry = y - fy;
+    lat += (j22 * rx - j12 * ry) / d; lon += (j11 * ry - j21 * rx) / d;
+    if (Math.abs(rx) + Math.abs(ry) < 0.01) break;
+  }
   return [lat, lon];
 }
 export function wgsNaarRd(lat, lon) {

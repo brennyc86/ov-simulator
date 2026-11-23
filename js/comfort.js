@@ -15,6 +15,7 @@ const KENMERK = {
   stoom3700: [3, 0.7], mat36: [5, 0.8], hondekop: [6, 0.8], planv: [5, 0.9], sgm: [4, 1.3], icm: [7, 0.85], icmm: [7.5, 0.85], mddm4: [6, 0.9], mddm6: [6, 0.9], ddr: [6, 0.9], ddz: [6.5, 1.0],
   virm6: [6.5, 0.95], icng5: [7.5, 1.0], slt6: [4.5, 1.4], sng4: [5, 1.35], flirt4: [5.5, 1.25], gtw: [5, 1.1], wink: [5.5, 1.1], lint41: [5, 1.0],
   buffel: [5, 1.0], ice3: [8.5, 0.8],
+  icngb: [7.5, 1.0], flirt3ms: [5.5, 1.25], am08: [5.5, 1.2], am96: [6, 0.9], nmbsm7: [7, 0.95], cflkiss: [6.5, 1.1], cfl2200: [6, 1.0], talent2: [5, 1.2], ice4: [8, 0.8], regio2n: [6, 1.1], tgvduplex: [8, 0.75], thalys: [8.5, 0.7], hle18: [5, 1],
   coupe: [2.5, 1.3], staalrijtuig: [4, 0.8], plane: [5, 0.8], planw: [6, 0.75], icr: [7, 0.8], icrbvk: [7, 0.8], ddm1: [6, 0.9], ddm1bvk: [6, 0.9], viaggio: [8, 0.8], viaggiobvk: [8, 0.8],
   gvbm1: [3.5, 1.4], gvbm5: [4.5, 1.5], gvbm7: [5, 1.5], retmg2: [4, 1.3], retrsg3: [5, 1.4], regiocitadis: [5, 1.3], urbos100: [5, 1.35], sigsneltram: [3.5, 1.2],
   paardentram: [2, 0.8], stoomtram: [2.5, 0.8], tweeasser: [2.5, 1.0], pcc: [3.5, 1.1], gvb9g: [3.5, 1.1], gtl8: [4, 1.2], combino: [4.5, 1.4], citadis302: [4.5, 1.4], urbos15g: [5, 1.5], tina: [5, 1.5],

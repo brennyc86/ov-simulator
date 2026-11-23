@@ -41,16 +41,59 @@ DIENST = {"": 0, "siding": 1, "yard": 2, "spur": 3, "crossover": 4}
 GEBRUIK = {"main": 0, "branch": 1, "industrial": 2, "tourism": 3, "military": 4}
 
 
-LANDEN = "NL|BE|LU"  # Nederland, België en Luxemburg (de RD-formule is daar tot op ~0,3 m nauwkeurig)
+LANDEN = "NL|BE|LU|DE|FR"  # de RD-formule is tot in Duitsland en Frankrijk op enkele meters nauwkeurig
+LAND_NR = {"NL": 0, "BE": 1, "LU": 2, "DE": 3, "FR": 4}
+DETAIL = {"NL", "BE", "LU"}  # perrons, wissels, gebouwen en voorzieningen alleen hier (DE/FR zijn te groot)
+GROOT = {  # grote landen in stukken vragen (zuid, west, noord, oost), anders lopen de servers vast
+    "DE": [(47.2, 5.8, 51.2, 10.5), (47.2, 10.5, 51.2, 15.1), (51.2, 5.8, 55.1, 10.5), (51.2, 10.5, 55.1, 15.1)],
+    "FR": [(41.3, -5.3, 46.3, 2.5), (41.3, 2.5, 46.3, 9.7), (46.3, -5.3, 51.2, 2.5), (46.3, 2.5, 51.2, 9.7)],
+}
 
 
 def gebied(bbox):
     if bbox:
         return "", f"({bbox})"
-    return f'area["ISO3166-1"~"^({LANDEN})$"]["admin_level"="2"]->.nl;', "(area.nl)"
+    return "@GEBIED@", "(area.nl)"
 
 
-def overpass(query, pogingen=8):
+def overpass(query, pogingen=8, detail=False):
+    """Eén vraag per land (een gecombineerde vraag over meerdere landen gaf onvolledige antwoorden en time-outs),
+    grote landen in vier stukken; de elementen worden samengevoegd (dubbelen langs grenzen één keer) en
+    krijgen het land mee in e["_l"]. query mag ook een functie van het land zijn (lichtere vraag voor DE/FR).
+    detail=True: alleen NL, BE en LU."""
+    if not callable(query) and "@GEBIED@" not in query:
+        return overpass_een(query, pogingen)
+    alles, gezien, eerste = [], set(), True
+    for land in LANDEN.split("|"):
+        if detail and land not in DETAIL:
+            continue
+        q = query(land) if callable(query) else query
+        if "@GEBIED@" not in q:  # vraag met bbox (testen): één keer
+            return overpass_een(q, pogingen)
+        q = q.replace("@GEBIED@", f'area["ISO3166-1"="{land}"]["admin_level"="2"]->.nl;')
+        stukken = [q.replace("(area.nl)", f"(area.nl)({z},{w},{n},{o})") for z, w, n, o in GROOT[land]] if land in GROOT else [q]
+        n = 0
+        try:
+            for st in stukken:
+                if not eerste:
+                    time.sleep(15)
+                eerste = False
+                res = overpass_een(st, pogingen if land in DETAIL else 5)
+                for e in res.get("elements", []):
+                    k = (e["type"], e.get("id"))
+                    if k in gezien:
+                        continue
+                    gezien.add(k); e["_l"] = LAND_NR.get(land, 0); alles.append(e); n += 1
+        except SystemExit as fout:
+            if land in DETAIL:
+                raise
+            print(f"    {land}: overgeslagen ({fout})", flush=True)  # buurland mislukt: de rest gaat door
+            continue
+        print(f"    {land}: {n} elementen", flush=True)
+    return {"elements": alles}
+
+
+def overpass_een(query, pogingen=8):
     data = urllib.parse.urlencode({"data": query}).encode()
     laatste = None
     for i in range(pogingen):
@@ -58,7 +101,11 @@ def overpass(query, pogingen=8):
         try:
             req = urllib.request.Request(url, data=data, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=1200) as r:
-                return json.load(r)
+                res = json.load(r)
+            opm = res.get("remark", "")
+            if "error" in opm.lower() or "timed out" in opm.lower():  # half antwoord na een time-out op de server
+                raise RuntimeError(f"onvolledig antwoord: {opm[:120]}")
+            return res
         except Exception as e:  # noqa: BLE001
             laatste = e
             wacht = min(90, 20 * (i + 1))
@@ -102,8 +149,8 @@ def vereenvoudig(punten, tol):
 
 
 def in_nl(x, y):
-    """Europees Nederland, België en Luxemburg (de RD-formule geldt niet voor Caribisch Nederland)."""
-    return -70000 < x < 340000 and 0 < y < 680000
+    """Europees vasteland rond NL (NL, BE, LU, DE, FR); de RD-formule geldt niet voor Caribisch Nederland."""
+    return -800000 < x < 1000000 and -800000 < y < 1000000
 
 
 def rd_int(lat, lon):
@@ -121,7 +168,7 @@ def perrons(bbox, uit):
          f'way["public_transport"="platform"]["bus"!="yes"]["highway"!="bus_stop"]{g};'
          f'way["public_transport"="platform"]["train"="yes"]{g};way["public_transport"="platform"]["tram"="yes"]{g};'
          f'relation["public_transport"="platform"]["bus"!="yes"]{g};);out tags geom;')
-    res = overpass(q)
+    res = overpass(q, detail=True)
     gezien, lijst = set(), []
 
     def voeg(geom, vlak):
@@ -160,7 +207,7 @@ def stationsgebouwen(bbox, uit):
          f'way["building"]["public_transport"="station"]{g};relation["building"="train_station"]{g};)->.st;'
          f'(way["railway"="platform"]{g};way["public_transport"="platform"]["train"="yes"]{g};)->.p;'
          f'.p map_to_area->.pa;way["building"]["building"!="roof"](area.pa)->.op;(.st;.op;);out tags geom;')
-    res = overpass(q)
+    res = overpass(q, detail=True)
     gezien, lijst = set(), []
     for el in res.get("elements", []):
         if el["id"] in gezien:
@@ -198,7 +245,7 @@ def voorzieningen(bbox, uit):
     for soort, f in POI_SOORT:
         q = f'[out:json][timeout:600];{voor}(nwr{f}["name"]{g};);out center tags;'
         try:
-            res = overpass(q)
+            res = overpass(q, detail=True)
         except Exception as e:  # noqa: BLE001
             print(f"  {soort} mislukt: {e}", flush=True)
             continue
@@ -225,13 +272,21 @@ def voorzieningen(bbox, uit):
 def spoor(bbox, uit):
     voor, g = gebied(bbox)
     soorten = "|".join(SOORT.keys())
-    q = f"""[out:json][timeout:900];{voor}
+
+    def q(land):
+        if land in DETAIL:
+            return f"""[out:json][timeout:900];{voor}
 (way{g}["railway"~"^({soorten})$"];);
 out body geom;"""
+        return f"""[out:json][timeout:900];{voor}
+(way{g}["railway"="rail"]["usage"~"^(main|branch)$"]["service"!~"^(yard|siding|spur)$"];);
+out body geom;"""  # DE/FR: eerst alleen het landelijke net (hoofd- en zijlijnen); regionaal (tram, metro) later
     print("spoor ophalen…", flush=True)
     res = overpass(q)
     wegen = [e for e in res["elements"] if e["type"] == "way" and e.get("geometry")]
     print(f"  {len(wegen)} spoorwegen", flush=True)
+    if not bbox and len(wegen) < (5000 if "NL" in LANDEN else 100):
+        raise SystemExit("verdacht weinig spoor, gestopt (de vorige data blijft staan)")
 
     gebruik_telling = defaultdict(int)
     for w in wegen:
@@ -293,7 +348,7 @@ out body geom;"""
                 if len(stuk) >= 2:
                     a = knoop(ids[begin], stuk[0])
                     b = knoop(ids[i], stuk[-1])
-                    tol = 2.0 if dienst else 4.0
+                    tol = 2.0 if dienst else 4.0 if w.get("_l", 0) < 3 else 10.0  # DE/FR grover (bestandsgrootte)
                     vs = vereenvoudig(stuk, tol)
                     tussen = []
                     px, py = vs[0]
@@ -303,7 +358,8 @@ out body geom;"""
                     takken.append({"a": a, "b": b, "soort": soort, "dienst": dienst,
                                    "gebruik": gebr, "sporen": sporen_tag, "vmax": vmax,
                                    "elek": elek, "start": start, "eind": eind,
-                                   "naam": naam, "pts": vs, "tussen": tussen, "hoogte": hoogte})
+                                   "naam": naam, "pts": vs, "tussen": tussen, "hoogte": hoogte,
+                                   "land": w.get("_l", 0)})
                 begin = i
 
     schat_sporen(takken)
@@ -316,10 +372,11 @@ out body geom;"""
             naam_idx[n] = len(namen)
             namen.append(n)
         rij.append([tk["a"], tk["b"], tk["soort"], tk["dienst"], tk["gebruik"], tk["sporen"],
-                    tk["vmax"], tk["elek"], tk["start"], tk["eind"], naam_idx[n], tk["tussen"], tk["hoogte"]])
+                    tk["vmax"], tk["elek"], tk["start"], tk["eind"], naam_idx[n], tk["tussen"], tk["hoogte"], tk["land"]])
     schrijf(uit, "spoor.json", {
         "uitleg": "takken: [knoopA, knoopB, soort, dienst, gebruik, sporen, vmax, elek, "
-                  "startjaar, eindjaar, naamIdx, tussenpunten(delta vanaf A), hoogte(-1 tunnel, 1 viaduct)]",
+                  "startjaar, eindjaar, naamIdx, tussenpunten(delta vanaf A), hoogte(-1 tunnel, 1 viaduct), land]",
+        "landen": list(LAND_NR.keys()),
         "soorten": list(SOORT.keys()), "diensten": list(DIENST.keys()),
         "gebruik": list(GEBRUIK.keys()),
         "knopen": knopen, "namen": namen, "takken": rij})
@@ -372,7 +429,7 @@ def schat_sporen(takken):
 # --------------------------------------------------------------------------- stations
 def stations(bbox, uit, takken):
     voor, g = gebied(bbox)
-    q = f"""[out:json][timeout:600];{voor}
+    q_vol = f"""[out:json][timeout:600];{voor}
 (
  nwr{g}["railway"~"^(station|halt|tram_stop)$"];
  nwr{g}["public_transport"="station"];
@@ -382,6 +439,12 @@ def stations(bbox, uit, takken):
  nwr{g}["historic"="railway_station"];
 );
 out center tags;"""
+    q_licht = f"""[out:json][timeout:600];{voor}
+(
+ nwr{g}["railway"~"^(station|halt)$"]["station"!~"^(subway|light_rail|tram)$"];
+);
+out center tags;"""
+    q = lambda land: q_vol if land in DETAIL else q_licht
     print("stations ophalen…", flush=True)
     res = overpass(q)
     lijst = []
@@ -463,7 +526,7 @@ def punten_dicht(pts):
 # --------------------------------------------------------------------------- overig
 def wissels(bbox, uit):
     voor, g = gebied(bbox)
-    res = overpass(f'[out:json][timeout:600];{voor}node{g}["railway"="switch"];out skel;')
+    res = overpass(f'[out:json][timeout:600];{voor}node{g}["railway"="switch"];out skel;', detail=True)
     pts = []
     for e in res["elements"]:
         pts += rd_int(e["lat"], e["lon"])
@@ -474,11 +537,11 @@ def wissels(bbox, uit):
 def overig_ophalen(bbox):
     """Plaatsen, veren en vliegvelden in één Overpass-verzoek (de servers remmen af na veel losse verzoeken)."""
     voor, g = gebied(bbox)
-    return overpass(f"""[out:json][timeout:900];{voor}
-node{g}["place"~"^(city|town|village)$"];out body;
+    return overpass(lambda land: f"""[out:json][timeout:900];{voor}
+node{g}["place"~"^(city|town{'|village' if land in DETAIL else ''})$"];out body;
 way{g}["route"="ferry"];out tags geom;
-nwr{g}["aeroway"~"^(aerodrome|airstrip|heliport)$"];out center tags;
-way{g}["aeroway"="runway"];out tags geom;""")
+nwr{g}["aeroway"~"^({'aerodrome|airstrip|heliport' if land in DETAIL else 'aerodrome'})$"]{'' if land in DETAIL else '["iata"]'};out center tags;
+way{g}["aeroway"="runway"]{'' if land in DETAIL else '["length"]'};out tags geom;""")
 
 
 def plaatsen(bbox, uit, res=None):
@@ -599,7 +662,7 @@ def trolley(bbox, uit):
 (._;>;);
 out body geom;"""
     print("trolleybus ophalen…", flush=True)
-    res = overpass(q)
+    res = overpass(q, detail=True)
     lijnen, gezien = [], set()
     ways = {e["id"]: e for e in res["elements"] if e["type"] == "way" and e.get("geometry")}
     namen = {}
@@ -628,7 +691,7 @@ def main():
     ap.add_argument("--bbox", default="", help="zuid,west,noord,oost (voor testen)")
     ap.add_argument("--uit", default="data")
     ap.add_argument("--alleen", default="", help="bijv. perrons: alleen dat onderdeel")
-    ap.add_argument("--landen", default="NL|BE|LU", help="ISO-landcodes gescheiden door |")
+    ap.add_argument("--landen", default="NL|BE|LU|DE|FR", help="ISO-landcodes gescheiden door |")
     a = ap.parse_args()
     global LANDEN
     LANDEN = a.landen
