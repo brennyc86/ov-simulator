@@ -169,6 +169,8 @@ def main():
     ap.add_argument("--url")
     ap.add_argument("--uit", default="data")
     ap.add_argument("--max-rijen", type=int, default=0)
+    ap.add_argument("--toevoegen", action="store_true", help="bij bestaande haltes.json/vervoerders.json in --uit voegen (meerdere bronnen)")
+    ap.add_argument("--land", default="", help="landcode voor de vervoerders (bv. BE, LU); wordt voor de id gezet")
     a = ap.parse_args()
     bron = open(a.zip, "rb") if a.zip else io.BufferedReader(HttpBestand(a.url), 1 << 20)
     zf = zipfile.ZipFile(bron)
@@ -256,8 +258,16 @@ def main():
         vorm_rd[sid] = vereenvoudig(rd, 6)
     del vormen
 
-    # haltes
+    # haltes (bij --toevoegen doorgenummerd na de bestaande)
     halte_idx, haltes = {}, []
+    MODBIT = {"trein": 1, "metro": 2, "tram": 4, "bus": 8, "veer": 16, "belbus": 32, "overig": 64}
+    oude_vervoerders = []
+    if a.toevoegen and os.path.exists(os.path.join(a.uit, "haltes.json")):
+        terug = {v: k for k, v in MODBIT.items()}
+        for n_, x_, y_, bits in json.load(open(os.path.join(a.uit, "haltes.json"), encoding="utf-8"))["haltes"]:
+            haltes.append([n_, x_, y_, {terug[b] for b in terug if bits & b}])
+        oude_vervoerders = json.load(open(os.path.join(a.uit, "vervoerders.json"), encoding="utf-8"))["vervoerders"]
+        print(f"  toevoegen na {len(haltes)} bestaande haltes en {len(oude_vervoerders)} vervoerders", flush=True)
 
     def halte(sleutel, mod):
         if sleutel not in halte_idx:
@@ -277,6 +287,8 @@ def main():
         rt = routes[route_id]
         mod = modus(rt.get("route_type", "3"))
         ag = rt.get("agency_id") or next(iter(agencies), "onbekend")
+        if ag not in agencies and len(agencies) == 1:
+            ag = next(iter(agencies))
         hidx = [halte(h, mod) for h in volg]
         # rijtijden: mediaan per halte t.o.v. vertrek eerste halte
         rel = list(zip(*[[t - r[0][0] for t in r[0]] for r in rr]))
@@ -305,19 +317,19 @@ def main():
         xs = [haltes[h][1] for l in lijnen.values() for r in l["r"] for h in r["h"]]
         ys = [haltes[h][2] for l in lijnen.values() for r in l["r"] for h in r["h"]]
         ritten_dag = sum(len(r["v"]) for l in lijnen.values() for r in l["r"])
-        bestand = re.sub(r"[^A-Za-z0-9_-]", "_", ag) + ".json"
-        vervoerders.append({"id": ag, "naam": info.get("agency_name", ag), "url": info.get("agency_url", ""),
+        vid = f"{a.land}-{ag}" if a.land else ag
+        bestand = re.sub(r"[^A-Za-z0-9_-]", "_", vid) + ".json"
+        vervoerders.append({"id": vid, "land": a.land or "NL", "naam": info.get("agency_name", ag), "url": info.get("agency_url", ""),
                             "modi": dict(modi), "lijnen": len(lijnen), "ritten": ritten_dag,
                             "bbox": [min(xs), min(ys), max(xs), max(ys)] if xs else None,
                             "bestand": bestand})
         lijst = sorted(lijnen.values(), key=lambda l: (l["m"], len(l["nr"]), l["nr"]))
         with open(os.path.join(a.uit, "lijnen", bestand), "w", encoding="utf-8") as f:
-            json.dump({"vervoerder": ag, "dag": dag, "lijnen": lijst}, f,
+            json.dump({"vervoerder": vid, "dag": dag, "lijnen": lijst}, f,
                       ensure_ascii=False, separators=(",", ":"))
-    vervoerders.sort(key=lambda v: -v["ritten"])
     for v in vervoerders:
         print(f"  {v['naam']:<32} {v['lijnen']:>5} lijnen {v['ritten']:>7} ritten {v['modi']}")
-    MODBIT = {"trein": 1, "metro": 2, "tram": 4, "bus": 8, "veer": 16, "belbus": 32, "overig": 64}
+    vervoerders = sorted(oude_vervoerders + vervoerders, key=lambda v: -v["ritten"])
     with open(os.path.join(a.uit, "haltes.json"), "w", encoding="utf-8") as f:
         json.dump({"uitleg": "[naam, x, y, modi-bits trein1 metro2 tram4 bus8 veer16 belbus32]",
                    "haltes": [[n, x, y, sum(MODBIT.get(m, 64) for m in ms)] for n, x, y, ms in haltes]},

@@ -36,7 +36,7 @@ function binnen(g, x, y) {
 
 export class Territorium {
   constructor(kaart) {
-    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.levendig = []; this.sleutel = null; this.actief = false; this.heeftHaltes = false;
+    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.levendig = []; this.landen = { NL: 'Nederland' }; this.sleutel = null; this.actief = false; this.heeftHaltes = false;
     const m = kaart.map;
     if (!m?.getCanvasContainer) { this.cv = null; return; } // testkaart zonder canvas
     this.cv = document.createElement('canvas');
@@ -50,6 +50,7 @@ export class Territorium {
     try {
       const r = await fetch(url); if (!r.ok) return false;
       const d = await r.json();
+      this.landen = d.landen || { NL: 'Nederland' };
       this.prov = d.p.map(([c, n, ...rr]) => ({ ...gebied(c, n, rr), land: d.land?.[c] || 'NL' }));
       this.gem = d.g.map(([c, n, p, ...rr]) => ({ ...gebied(c, n, rr), p }));
       this.lagen();

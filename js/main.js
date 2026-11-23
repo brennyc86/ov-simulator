@@ -1253,8 +1253,8 @@ const PANELEN = {
       <p class="klein">De provincie wil verbindingen ontsluiten en rekent ze door: reizigers, kaartjes, kosten en investering. Minder reizigers = meer subsidie. Een nieuwe lijn die beide plaatsen bedient en aan de eisen voldoet, krijgt de startbijdrage (de investering, in 2 dagen) en daarna de doorlopende vergoeding zolang hij blijft voldoen.</p>
       <div class="kaartje"><b>Filter</b>
         <div class="rij" style="flex-wrap:wrap">${SUB_MODI.map(m => chip('sub-modus', m, f.modus.includes(m), MODI[m].naam)).join('')}</div>
-        <div class="rij" style="flex-wrap:wrap"><label class="veld" style="margin:0">Land <select data-wijzig="sub-land"><option value="NL" selected>Nederland</option></select></label></div>
-        ${provs.length ? `<div class="rij" style="flex-wrap:wrap">${provs.map((p, i) => chip('sub-prov', i, f.prov.includes(i), esc(p.naam))).join('')}</div>` : '<p class="klein">Provincies laden nog…</p>'}
+        <div class="rij" style="flex-wrap:wrap"><label class="veld" style="margin:0">Land <select data-wijzig="sub-land">${Object.entries(territorium?.landen || { NL: 'Nederland' }).map(([c, n]) => `<option value="${c}" ${c === f.land ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label></div>
+        ${provs.length ? `<div class="rij" style="flex-wrap:wrap">${provs.map((p, i) => p.land === f.land ? chip('sub-prov', i, f.prov.includes(i), esc(p.naam)) : '').join('')}</div>` : '<p class="klein">Provincies laden nog…</p>'}
         <div class="rij"><button class="knop klein" data-actie="sub-alles">Filter wissen</button><button class="knop klein hoofd" data-actie="sub-meer">Meer aanbiedingen zoeken${f.prov.length || f.modus.length ? ' in deze selectie' : ''}</button></div>
         <p class="klein">${passend.length} van ${(spel.aanbiedingen || []).filter(a => a.status !== 'verlopen').length} aanbiedingen passen bij het filter.</p></div>
       ${aanbodBlok(passend)}`;
@@ -1757,7 +1757,7 @@ function actieUit(a, d) {
     case 'aanbod-koppel': aanbodKoppelen(d.sub, lijnVan(d.lijn)); ververs(); break;
     case 'aanbod-los': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (a) aanbodLos(a); ververs(); break; }
     case 'open-subsidies': openPaneel('subsidies'); break;
-    case 'sub-alles': subFilter = { modus: [], prov: [] }; ververs(); break;
+    case 'sub-alles': subFilter = { modus: [], prov: [], land: subFilter.land }; ververs(); break;
     case 'sub-meer': { const n = subsidiesZoeken(subsidieLijst().filter(a => a.status === 'open').length + 3); melding(n ? `${n} nieuwe aanbieding${n > 1 ? 'en' : ''} gevonden.` : 'Hier vond de provincie geen nieuwe verbindingen die het ondersteunen waard zijn.'); ververs(); break; }
     case 'aanbod-toon': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (!a) break;
       kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [lonlat(a.a.x, a.a.y), lonlat(a.b.x, a.b.y)] } }] });
@@ -1888,7 +1888,7 @@ function wijzig(w, i) {
     case 'sub-modus': case 'sub-prov': { const lijst = w === 'sub-modus' ? subFilter.modus : subFilter.prov, v = w === 'sub-modus' ? i.value : +i.value;
       const k = lijst.indexOf(v); if (i.checked && k < 0) lijst.push(v); else if (!i.checked && k >= 0) lijst.splice(k, 1);
       if (lijst.length) subsidiesZoeken(3); ververs(); return; }
-    case 'sub-land': ververs(); return;
+    case 'sub-land': subFilter.land = i.value; subFilter.prov = []; ververs(); return;
     case 'nl-overal': paneelData.stopOveral = i.checked; i.blur(); ververs(); return;
     case 'nl-richting': paneelData.richting = i.value; ververs(); return;
     case 'nl-type': paneelData.typeKeuze = i.value; paneelData.spitsIn = $('nl-spits')?.value; paneelData.dalIn = $('nl-dal')?.value; paneelData.avondIn = $('nl-avond')?.value; paneelData.nrIn = $('nl-nr')?.value; paneelData.naamIn = $('nl-naam')?.value; i.blur(); setTimeout(() => ververs(), 0); return;
@@ -2262,7 +2262,7 @@ function aanbiedingenToetsen() {
 }
 // filter voor het subsidiescherm: vervoerssoorten en provincies (leeg = alles)
 const SUB_MODI = ['trein', 'bus', 'hov'];
-let subFilter = { modus: [], prov: [] };
+let subFilter = { modus: [], prov: [], land: 'NL' };
 function provinciesVan(a) {
   if (!a.provincies && territorium?.gem.length) a.provincies = [...new Set([territorium.provincieVan(a.a.x, a.a.y), territorium.provincieVan(a.b.x, a.b.y)])].filter(p => p >= 0);
   return a.provincies || [];

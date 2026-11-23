@@ -41,10 +41,13 @@ DIENST = {"": 0, "siding": 1, "yard": 2, "spur": 3, "crossover": 4}
 GEBRUIK = {"main": 0, "branch": 1, "industrial": 2, "tourism": 3, "military": 4}
 
 
+LANDEN = "NL|BE|LU"  # Nederland, België en Luxemburg (de RD-formule is daar tot op ~0,3 m nauwkeurig)
+
+
 def gebied(bbox):
     if bbox:
         return "", f"({bbox})"
-    return 'area["ISO3166-1"="NL"]["admin_level"="2"]->.nl;', "(area.nl)"
+    return f'area["ISO3166-1"~"^({LANDEN})$"]["admin_level"="2"]->.nl;', "(area.nl)"
 
 
 def overpass(query, pogingen=8):
@@ -99,8 +102,8 @@ def vereenvoudig(punten, tol):
 
 
 def in_nl(x, y):
-    """Europees Nederland (de RD-formule geldt niet voor Caribisch Nederland)."""
-    return -30000 < x < 330000 and 270000 < y < 680000
+    """Europees Nederland, België en Luxemburg (de RD-formule geldt niet voor Caribisch Nederland)."""
+    return -70000 < x < 340000 and 0 < y < 680000
 
 
 def rd_int(lat, lon):
@@ -625,7 +628,10 @@ def main():
     ap.add_argument("--bbox", default="", help="zuid,west,noord,oost (voor testen)")
     ap.add_argument("--uit", default="data")
     ap.add_argument("--alleen", default="", help="bijv. perrons: alleen dat onderdeel")
+    ap.add_argument("--landen", default="NL|BE|LU", help="ISO-landcodes gescheiden door |")
     a = ap.parse_args()
+    global LANDEN
+    LANDEN = a.landen
     os.makedirs(a.uit, exist_ok=True)
     if a.alleen == "spoor":
         takken = spoor(a.bbox, a.uit)

@@ -8,6 +8,8 @@ Uitvoer (RD, hele meters, ringen als delta's):
 Elke gemeente hoort bij de provincie waarin haar labelpunt ligt.
 """
 import argparse, json, math, os, sys, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from rd import naar_rd
 
 API = "https://api.pdok.nl/cbs/gebiedsindelingen/ogc/v1/collections/{c}/items?f=json&limit=1000&jaarcode={j}&crs=http://www.opengis.net/def/crs/EPSG/0/28992"
 
@@ -68,6 +70,68 @@ def binnen(x, y, geom):
     return n % 2 == 1
 
 
+# België en Luxemburg: geoBoundaries (open, vereenvoudigd, WGS84) omgezet naar RD.
+# België: provincies (ADM2, met Brussel) en gemeenten (ADM4); Luxemburg: kantons (ADM1) en gemeenten (ADM2).
+GB = "https://www.geoboundaries.org/api/current/gbOpen/{c}/"
+BUITENLAND = [("BE", "BEL/ADM2", "BEL/ADM4"), ("LU", "LUX/ADM1", "LUX/ADM2")]
+NAAM = {"Brussels": "Brussel", "Limburg": "Limburg (BE)", "Luxemburg": "Luxemburg (BE)"}
+
+
+def haal_gb(c):
+    req = urllib.request.Request(GB.format(c=c), headers={"User-Agent": "ov-simulator-datapijplijn"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        url = json.load(r)["simplifiedGeometryGeoJSON"]
+    req = urllib.request.Request(url, headers={"User-Agent": "ov-simulator-datapijplijn"})
+    with urllib.request.urlopen(req, timeout=300) as r:
+        return json.load(r)["features"]
+
+
+def naar_rd_geom(g):
+    conv = lambda ring: [list(naar_rd(la, lo)) for lo, la, *_ in ring]
+    polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
+    return {"type": "MultiPolygon", "coordinates": [[conv(r) for r in poly] for poly in polys]}
+
+
+def binnenpunt(g):
+    """punt binnen de (grootste) polygoon: zwaartepunt, anders een punt op een horizontale doorsnede"""
+    poly = max(g["coordinates"], key=lambda p: len(p[0]))
+    ring = poly[0]
+    a = cx = cy = 0
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+        k = x1 * y2 - x2 * y1; a += k; cx += (x1 + x2) * k; cy += (y1 + y2) * k
+    if a:
+        x, y = cx / (3 * a), cy / (3 * a)
+        if binnen(x, y, {"type": "Polygon", "coordinates": poly}):
+            return x, y
+    ys = sorted(p[1] for p in ring); y = (ys[0] + ys[-1]) / 2
+    xs = sorted(x1 + (y - y1) * (x2 - x1) / (y2 - y1) for (x1, y1), (x2, y2) in zip(ring, ring[1:]) if (y1 > y) != (y2 > y))
+    return ((xs[0] + xs[1]) / 2 if len(xs) >= 2 else ring[0][0]), y
+
+
+def buitenland(P, G, land):
+    for code, cp, cg in BUITENLAND:
+        try:
+            prov, gem = haal_gb(cp), haal_gb(cg)
+        except Exception as e:
+            print(f"  {code}: ophalen mislukt ({e}), overgeslagen", file=sys.stderr)
+            continue
+        prov.sort(key=lambda f: f["properties"]["shapeName"])
+        start = len(P)
+        geoms = []
+        for i, f in enumerate(prov):
+            g = naar_rd_geom(f["geometry"]); geoms.append(g)
+            naam = f["properties"]["shapeName"]
+            naam = NAAM.get(naam, naam).replace("Canton ", "Kanton ")
+            pc = f["properties"].get("shapeISO") or f"{code}-P{i}"
+            P.append([pc, naam, *ringen(g, 25)]); land[pc] = code
+        n = 0
+        for f in sorted(gem, key=lambda f: f["properties"]["shapeName"]):
+            g = naar_rd_geom(f["geometry"]); x, y = binnenpunt(g)
+            pi = next((start + i for i, pg in enumerate(geoms) if binnen(x, y, pg)), -1)
+            G.append([f"{code}-{f['properties']['shapeID'][:10]}", f["properties"]["shapeName"], pi, *ringen(g, 15)]); n += 1
+        print(f"  {code}: {len(prov)} provincies/kantons, {n} gemeenten", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jaar", type=int, default=2025)
@@ -91,10 +155,13 @@ def main():
         if pi < 0:
             print("  geen provincie voor", pr["statnaam"], file=sys.stderr)
         G.append([pr["statcode"], pr["statnaam"], pi, *ringen(f["geometry"], 15)])
+    land = {}
+    buitenland(P, G, land)
     os.makedirs(a.uit, exist_ok=True)
     pad = os.path.join(a.uit, "grenzen.json")
     with open(pad, "w") as fh:
-        json.dump({"jaar": a.jaar, "bron": "CBS gebiedsindelingen (PDOK), gegeneraliseerd", "p": P, "g": G}, fh, separators=(",", ":"), ensure_ascii=False)
+        json.dump({"jaar": a.jaar, "bron": "CBS gebiedsindelingen (PDOK); België en Luxemburg: geoBoundaries (gbOpen)", "landen": {"NL": "Nederland", "BE": "België", "LU": "Luxemburg"},
+                   "land": land, "p": P, "g": G}, fh, separators=(",", ":"), ensure_ascii=False)
     print(f"→ {pad} ({os.path.getsize(pad) / 1e3:.0f} kB)", flush=True)
     return 0
 

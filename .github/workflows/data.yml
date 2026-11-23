@@ -18,7 +18,7 @@ jobs:
   # komt de dienstregeling toch online, en blijft de vorige kaartdata staan.
   gtfs:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,6 +28,18 @@ jobs:
         run: curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/gtfs.zip https://gtfs.ovapi.nl/nl/gtfs-nl.zip
       - name: GTFS omzetten (lijnen, haltes, vertrektijden)
         run: python3 tools/gtfs.py --zip /tmp/gtfs.zip --uit uit
+      - name: België en Luxemburg (NMBS, MIVB, De Lijn, TEC, Luxemburg)
+        run: |
+          set +e
+          for bron in "sncb BE https://data.gtfs.be/sncb/gtfs/be-sncb-gtfs.zip" "stib BE https://data.gtfs.be/stib/gtfs/be-stib-gtfs.zip" \
+                      "delijn BE https://data.gtfs.be/delijn/gtfs/be-delijn-gtfs.zip" "tec BE https://data.gtfs.be/tec/gtfs/be-tec-gtfs.zip"; do
+            set -- $bron
+            curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/$1.zip "$3" && python3 tools/gtfs.py --zip /tmp/$1.zip --uit uit --toevoegen --land $2 || echo "$1 mislukt, overgeslagen"
+            rm -f /tmp/$1.zip
+          done
+          LU=$(curl -sS https://data.public.lu/api/1/datasets/horaires-et-arrets-des-transport-publics-gtfs/ | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['resources'], key=lambda r: r.get('last_modified') or '')[-1]['url'])")
+          curl -sSfL -A "ov-simulator-datapijplijn" -o /tmp/lu.zip "$LU" && python3 tools/gtfs.py --zip /tmp/lu.zip --uit uit --toevoegen --land LU || echo "Luxemburg mislukt, overgeslagen"
+          exit 0
       - uses: actions/upload-artifact@v4
         with:
           name: gtfs
