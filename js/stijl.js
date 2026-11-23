@@ -126,7 +126,7 @@ export function netKleuren() {
 // ondergronds spoor (tunnel) licht en half doorzichtig; op elke uitkomst van een zoom-interpolatie toegepast
 export const TUNNEL = (v, f = 0.3) => ['*', v, ['case', ['==', ['coalesce', ['get', 'h'], 0], -1], f, 1]];
 const metTunnel = (expr, f) => expr.map((x, i) => i >= 4 && i % 2 === 0 ? TUNNEL(x, f) : x);
-export const SPOOR_UIT = metTunnel(['interpolate', ['linear'], ['zoom'], 14.6, 1, 15.6, 0], 0.35);
+export const SPOOR_UIT = metTunnel(['interpolate', ['linear'], ['zoom'], 14.6, 1, 15.6, 0], 0.7);
 export function spoorLagen() {
   const in_ = metTunnel(['interpolate', ['linear'], ['zoom'], 14.6, 0, 15.4, 1], 0.18);
   const geenTram = ['!=', ['get', 'k'], 'tram'];
@@ -148,5 +148,9 @@ export function spoorLagen() {
     // viaduct/brug: de randen van de bak langs het spoor
     { id: 'spoor-viaduct', type: 'line', source: 'spoor', minzoom: 12, filter: ['==', ['coalesce', ['get', 'h'], 0], 1], layout: lay,
       paint: { 'line-color': '#4a4f52', 'line-width': meters(0.45, 0.9), 'line-gap-width': meters(['match', ['get', 'k'], ['h2', 'h3', 'metro', 'snel'], 9, 5.5], 3.2) } },
+    // tunnel: gestippelde buiswanden langs het (doorzichtige) spoor, zodat te zien is dat het onder de grond ligt
+    { id: 'spoor-tunnel', type: 'line', source: 'spoor', minzoom: 11, filter: ['==', ['coalesce', ['get', 'h'], 0], -1], layout: lay,
+      paint: { 'line-color': '#5b5f6a', 'line-opacity': 0.75, 'line-width': meters(0.4, 0.8), 'line-dasharray': [2.5, 1.8],
+        'line-gap-width': meters(['match', ['get', 'k'], ['h2', 'h3', 'metro', 'snel'], 8, 5], 3) } },
   ];
 }

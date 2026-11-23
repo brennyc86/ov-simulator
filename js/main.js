@@ -343,6 +343,9 @@ function netwerkLagen() {
     lijn('net-hoofd-halo', 'spoor', hoofd, NK.halo, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 4.5, 'h2', 3.5, 2.6], 13, ['match', ['get', 'k'], 'h3', 6, 'h2', 5, 3.6], 16, 3]);
     lijn('net-hoofd', 'spoor', hoofd, NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4]);
     lijn('net-enkel', 'spoor', ['all', k('h1'), jaarFilter(jaar)], NK.halo, ['interpolate', ['linear'], ['zoom'], 6, 0.5, 13, 0.8, 16, 0], { 'line-dasharray': [1, 3] });
+    // ondergronds (tunnel): de lijn wordt onderbroken door lichte streepjes, zodat zichtbaar is dat het spoor onder de grond ligt
+    lijn('net-tunnel', 'spoor', ['all', ['==', ['coalesce', ['get', 'h'], 0], -1], ['!=', ['get', 'k'], 'oud'], ['!=', ['get', 'k'], 'zij'], jaarFilter(jaar)], '#f4f1ea',
+      ['interpolate', ['linear'], ['zoom'], 9, 0.8, 13, 1.6, 15, 2], { 'line-dasharray': [1.2, 1.2], 'line-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0, 10, 0.9, 14.6, 0.9, 15.6, 0] });
     // eigen spoor: uitgezoomd in de bedrijfskleur, ingezoomd zie je de rails (die zitten in de gewone spoorlaag)
     lijn('net-eigen-spoor', 'eigen-spoor', ['==', ['get', 'klaar'], 1], spel?.kleur || '#c2412d', zoomB(2, 3, 4), { 'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.9, 13.5, 0] });
     lijn('net-eigen-bouw', 'eigen-spoor', ['==', ['get', 'klaar'], 0], spel?.kleur || '#c2412d', zoomB(2, 3, 4), { 'line-dasharray': [2, 2] });
