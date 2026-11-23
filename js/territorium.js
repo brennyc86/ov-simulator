@@ -1,16 +1,13 @@
 // Grenzen en territorium.
-// Gemeente-, provincie- en landsgrenzen, steeds duidelijker. Je territorium (waar je haltes hebt) staat in de
-// gewone kleuren, één stap erbuiten wat lichter, de rest zwart-wit.
+// Gemeente-, provincie- en landsgrenzen, steeds duidelijker. Hoe actiever je ergens bent, hoe kleurrijker de kaart.
 //  Vier gradaties:
 //  - levendig: de gemeenten waar je haltes hebt (al bij één halte), extra verzadigd
-//  - kleur: vanaf 5 gemeenten met haltes in een provincie de rest van die provincie (gewone kaartkleuren)
-//  - licht: de rest van elke provincie waar je haltes hebt; en heb je in een land een hele provincie, dan alle
-//    andere provincies van dat land
-//  - grijs: provincies waar je nog niet bent (zolang je in dat land geen hele provincie hebt) en het buitenland
+//  - kleur: de provincies waarin je haltes hebt (gewone kaartkleuren)
+//  - licht: de rest van een land waarin je haltes hebt
+//  - grijs: landen waar je nog niet bent (en heel Nederland zolang je nog geen haltes hebt)
 //  Dit geldt per land; nu is er alleen Nederland (provincies zonder land-code horen bij NL).
 import { rdNaarWgs } from './geo.js';
 
-const HELE_PROVINCIE = 5; // vanaf zoveel gemeenten met haltes telt de hele provincie
 const merc = (x, y) => { const [la, lo] = rdNaarWgs(x, y), f = la * Math.PI / 180; return [(lo + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + f / 2)) / Math.PI) / 2]; };
 
 function gebied(code, naam, rruwe) {
@@ -82,14 +79,8 @@ export class Territorium {
     for (const c of cel) { const [i, j] = c.split(',').map(Number); if (!cache.has(c)) cache.set(c, this.gemeenteVan(i * 250, j * 250)); const g = cache.get(c); if (g >= 0) actief.add(g); }
     this.actief = true; this.heeftHaltes = actief.size > 0; // zonder haltes: heel Nederland zwart-wit
     const perProv = new Map(); for (const g of actief) { const p = this.gem[g].p; perProv.set(p, (perProv.get(p) || 0) + 1); }
-    const heel = new Set([...perProv].filter(([, n]) => n >= HELE_PROVINCIE).map(([p]) => p));
-    const kleur = [], licht = [], heelLand = new Set([...heel].map(pi => this.prov[pi].land));
-    this.prov.forEach((p, pi) => {
-      if (heel.has(pi)) { kleur.push(p); return; }
-      const deel = perProv.has(pi), gem = this.gem.filter(g => g.p === pi);
-      if (deel) { for (const g of gem) (actief.has(this.gem.indexOf(g)) ? kleur : licht).push(g); return; }
-      if (heelLand.has(p.land)) licht.push(p);
-    });
+    const kleur = [], licht = [], actiefLand = new Set([...perProv.keys()].map(pi => this.prov[pi]?.land));
+    this.prov.forEach((p, pi) => { if (perProv.has(pi)) kleur.push(p); else if (actiefLand.has(p.land)) licht.push(p); });
     this.kleur = kleur; this.licht = licht; this.levendig = [...actief].map(i => this.gem[i]);
     this.kaart.map.triggerRepaint?.();
   }

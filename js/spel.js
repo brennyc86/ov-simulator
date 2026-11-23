@@ -81,7 +81,7 @@ export function maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interva
     route, // {pts, lengte}
     interval: interval || { vroeg: 30, ochtendspits: 15, dal: 30, avondspits: 15, avond: 60 },
     eerste: eerste ?? 6 * 60, laatste: laatste ?? 23 * 60, offset: 0, concessie: !!concessie,
-    kleur: MODI[modus]?.kleur || '#555', controle: 0, actief: true,
+    kleur: MODI[modus]?.kleur || '#555', controle: 0, actief: true, startDag: spel.dag ?? 0,
   };
   herbereken(lijn);
   spel.lijnen.push(lijn);
@@ -425,7 +425,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
     // subsidie: per dienstregelingsuur (plus extra afgesproken met de provincie) en eventueel per reiziger
     const subsidie = (lijn.concessie ? voertuigUren * ((SUBSIDIE_UUR[lijn.modus] || 0) + (lijn.subsidieUurExtra || 0)) + reizigers * (lijn.subsidiePerReiziger || 0) : 0)
       // aangeboden subsidie (provincie): alleen zolang de lijn aan de eisen voldoet
-      + (lijn.aanbod && lijn.aanbodOk ? voertuigUren * (lijn.aanbod.perUur || 0) + reizigers * (lijn.aanbod.perReiziger || 0) : 0);
+      + (lijn.aanbod && lijn.aanbodOk ? voertuigUren * (lijn.aanbod.perUur || 0) + reizigers * (lijn.aanbod.perReiziger || 0) + startBijdrage(spel, lijn, voertuigUren) : 0);
 
     m.kaartjes += kaartjes; m.boetes += boetes; m.subsidie += subsidie;
     m.personeel += personeel; m.energie += energie; m.gebruik += gebruik;
@@ -446,6 +446,16 @@ export function verrekenUur(spel, ctx, uurBegin) {
   }
 }
 
+// startbijdrage van een aangeboden subsidie: de geraamde investering, verdeeld over de eerste 2 dienstdagen
+// (18 uur per dag) waarin de lijn aan de eisen voldoet; alleen voor lijnen die na de aanbieding zijn aangelegd
+function startBijdrage(spel, lijn, voertuigUren) {
+  const a = (spel.aanbiedingen || []).find(x => x.id === lijn.aanbod.id);
+  if (!a?.vergoeding?.start || !voertuigUren || !((lijn.startDag ?? -1) >= a.dag - 1)) return 0;
+  const rest = a.vergoeding.start - (a.startBetaald || 0); if (rest <= 0) return 0;
+  const deel = Math.min(rest, a.vergoeding.start / ((a.vergoeding.aanloopDagen || 2) * 18));
+  a.startBetaald = (a.startBetaald || 0) + deel;
+  return deel;
+}
 // landings- en passagiersgelden: groot vliegveld duur, grasveldje bijna gratis
 export function landingsgeld(lijn, type) {
   const per = lijn.haltes.map(h => h.landing ?? 60);

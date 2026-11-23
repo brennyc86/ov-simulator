@@ -3,7 +3,7 @@ import { Kaart } from './kaart.js';
 import { zetKaartjaren, kaartjaarVoor, rdNaarWgs, wgsNaarRd } from './geo.js';
 import { netKleuren, spoorLagen, SPOOR_UIT, meters, THEMA } from './stijl.js';
 import { Wegen } from './wegen.js';
-import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst } from './subsidie.js';
+import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst, ramingTekst } from './subsidie.js';
 import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } from './gebouw.js';
 import { busstationOntwerp } from './perron.js';
 import { prestaties, vermogen, massa, doorloop, wiki } from './techniek.js';
@@ -2238,12 +2238,14 @@ function aanbiedingenToetsen() {
 function aanbodBlok() {
   const lijst = (spel.aanbiedingen || []).filter(a => a.status !== 'verlopen');
   if (!lijst.length) return '';
-  return `<h3>Aangeboden subsidies</h3><p class="klein">De provincie wil deze verbindingen ontsluiten. Een eigen lijn die beide plaatsen bedient en aan de eisen voldoet, krijgt de vergoeding zolang hij blijft voldoen (bovenop kaartjes en een eventuele concessie).</p>
+  return `<h3>Aangeboden subsidies</h3><p class="klein">De provincie wil deze verbindingen ontsluiten en rekent ze door: hoeveel reizigers, wat kaartjes opbrengen, wat het kost en wat je moet investeren. Minder reizigers betekent meer subsidie. Een nieuwe lijn die beide plaatsen bedient en aan de eisen voldoet, krijgt de startbijdrage (de investering, in 2 dagen) en daarna de doorlopende vergoeding zolang hij blijft voldoen.</p>
     ${lijst.map(a => {
       const eigen = spel.lijnen.filter(l => !l.bijzonder && bedient(l, a));
       const gekoppeld = a.lijnId ? lijnVan(a.lijnId) : null;
       return `<div class="kaartje"><div class="rij"><b>${MODI[a.modus].naam}: ${esc(a.a.naam)} – ${esc(a.b.naam)}</b>${gekoppeld ? '<span class="chip goed">loopt</span>' : ''}<span class="klein" style="margin-left:auto">${komma(Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / 1000)} km</span></div>
         <p class="klein"><b>${vergoedingTekst(a.vergoeding)}</b> · eisen: ${eisenTekst(a.eisen)}${gekoppeld ? '' : ` · aanmelden kan tot dag ${a.tot + 1}`}</p>
+        ${a.raming ? `<p class="klein">Raming provincie: ${esc(ramingTekst(a.raming))}. Goed neergezet verdien je de aanschaf in ${a.vergoeding.aanloopDagen || 2} dagen terug; de startbijdrage geldt alleen voor een nieuw aangelegde lijn.</p>` : ''}
+        ${a.vergoeding?.start && a.startBetaald ? `<p class="klein">Startbijdrage uitbetaald: ${S.euroKort(a.startBetaald)} van ${S.euroKort(a.vergoeding.start)}</p>` : ''}
         ${eigen.map(l => { const t = toetsEisen(l, a); return `<p class="klein">Lijn <b>${esc(l.nr)}</b>: ${t.ok ? '✓ voldoet' : '✗ ' + esc(t.redenen.join('; '))} ${gekoppeld === l ? `<button class="knop klein" data-actie="aanbod-los" data-sub="${a.id}">Loskoppelen</button>` : `<button class="knop klein" data-actie="aanbod-koppel" data-sub="${a.id}" data-lijn="${l.id}">Koppelen</button>`}</p>`; }).join('')}
         <div class="rij"><button class="knop klein" data-actie="aanbod-toon" data-sub="${a.id}">Toon op kaart</button>${gekoppeld ? '' : `<button class="knop klein hoofd" data-actie="aanbod-bouw" data-sub="${a.id}">Lijn bouwen</button>`}</div></div>`;
     }).join('')}`;
@@ -2253,7 +2255,7 @@ function aanbodVoorNieuw(d) {
   const nep = { modus: d.modus, haltes: d.haltes };
   const a = (spel.aanbiedingen || []).find(x => !x.lijnId && x.status === 'open' && (x.id === bouw?.aanbod || bedient(nep, x))) ;
   if (!a || !bedient(nep, a)) return '';
-  return `<label class="rij"><input type="checkbox" id="nl-aanbod" value="${a.id}" checked> Aanmelden voor de subsidie ${esc(a.a.naam)} – ${esc(a.b.naam)}: ${vergoedingTekst(a.vergoeding)} (eisen: ${eisenTekst(a.eisen)})</label>`;
+  return `<label class="rij"><input type="checkbox" id="nl-aanbod" value="${a.id}" checked> Aanmelden voor de subsidie ${esc(a.a.naam)} – ${esc(a.b.naam)}: ${vergoedingTekst(a.vergoeding)} (eisen: ${eisenTekst(a.eisen)})</label>${a.raming ? `<p class="klein">Raming: ${esc(ramingTekst(a.raming))}</p>` : ''}`;
 }
 // lopende bouwprojecten: spoor (per project samengevoegd), perrons en stations
 function bouwProjecten() {
