@@ -479,7 +479,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -1763,9 +1763,10 @@ function actieUit(a, d) {
       kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [lonlat(a.a.x, a.a.y), lonlat(a.b.x, a.b.y)] } }] });
       kaart.vliegNaar((a.a.x + a.b.x) / 2, (a.a.y + a.b.y) / 2, Math.max(2, Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / Math.min(kaart.W, kaart.H) * 1.6)); break; }
     case 'aanbod-bouw': { const a = (spel.aanbiedingen || []).find(x => x.id === d.sub); if (!a) break; sluitPaneel(); zetTool('lijn');
-      bouw = { modus: a.modus, punten: a.modus === 'trein' ? [{ ...a.a }, { ...a.b }] : [] , aanbod: a.id };
-      if (a.modus === 'trein') lijnKlaar();
-      else { kaart.vliegNaar(a.a.x, a.a.y, 4); hint(`Subsidielijn ${a.a.naam} – ${a.b.naam}: klik haltes aan, van ${a.a.naam} naar ${a.b.naam}.`, [['Klaar', lijnKlaar], ['Laatste weg', () => bouw.punten.pop()], ['Stoppen', () => zetTool('kijk')]]); }
+      bouw = { modus: a.modus, punten: a.modus === 'trein' ? [{ ...a.a }, { ...a.b }] : [], aanbod: a.id, erbij: [] };
+      kaart.vliegNaar((a.a.x + a.b.x) / 2, (a.a.y + a.b.y) / 2, Math.max(3, Math.hypot(a.a.x - a.b.x, a.a.y - a.b.y) / Math.min(kaart.W, kaart.H) * 1.5));
+      hint(`Subsidielijn ${a.a.naam} – ${a.b.naam}${a.eisen?.stops ? ` (${eisenTekst({ stops: a.eisen.stops })})` : ''}: klik de ${a.modus === 'trein' ? 'stations' : 'haltes'} aan waar de lijn moet stoppen; ze komen vanzelf op de goede plek.`, [['Klaar', lijnKlaar], ['Laatste weg', laatsteWeg], ['Stoppen', () => zetTool('kijk')]]);
+      if (a.modus === 'trein') lijnVoorbeeld();
       break; }
     case 'verzoek-ai': {
       const ai = AI.lijnen.find(x => x.sleutel === d.ai); const h = l.haltes[+d.h];
@@ -2093,6 +2094,7 @@ function snapTonen(px, py) {
   kaart.laag({ id: 'snap-punt', type: 'circle', source: 'snap-punt', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': spel.kleur || '#c2412d', 'circle-stroke-width': 3, 'circle-opacity': 0.9 } });
 }
 function zetTool(t) {
+  if (tool === 'lijn' && t !== 'lijn' && kaart?.map?.getSource('lijn-voorbeeld')) { voorbeeldNr++; kaart.bron('lijn-voorbeeld', { type: 'FeatureCollection', features: [] }); }
   tool = t; bouw = null; snapTonen(0, 0);
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('aan', b.dataset.tool === t));
   if (t === 'kijk') hint(null);
@@ -2110,7 +2112,7 @@ function kiesModus() {
   hint('Wat voor lijn?', modi.map(([m, n]) => [n, () => {
     bouw = { modus: m, punten: [] };
     hint(`Klik de haltes van je ${MODI[m].naam.toLowerCase()}lijn op volgorde aan.${['bus', 'hov', 'belbus', 'veer', 'watertaxi'].includes(m) ? ' Klik je naast een halte, dan komt er automatisch een nieuwe.' : ''}`,
-      [['Klaar', lijnKlaar], ['Laatste weg', () => bouw.punten.pop()], ['Stoppen', () => zetTool('kijk')]]);
+      [['Klaar', lijnKlaar], ['Laatste weg', laatsteWeg], ['Stoppen', () => zetTool('kijk')]]);
   }]).concat([['Stoppen', () => zetTool('kijk')]]));
 }
 let halteSoort = 'bus';
@@ -2574,7 +2576,43 @@ async function routeVoor(m, p) {
   } else route = await wegRoute(p.map(h => [h.x, h.y]));
   return { route, waarschuwing };
 }
+// waar past een nieuwe stop het best? minimale extra afstand; vóór het begin of na het eind wordt hij het nieuwe begin/eind
+function invoegPlek(p, c, beginVast) {
+  if (p.length < 2) return p.length;
+  const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  let beste = p.length, kost = d(p[p.length - 1], c);
+  if (!beginVast && d(p[0], c) < kost) { beste = 0; kost = d(p[0], c); }
+  for (let i = 1; i < p.length; i++) { const k = d(p[i - 1], c) + d(c, p[i]) - d(p[i - 1], p[i]); if (k < kost) { kost = k; beste = i; } }
+  return beste;
+}
+// de laatst toegevoegde stop weer weghalen
+function laatsteWeg() {
+  if (!bouw?.punten?.length) return;
+  const naam = bouw.erbij?.pop(), i = naam ? bouw.punten.findIndex(q => q.naam === naam) : bouw.punten.length - 1;
+  if (i >= 0 && bouw.punten.length > (bouw.terugVan ? 1 : 0)) bouw.punten.splice(i, 1);
+  lijnVoorbeeld();
+}
+// de route vervormt mee met elke aangeklikte stop (over het echte spoor of de weg)
+let voorbeeldNr = 0, voorbeeldTimer = null;
+function lijnVoorbeeld() {
+  clearTimeout(voorbeeldTimer);
+  const leeg = { type: 'FeatureCollection', features: [] };
+  if (!bouw?.punten || bouw.punten.length < 2) { if (kaart.map.getSource('lijn-voorbeeld')) kaart.bron('lijn-voorbeeld', leeg); return; }
+  const nr = ++voorbeeldNr, m = bouw.modus, p = bouw.punten.slice();
+  voorbeeldTimer = setTimeout(async () => {
+    let r; try { r = await routeVoor(m, p); } catch { return; }
+    if (nr !== voorbeeldNr || !bouw || tool !== 'lijn') return;
+    const pts = r.route?.pts || [], c = []; for (let i = 0; i < pts.length; i += 2) c.push(lonlat(pts[i], pts[i + 1]));
+    kaart.bron('lijn-voorbeeld', c.length >= 2 ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: c } }] } : leeg);
+    kaart.laag({ id: 'lijn-voorbeeld', type: 'line', source: 'lijn-voorbeeld', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': spel.kleur || '#c2412d', 'line-width': 5, 'line-opacity': 0.75 } });
+    const km = (r.route?.lengte || 0) / 1000;
+    const ab = bouw.aanbod && (spel.aanbiedingen || []).find(x => x.id === bouw.aanbod), eis = ab?.eisen?.stops ? ` · eis: ${eisenTekst({ stops: ab.eisen.stops })}, nu ${Math.max(0, p.length - 2)} tussenstop${p.length === 3 ? '' : 's'}` : '';
+    hint(`${p.map(q => esc(q.naam)).join(' → ')} · ${komma(km)} km${eis}${r.waarschuwing ? ' · ' + r.waarschuwing : ''}. Klik een station om het toe te voegen (komt vanzelf op de goede plek) of nog eens om het eruit te halen.`,
+      [['Klaar', lijnKlaar], ['Laatste weg', laatsteWeg], ['Stoppen', () => zetTool('kijk')]]);
+  }, m === 'trein' || m === 'metro' || m === 'tram' || m === 'sneltram' ? 30 : 350);
+}
 async function lijnKlaar() {
+  voorbeeldNr++; if (kaart.map.getSource('lijn-voorbeeld')) kaart.bron('lijn-voorbeeld', { type: 'FeatureCollection', features: [] });
   if (!bouw || bouw.punten.length < 2) { melding('Kies minstens twee haltes.'); return; }
   const m = bouw.modus, p = bouw.punten;
   hint('Route zoeken…');
@@ -2618,8 +2656,8 @@ function terugwegBouwen(l) {
   const eind = l.haltes[l.haltes.length - 1];
   zetTool('lijn');
   bouw = { modus: l.modus, punten: [{ naam: eind.naam, x: eind.x, y: eind.y }], terugVan: l.id };
-  hint(`Terugweg van lijn ${l.nr}: begint bij ${eind.naam}. Klik de haltes op volgorde aan en eindig bij ${l.haltes[0].naam}.`,
-    [['Klaar', lijnKlaar], ['Laatste weg', () => { if (bouw.punten.length > 1) bouw.punten.pop(); }], ['Stoppen', () => zetTool('kijk')]]);
+  hint(`Terugweg van lijn ${l.nr}: begint bij ${eind.naam}. Klik de haltes aan (ze komen vanzelf op een logische plek) en eindig bij ${l.haltes[0].naam}.`,
+    [['Klaar', lijnKlaar], ['Laatste weg', laatsteWeg], ['Stoppen', () => zetTool('kijk')]]);
 }
 const SPOORSOORT = { trein: { naam: 'treinspoor', code: 0, km: [8e6, 15e6], extra: 6e6 }, metro: { naam: 'metrospoor', code: 2, km: [14e6, 25e6], extra: 10e6 }, tram: { naam: 'tramspoor', code: 3, km: [4e6, 7e6], extra: 3e6 }, trolley: { naam: 'trolleybus-bovenleiding', code: -1, km: [1.2e6, 1.8e6], extra: 0 } };
 function spoorBegin(soort) {
@@ -2726,10 +2764,15 @@ function klik(px, py) {
       if (h) { c = { naam: h.naam, x: h.x, y: h.y, eigen: h.id }; melding(`Nieuwe halte ${h.naam} (${S.euro(HALTEKOSTEN[h.modus])}).`); }
     }
     if (!c) { melding(bouw.modus === 'trein' ? 'Hier is geen station. Bouw er een met ▣ Station, of klik dichter bij een station.' : 'Hier is geen halte voor deze modus. Klik dichter bij een halte.'); return; }
-    if (bouw.punten.length && bouw.punten[bouw.punten.length - 1].naam === c.naam) return;
     // terug bij de eerste halte: rondlijn gesloten
     if (bouw.punten.length >= 3 && bouw.punten[0].naam === c.naam && !bouw.terugVan) { bouw.punten.push(bouw.punten[0]); bouw.rond = true; melding('Rondlijn gesloten.'); lijnKlaar(); return; }
-    bouw.punten.push(c);
+    // al in de lijn: nog eens klikken haalt hem eruit
+    const al = bouw.punten.findIndex(q => q.naam === c.naam);
+    if (al >= 0) { if (bouw.punten.length > 1 && !(al === 0 && bouw.terugVan)) { bouw.punten.splice(al, 1); melding(`${c.naam} uit de lijn gehaald.`); lijnVoorbeeld(); } return; }
+    // op de logische plek: tussen twee stops waar de omweg het kleinst is, of als nieuw begin- of eindpunt
+    const pos = invoegPlek(bouw.punten, c, !!bouw.terugVan);
+    bouw.punten.splice(pos, 0, c); (bouw.erbij = bouw.erbij || []).push(c.naam);
+    lijnVoorbeeld();
     return;
   }
   if (tool === 'halte') { nieuweHalte(x, y, halteSoort); return; }

@@ -227,6 +227,17 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     log('raming:', tekst().match(/Raming provincie.{0,200}/)?.[0]); }
   const knopA = document.querySelector('[data-actie="aanbod-bouw"]'), a = knopA && sp.aanbiedingen.find(x => x.id === knopA.dataset.sub);
   if (a) { document.querySelector(`[data-actie="aanbod-bouw"][data-sub="${a.id}"]`).click(); await wacht(400);
+    // tussenstations aanklikken: ze moeten vanzelf tussen begin en eind komen; een station voorbij het eind wordt het nieuwe eind
+    const G7 = await import('../js/geo.js'), klikOp = async s => { globalThis.__map.vuur('click', { point: globalThis.__map.project(G7.rdNaarWgs(s.x, s.y).reverse()) }); await wacht(60); };
+    const bd = globalThis.__ovTest.bouwData, stn = globalThis.__ovTest.stations.filter(s => s.s === 'trein');
+    const mid = { x: (a.a.x + a.b.x) / 2, y: (a.a.y + a.b.y) / 2 }, dichtst = p => stn.filter(s => s.n !== a.a.naam && s.n !== a.b.naam).sort((u, w) => Math.hypot(u.x - p.x, u.y - p.y) - Math.hypot(w.x - p.x, w.y - p.y))[0];
+    const tus = dichtst(mid), voorbij = dichtst({ x: a.b.x + (a.b.x - a.a.x) * 0.4, y: a.b.y + (a.b.y - a.a.y) * 0.4 });
+    if (bd?.punten) { bd.punten.splice(0, bd.punten.length, { ...a.a }, { ...a.b }); }
+    globalThis.__ovTest.kaart.map.jumpTo({ center: G7.rdNaarWgs(mid.x, mid.y).reverse(), zoom: 9 }); await wacht(30);
+    log('invoegen:', bd ? [a.a.naam, a.b.naam].join(' → ') : 'geen bouw', '| +', tus?.n, '+', voorbij?.n);
+    if (bd && tus && voorbij) { await klikOp(tus); await klikOp(voorbij); log('volgorde:', globalThis.__ovTest.bouwData?.punten.map(p => p.naam).join(' → '));
+      await klikOp(voorbij); log('na nog eens klikken:', globalThis.__ovTest.bouwData?.punten.map(p => p.naam).join(' → ')); }
+    [...document.querySelectorAll('#hint button')].find(b => b.textContent === 'Klaar')?.click(); await wacht(400);
     log('nieuwe subsidielijn:', tekst().match(/Aanmelden voor de subsidie.{0,160}/)?.[0] || 'GEEN AANMELDVINKJE', '|', tekst().match(/Ruimte op het spoor.{0,60}/)?.[0]);
     const v = document.getElementById('nl-aanbod'); if (v) v.checked = true;
     document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(200);
