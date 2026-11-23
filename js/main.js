@@ -15,7 +15,7 @@ import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter } from './bijzonder.js';
 import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
-import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht, bakkenVan } from './voertuig.js';
+import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht, bakkenVan, vervoerderKleur, dof, tekenIcoon } from './voertuig.js';
 import { Net, wegRoute, bboxVan } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, beschikbaarLos, standaardType } from './vloot.js';
 import * as S from './spel.js';
@@ -602,14 +602,18 @@ function tekenBoven(ctx, k) {
         ctx.beginPath(); for (const z of [-0.35, 0.35]) { ctx.moveTo(-1 * pm, z * pm); ctx.lineTo(-6.5 * pm, z * 1.6 * pm); } ctx.stroke(); ctx.restore();
       }
     } else {
-      const breed = (m === 'trein' ? 4.5 : 4) * maat;
+      // ver uitgezoomd: pictogram in de kleur van de vervoerder; spelers fel met witte rand, computerbedrijven doffer
+      const breed = (m === 'trein' ? 5.5 : m === 'bus' || m === 'hov' || m === 'belbus' ? 6 : 5) * maat;
+      const ilang = Math.max(lang, ({ trein: 20, metro: 16, tram: 15, sneltram: 16 }[m] || 11) * maat);
+      const vk = eigen ? spel.kleur : dof(vervoerderKleur(v.lijn.vervoerderNaam || ''));
       ctx.save(); ctx.translate(px, py); ctx.rotate(-v.hoek);
-      ctx.fillStyle = kleur;
-      ctx.strokeStyle = eigen ? '#fff' : 'rgba(0,0,0,.55)'; ctx.lineWidth = eigen ? 1.5 : 0.8;
-      if (m === 'vlucht') { ctx.beginPath(); ctx.moveTo(9 * maat, 0); ctx.lineTo(-6 * maat, 7 * maat); ctx.lineTo(-3 * maat, 0); ctx.lineTo(-6 * maat, -7 * maat); ctx.closePath(); }
-      else if (m === 'veer' || m === 'watertaxi') { ctx.beginPath(); ctx.moveTo(lang / 2, 0); ctx.lineTo(-lang / 2, breed); ctx.lineTo(-lang / 2, -breed); ctx.closePath(); }
-      else { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-lang + 2, -breed / 2, lang, breed, 1.5) : ctx.rect(-lang + 2, -breed / 2, lang, breed); }
-      ctx.fill(); ctx.stroke();
+      const rand = eigen ? '#fff' : 'rgba(0,0,0,.45)', dik = eigen ? 1.4 : 0.7;
+      if (m === 'vlucht' || m === 'veer' || m === 'watertaxi') {
+        ctx.fillStyle = vk; ctx.strokeStyle = rand; ctx.lineWidth = dik;
+        if (m === 'vlucht') { ctx.beginPath(); ctx.moveTo(9 * maat, 0); ctx.lineTo(-6 * maat, 7 * maat); ctx.lineTo(-3 * maat, 0); ctx.lineTo(-6 * maat, -7 * maat); ctx.closePath(); }
+        else { ctx.beginPath(); ctx.moveTo(lang / 2, 0); ctx.lineTo(-lang / 2, breed); ctx.lineTo(-lang / 2, -breed); ctx.closePath(); }
+        ctx.fill(); ctx.stroke();
+      } else tekenIcoon(ctx, m, ilang, breed, vk, rand, dik);
       ctx.restore();
     }
     if (r < 2.5 && v.lijn.nr) {

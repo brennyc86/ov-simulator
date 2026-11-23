@@ -275,3 +275,64 @@ export function huiskleur(lijn, u) {
   for (const [re, k] of HUIS) if (re.test(n)) return (u.kleur === '#ffc917' || u.bus || lijn.modus === 'trein') ? k : u.kleur;
   return lijn.kleur && lijn.kleur.length === 7 && !/^#(fff|000)/i.test(lijn.kleur) ? lijn.kleur : u.kleur;
 }
+
+// ---------------------------------------------------------------- ver uitgezoomd: kleur per vervoerder en herkenbare vorm
+// Elke vervoerder een eigen huiskleur; computerbedrijven doffer (minder verzadigd), spelers fel met een witte rand.
+const VERVOERDER_KLEUR = [
+  [/ns international|^ns\b|nederlandse spoorwegen|r-net ns/i, '#ffc917'], [/connexxion/i, '#3f9c35'], [/blauwnet|keolis|allgo/i, '#1f4e9c'],
+  [/arriva/i, '#00a5b5'], [/qbuzz/i, '#e2001a'], [/ebs/i, '#8dc63f'], [/gvb/i, '#0063a6'], [/ret\b/i, '#e30613'], [/htm/i, '#b5121b'],
+  [/u-?ov/i, '#d40f14'], [/syntus/i, '#e74e0f'], [/hermes|breng|transdev/i, '#e6007e'], [/rrreis/i, '#c8005a'], [/meerplus/i, '#0b3d79'],
+  [/de lijn/i, '#ffd200'], [/nmbs|sncb/i, '#0066b3'], [/stib|mivb/i, '#00487e'], [/\btec\b/i, '#d9001b'], [/cfl/i, '#00519e'], [/luxtram/i, '#2fb3c9'],
+  [/rgtr|avl|autobus de la ville/i, '#c4161c'], [/\bdb\b|deutsche bahn/i, '#ec0016'], [/eurobahn/i, '#004f9f'], [/vias/i, '#00843d'],
+  [/waterbus/i, '#0081c6'], [/wagenborg|doeksen|westerschelde|teso|veer/i, '#0a5b8a'], [/european sleeper/i, '#1b2a4a'], [/govolta/i, '#ff6a13'],
+];
+const PALET = ['#2f7dbf', '#c8562d', '#3f9c35', '#8b3fa0', '#d4a017', '#1f8f8a', '#a83d5c', '#6b7a1f'];
+export function vervoerderKleur(naam = '') {
+  for (const [re, k] of VERVOERDER_KLEUR) if (re.test(naam)) return k;
+  let h = 0; for (const c of naam) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return PALET[h % PALET.length];
+}
+// doffer: minder verzadigd en iets naar middengrijs
+const dofCache = new Map();
+export function dof(hex) {
+  if (dofCache.has(hex)) return dofCache.get(hex);
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  let h = 0, s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+  if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  s *= 0.42; const l2 = l * 0.7 + 0.55 * 0.3;
+  const c = (1 - Math.abs(2 * l2 - 1)) * s, x = c * (1 - Math.abs((h % 2 + 2) % 2 - 1)), m = l2 - c / 2;
+  const [R, G, B] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+  const uit = '#' + [R, G, B].map(v => Math.round((v + m) * 255).toString(16).padStart(2, '0')).join('');
+  dofCache.set(hex, uit); return uit;
+}
+// pictogram in rijrichting (+x = voorkant), lengte lang en breedte breed in schermpixels
+// trein: lang, gelede bakken met een spitse neus; bus: kort en afgerond met een voorruit; tram: gelede delen met
+// ronde koppen; metro: rechte bakken met een witte streep (de deuren)
+export function tekenIcoon(ctx, modus, lang, breed, kleur, rand, randDik) {
+  const x0 = -lang + 2, x1 = 2, b2 = breed / 2;
+  const doos = (a, z, r) => { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(a, -b2, z - a, breed, r) : ctx.rect(a, -b2, z - a, breed); };
+  ctx.fillStyle = kleur; ctx.strokeStyle = rand; ctx.lineWidth = randDik;
+  if (modus === 'trein') {
+    const n = Math.max(2, Math.min(4, Math.round(lang / 7))), gat = 1.2, stuk = (lang - (n - 1) * gat) / n;
+    for (let i = 0; i < n; i++) {
+      const a = x0 + i * (stuk + gat), z = a + stuk;
+      ctx.beginPath();
+      if (i === n - 1) { const neus = Math.min(stuk * 0.4, breed * 0.9); ctx.moveTo(a, -b2); ctx.lineTo(z - neus, -b2); ctx.lineTo(z, 0); ctx.lineTo(z - neus, b2); ctx.lineTo(a, b2); ctx.closePath(); }
+      else if (i === 0) { const neus = Math.min(stuk * 0.25, breed * 0.5); ctx.moveTo(a + neus, -b2); ctx.lineTo(z, -b2); ctx.lineTo(z, b2); ctx.lineTo(a + neus, b2); ctx.lineTo(a, 0); ctx.closePath(); }
+      else ctx.rect(a, -b2, stuk, breed);
+      ctx.fill(); ctx.stroke();
+    }
+  } else if (modus === 'tram' || modus === 'sneltram') {
+    const n = 3, gat = 1, stuk = (lang - (n - 1) * gat) / n;
+    for (let i = 0; i < n; i++) { const a = x0 + i * (stuk + gat); doos(a, a + stuk, i === 0 || i === n - 1 ? b2 : 0.6); ctx.fill(); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(x0 + lang / 2 - 0.5, 0, Math.max(0.8, b2 * 0.4), 0, 7); ctx.fill(); // stroomafnemer
+  } else if (modus === 'metro') {
+    const n = 2, gat = 1, stuk = (lang - gat) / n;
+    for (let i = 0; i < n; i++) { const a = x0 + i * (stuk + gat); doos(a, a + stuk, 0.5); ctx.fill(); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = Math.max(0.8, breed * 0.18); ctx.beginPath(); ctx.moveTo(x0 + 1.5, 0); ctx.lineTo(x1 - 1.5, 0); ctx.stroke();
+  } else { // bus en overig wegvervoer
+    const L = Math.min(lang, breed * 2.6 + 4), a = x1 - L; doos(a, x1, Math.min(2.2, b2)); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(20,30,40,.75)'; ctx.fillRect(x1 - Math.max(1.4, L * 0.16), -b2 + 0.9, Math.max(1, L * 0.1), breed - 1.8); // voorruit
+  }
+}
