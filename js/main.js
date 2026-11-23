@@ -22,6 +22,7 @@ import * as S from './spel.js';
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
+import { muziekAan, muziekUit, muziekSpeelt } from './muziek.js';
 import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN, LIJNJAREN_DEEL } from './historie.js';
 import { genereerVervoerder } from './genereer.js';
 
@@ -56,7 +57,7 @@ async function laadData() {
   D.polders = (po?.p || []).map(p => ({ ...p, ringen: p.r.map(ontpak) }));
   D.historisch = hs || { l: [], s: [], n: [] };
   D.perrons = new Perrons(pr);
-  for (const v of spel?.perronVormen || []) D.perrons.voeg({ vlak: true, pts: v.pts, eigen: true });
+  for (const v of (spel?.perronVormen || []).filter(v => !v.weg)) D.perrons.voeg({ vlak: true, pts: v.pts, eigen: true });
   D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, b: Math.max(v.b || 0, landSinds(v.x, v.y)), landing: LANDING[v.s] ?? 60 }));
   net = new Net(spoor); S.zetNet(net);
   // spoor en stations in polders bestonden pas na de drooglegging
@@ -296,7 +297,7 @@ function netwerkLagen() {
     kaart.laag({ id: 'perron-vlak', type: 'fill', source: 'perrons', minzoom: 13, filter: ['all', ['==', ['get', 'v'], 1], jaarFilter(jaar)], paint: { 'fill-color': PERRON } });
     kaart.laag({ id: 'perron-rand', type: 'line', source: 'perrons', minzoom: 14, filter: ['all', ['==', ['get', 'v'], 1], jaarFilter(jaar)], paint: { 'line-color': PERRONRAND, 'line-width': meters(0.4, 0.6) } });
     kaart.laag({ id: 'perron-lijn', type: 'line', source: 'perrons', minzoom: 13, filter: ['==', ['get', 'v'], 0], layout: { 'line-cap': 'butt' }, paint: { 'line-color': PERRON, 'line-width': meters(4.5, 1.2) } });
-    kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': spel?.kleur || '#c2412d' } });
+    kaart.laag({ id: 'perron-eigen', type: 'fill', source: 'eigen-perrons', minzoom: 12, paint: { 'fill-color': ['case', ['==', ['get', 'weg'], 1], '#d9d6cf', ['==', ['get', 'klaar'], 1], PERRON, 'rgba(226,222,214,.55)'], 'fill-outline-color': ['case', ['==', ['get', 'weg'], 1], '#b9b4aa', spel?.kleur || '#c2412d'] } });
     // bebouwing door de tijd (BAG) in het eigen thema: één afbeelding (100 m per pixel) over heel Nederland
     if (D.bebouwing?.r && !kaart.map.getSource('bebouwing-hist') && typeof document !== 'undefined') {
       const c = D.bebouwing.cel || 100; let i0 = Infinity, i1 = -Infinity, j0 = Infinity, j1 = -Infinity;
@@ -452,7 +453,7 @@ function eigenNetBijwerken() {
   if (kaart.map.getSource('gebouwen')) kaart.bron('gebouwen', { type: 'FeatureCollection', features: (spel.gebouwen || []).flatMap(g => g.pts.map(v => ({ type: 'Feature', properties: { k: STIJLEN.find(x => x.id === g.stijl)?.kleur || '#999', klaar: isKlaar(g) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [vl(v)] } }))) });
   kaart.bron('eigen-perrons', { type: 'FeatureCollection', features: (spel.perronVormen || []).map(v => {
     const c = []; for (let i = 0; i < v.pts.length; i += 2) c.push(lonlat(v.pts[i], v.pts[i + 1]));
-    return { type: 'Feature', properties: { klaar: isKlaar(v) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
+    return { type: 'Feature', properties: { klaar: isKlaar(v) ? 1 : 0, weg: v.weg ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [c] } };
   }) });
   try { kruisingenTekenen(); } catch (e) { console.warn('kruisingen', e); }
   kaart.bron('eigen-spoor', { type: 'FeatureCollection', features: spel.spoor.map(sp => ({ type: 'Feature', properties: { klaar: sp.klaar ? 1 : 0 }, geometry: { type: 'LineString', coordinates: sp.punten.map(p => lonlat(p[0], p[1])) } })) });
@@ -469,7 +470,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -1671,6 +1672,7 @@ function actieUit(a, d) {
       o.haltes.forEach((p, i) => spel.haltes.push({ id: S.nieuwId('h'), naam: `${g.station}, perron ${String.fromCharCode(65 + al + i)}`, modus: 'bus', x: p.x, y: p.y, eigen: true, ...tijd, project, busstation: g.station }));
       spel.perronVormen = spel.perronVormen || [];
       for (const v of o.vlakken) spel.perronVormen.push({ station: g.station, pts: v, ...tijd, project, bus: true });
+      const toegang = busToegang(g); if (toegang) spel.perronVormen.push({ station: g.station, pts: toegang, ...tijd, project, bus: true, weg: true });
       spel.busProjecten = spel.busProjecten || {}; spel.busProjecten[project] = `Busstation ${g.station}`;
       melding(`Bouw van busstation ${g.station} (${g.n} haltes) gestart, klaar over 2 speluren.`);
       perronVoorstelWissen(); sluitPaneel(); eigenNetBijwerken(); hud(); break;
@@ -1683,7 +1685,9 @@ function actieUit(a, d) {
       const g = paneelData, st = STIJLEN.find(x => x.id === g.stijl) || stijlenVoor(spel.jaar)[0], gr = g.grootte, kosten = gebouwPrijs(st, gr);
       if (!g.plek || !betaal(kosten, 'het stationsgebouw')) break;
       spel.gebouwen = spel.gebouwen || [];
-      spel.gebouwen.push({ id: S.nieuwId('g'), station: g.station, stijl: st.id, grootte: gr, pts: gebouwVorm(g), x: g.plek.x, y: g.plek.y, ...bouwKlaar(), kosten, projectNaam: `Stationsgebouw ${g.station}` });
+      const tijdG = bouwKlaar(), toegang = gebouwToegang(g);
+      spel.gebouwen.push({ id: S.nieuwId('g'), station: g.station, stijl: st.id, grootte: gr, pts: gebouwVorm(g), x: g.plek.x, y: g.plek.y, ...tijdG, kosten, projectNaam: `Stationsgebouw ${g.station}` });
+      if (toegang) { spel.perronVormen = spel.perronVormen || []; spel.perronVormen.push({ station: g.station, pts: toegang, ...tijdG, weg: true }); }
       for (const l of [...spel.lijnen, ...AI.lijnen]) l._vangst = null;
       melding(`Bouw van het stationsgebouw van ${g.station} gestart (${S.euroKort(kosten)}), klaar over 2 speluren.`);
       perronVoorstelWissen(); sluitPaneel(); eigenNetBijwerken(); hud(); break;
@@ -2043,8 +2047,19 @@ function reageerOpVerzoek(a, vz) {
 }
 
 // ---------------------------------------------------------------- gereedschap
+// onder de muis laten zien waar een nieuwe bushalte komt (op de weg gesnapt)
+let snapTijd = 0;
+function snapTonen(px, py) {
+  if (!spel || !kaart?.map) return;
+  const bus = (tool === 'halte' && BUSMODI.includes(halteSoort)) || (tool === 'lijn' && BUSMODI.includes(bouw?.modus));
+  if (!bus) { if (kaart.map.getSource('snap-punt') && snapTijd) { snapTijd = 0; kaart.bron('snap-punt', { type: 'FeatureCollection', features: [] }); } return; }
+  const nu = performance.now(); if (nu - snapTijd < 60) return; snapTijd = nu;
+  const p = halteOpWeg(kaart.wx(px), kaart.wy(py), Math.max(40, 12 * (kaart.res || 1)));
+  kaart.bron('snap-punt', { type: 'FeatureCollection', features: p ? [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: lonlat(p.x, p.y) } }] : [] });
+  kaart.laag({ id: 'snap-punt', type: 'circle', source: 'snap-punt', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': spel.kleur || '#c2412d', 'circle-stroke-width': 3, 'circle-opacity': 0.9 } });
+}
 function zetTool(t) {
-  tool = t; bouw = null;
+  tool = t; bouw = null; snapTonen(0, 0);
   document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('aan', b.dataset.tool === t));
   if (t === 'kijk') hint(null);
   if (t === 'lijn') kiesModus();
@@ -2075,6 +2090,8 @@ function plaatsNaam(x, y) {
 }
 function nieuweHalte(x, y, modus, stil) {
   if (modus === 'tram' && net.dichtsteKnoop(x, y, 'tram', spel.jaar, 60) == null) { melding('Een tramhalte moet aan tramspoor liggen. Klik dichter bij een tramlijn.'); return null; }
+  if (BUSMODI.includes(modus)) { const p = halteOpWeg(x, y, Math.max(40, 12 * (kaart.res || 1))); if (p) { x = p.x; y = p.y; } }
+  else if (modus === 'tram' || modus === 'metro') { const k = net.dichtsteKnoop(x, y, modus, spel.jaar, 60); if (k) { x = Math.round(k.x); y = Math.round(k.y); } }
   const kosten = HALTEKOSTEN[modus] ?? 15000;
   if (!betaal(kosten, 'een halte')) return null;
   const h = { id: S.nieuwId('h'), naam: halteNaam(x, y, modus), modus, x, y, eigen: true, gereedDag: spel.dag };
@@ -2083,6 +2100,41 @@ function nieuweHalte(x, y, modus, stil) {
   eigenNetBijwerken();
   return h;
 }
+
+// ---------------------------------------------------------------- snappen naar wegen
+// Dichtstbijzijnde punt op een weg waar een bus kan komen (kaarttegels en eigen wegendata), binnen max meter.
+// Geeft {x, y, ux, uy, d} (RD, eenheidsrichting van de weg) of null.
+const GEEN_BUSWEG = new Set(['path', 'track', 'rail', 'transit', 'ferry', 'motorway', 'raceway', 'bridleway', 'pier', 'aerialway']);
+function wegBij(x, y, max = 60) {
+  const m = kaart?.map; if (!m?.querySourceFeatures) return null;
+  const [lo, la] = lonlat(x, y), mx = 111320 * Math.cos(la * Math.PI / 180), my = 111320;
+  let beste = null, bd = max;
+  const lijn = c => { for (let k = 1; k < c.length; k++) {
+    const ax = (c[k - 1][0] - lo) * mx, ay = (c[k - 1][1] - la) * my, dx = (c[k][0] - lo) * mx - ax, dy = (c[k][1] - la) * my - ay, l2 = dx * dx + dy * dy;
+    if (l2 < 0.01) continue;
+    const f = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)), px = ax + dx * f, py = ay + dy * f, d = Math.hypot(px, py);
+    if (d < bd) { bd = d; const l = Math.sqrt(l2); beste = { lon: lo + px / mx, lat: la + py / my, ux: dx / l, uy: dy / l, d }; } } };
+  const geo = g => g.type === 'LineString' ? lijn(g.coordinates) : g.type === 'MultiLineString' ? g.coordinates.forEach(lijn) : null;
+  try { for (const f of m.querySourceFeatures('osm', { sourceLayer: 'transportation' }) || []) if (!GEEN_BUSWEG.has(f.properties?.class) && f.properties?.subclass !== 'pedestrian') geo(f.geometry); } catch { /* bron nog niet geladen */ }
+  try { if (m.getSource('wegen')) for (const f of m.querySourceFeatures('wegen') || []) if (!'SFO'.includes(f.properties?.s)) geo(f.geometry); } catch { /* geen eigen wegen */ }
+  if (!beste) return null;
+  const [rx, ry] = wgsNaarRd(beste.lat, beste.lon);
+  // richting in RD (noord blijft noord binnen een paar graden; goed genoeg voor een halte)
+  return { x: rx, y: ry, ux: beste.ux, uy: beste.uy, d: beste.d };
+}
+// halte aan de stoeprand: op de weg, een paar meter opzij naar de kant waar geklikt is
+function halteOpWeg(x, y, max) {
+  const w = wegBij(x, y, max); if (!w) return null;
+  const nx = -w.uy, ny = w.ux, kant = Math.sign((x - w.x) * nx + (y - w.y) * ny) || 1;
+  return { x: Math.round(w.x + nx * kant * 3.5), y: Math.round(w.y + ny * kant * 3.5), weg: w };
+}
+// toegangsweg (6 m) van een punt naar de dichtstbijzijnde weg, als vlak; null als het al aan de weg ligt of er geen weg is
+function toegangNaarWeg(x, y, max = 200, breed = 6) {
+  const w = wegBij(x, y, max); if (!w || w.d < 8) return null;
+  const dx = w.x - x, dy = w.y - y, l = Math.hypot(dx, dy) || 1, nx = -dy / l * breed / 2, ny = dx / l * breed / 2;
+  return [x + nx, y + ny, w.x + nx, w.y + ny, w.x - nx, w.y - ny, x - nx, y - ny, x + nx, y + ny].map(q => Math.round(q * 10) / 10);
+}
+const BUSMODI = ['bus', 'hov', 'belbus', 'trolley'];
 
 // naam voor een nieuwe halte: de echte halte op die plek (dienstregeling of kaart), anders de straat, anders een nummer
 function halteNaam(x, y, modus) {
@@ -2376,16 +2428,19 @@ let terugNaarBouwer = null;
 // ---------------------------------------------------------------- busstation
 const busKosten = g => Math.round((g.n * 60000 + 150000 + (g.opstelling === 'naast' ? g.n * 30000 : 0)) / 1e4) * 1e4;
 function busVoorstel(g) {
-  const o = busstationOntwerp(g.n, g.opstelling, g.plek.x, g.plek.y, g.plek.hoek);
+  const o = busstationOntwerp(g.n, g.opstelling, g.plek.x, g.plek.y, g.plek.hoek), t = busToegang(g);
   kaart.bron('perron-voorstel', { type: 'FeatureCollection', features: [
-    ...o.vlakken.map(v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [c] } }; }),
+    ...[...o.vlakken, ...(t ? [t] : [])].map(v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [c] } }; }),
     ...o.haltes.map(p => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [lonlat(p.x - 6 * Math.cos(g.plek.hoek), p.y - 6 * Math.sin(g.plek.hoek)), lonlat(p.x + 6 * Math.cos(g.plek.hoek), p.y + 6 * Math.sin(g.plek.hoek))] } })),
   ] });
   openPaneel('busstation', g);
 }
 // ---------------------------------------------------------------- stationsgebouwen
+// toegangsweg van het busstation of van de straatkant van het stationsgebouw naar de dichtstbijzijnde weg
+const busToegang = g => toegangNaarWeg(g.plek.x, g.plek.y, 250);
+const gebouwToegang = g => { const b = GROOTTE[g.grootte]?.b || 16, h = g.plek.hoek, sx = g.plek.x + Math.sin(h) * b / 2, sy = g.plek.y - Math.cos(h) * b / 2; return toegangNaarWeg(sx, sy, 250, 5); };
 const gebouwVorm = g => { const st = STIJLEN.find(x => x.id === g.stijl) || STIJLEN[0], gr = (st.min === 'middel' && g.grootte === 'klein') ? 'middel' : g.grootte; return plattegrond(st, gr, g.plek.x, g.plek.y, Math.cos(g.plek.hoek), Math.sin(g.plek.hoek)); };
-function gebouwVoorstel(g) { voorstelTekenen({ sporen: [], vlakken: gebouwVorm(g) }); openPaneel('gebouw', g); }
+function gebouwVoorstel(g) { const t = gebouwToegang(g); voorstelTekenen({ sporen: [], vlakken: [...gebouwVorm(g), ...(t ? [t] : [])] }); openPaneel('gebouw', g); }
 // heeft een eigen station (nog) geen gebouw terwijl dat in dit jaar nodig is voor het loket?
 function stationGebouwNodig(naam) {
   if (spel.jaar >= 1990) return false;
@@ -2608,12 +2663,12 @@ function spoorVoorstel(d) {
 
 function klik(px, py) {
   if (!spel) return;
-  const x = kaart.wx(px), y = kaart.wy(py);
+  let x = kaart.wx(px), y = kaart.wy(py);
   if (tool === 'lijn' && bouw?.modus) {
     let c = dichtsteKandidaat(bouw.modus, px, py);
     if (!c && ['bus', 'hov', 'belbus', 'veer', 'watertaxi'].includes(bouw.modus)) {
       const h = nieuweHalte(x, y, bouw.modus === 'hov' || bouw.modus === 'belbus' ? 'bus' : bouw.modus, true);
-      if (h) { c = { naam: h.naam, x, y, eigen: h.id }; melding(`Nieuwe halte ${h.naam} (${S.euro(HALTEKOSTEN[h.modus])}).`); }
+      if (h) { c = { naam: h.naam, x: h.x, y: h.y, eigen: h.id }; melding(`Nieuwe halte ${h.naam} (${S.euro(HALTEKOSTEN[h.modus])}).`); }
     }
     if (!c) { melding(bouw.modus === 'trein' ? 'Hier is geen station. Bouw er een met ▣ Station, of klik dichter bij een station.' : 'Hier is geen halte voor deze modus. Klik dichter bij een halte.'); return; }
     if (bouw.punten.length && bouw.punten[bouw.punten.length - 1].naam === c.naam) return;
@@ -2654,9 +2709,16 @@ function klik(px, py) {
     zetTool('kijk'); openPaneel('kruising', { x: best.x, y: best.y, takken: best.n }); return; }
   if (tool === 'busstation' && bouw?.bus) { const g = bouw.bus; const r = net.dichtsteTak(x, y, 'trein', spel.jaar, 400); let h = 0;
     if (r) { const a = net.stuk(r.t, Math.max(0, r.s - 30), Math.min(r.t.lengte, r.s + 30)); h = Math.atan2(a[a.length - 1] - a[1], a[a.length - 2] - a[0]); }
+    // vlak aan een weg geklikt: busstation langs die weg, aan de kant waar geklikt is
+    const w = wegBij(x, y, 35);
+    if (w) { const nx = -w.uy, ny = w.ux, kant = Math.sign((x - w.x) * nx + (y - w.y) * ny) || 1; h = Math.atan2(w.uy, w.ux); x = Math.round(w.x + nx * kant * 9); y = Math.round(w.y + ny * kant * 9); }
     g.plek = { x, y, hoek: h }; zetTool('kijk'); busVoorstel(g); return; }
   if (tool === 'gebouw' && bouw?.gebouw) { const g = bouw.gebouw; const r = net.dichtsteTak(x, y, 'trein', spel.jaar, 300);
     let ux = 1, uy = 0; if (r) { const a = net.stuk(r.t, Math.max(0, r.s - 30), Math.min(r.t.lengte, r.s + 30)); ux = a[a.length - 2] - a[0]; uy = a[a.length - 1] - a[1]; const l2 = Math.hypot(ux, uy) || 1; ux /= l2; uy /= l2; }
+    // langs het spoor zetten, met de lange kant evenwijdig, aan de kant waar geklikt is (ruimte voor een zijperron)
+    if (r) { const st = STIJLEN.find(q => q.id === g.stijl) || STIJLEN[0], b = GROOTTE[g.grootte]?.b || 16, nx = -uy, ny = ux, kant = Math.sign((x - r.x) * nx + (y - r.y) * ny) || 1, af = b / 2 + 9 + (st.vorm === 'hal' ? b * 1.05 : 0);
+      if (r.d < af + 40) { x = Math.round(r.x + nx * kant * af); y = Math.round(r.y + ny * kant * af); }
+      if (kant > 0) { ux = -ux; uy = -uy; } } // voorkant (hal/perronkant) naar het spoor
     g.plek = { x, y, hoek: Math.atan2(uy, ux) }; zetTool('kijk'); gebouwVoorstel(g); return; }
   if (tool === 'lijnhalte' && bouw?.lijnId) { const l = lijnVan(bouw.lijnId), c = l && dichtsteKandidaat(l.modus, px, py); if (!c) { melding('Hier is geen station of halte van deze soort.'); return; } halteToevoegen(l, c); return; }
   // kijken: voertuig, eigen lijn of station selecteren
@@ -2931,7 +2993,7 @@ function init() {
   kaart.lagenBoven.push(tekenBoven);
   kaart.bijKlik = klik;
   kaart.map.on('dragstart', () => { if (volg) { volg = null; melding('Volgen gestopt.'); if (paneelSoort === 'rit') ververs(); } });
-  kaart.bijBeweeg = (px, py) => { if (bouw?.punten?.length) bouw.muis = [px, py]; };
+  kaart.bijBeweeg = (px, py) => { if (bouw?.punten?.length) bouw.muis = [px, py]; snapTonen(px, py); };
   const oudVuil = Object.getOwnPropertyDescriptor(Kaart.prototype, 'vuil');
   void oudVuil;
   let vorigeZicht = '';
@@ -2947,6 +3009,8 @@ function init() {
     if (e.key === 'Escape') { zetTool('kijk'); sluitPaneel(); }
   });
   $('b-account').onclick = () => toonStart();
+  $('b-muziek').onclick = e => { const b = e.currentTarget; if (muziekSpeelt()) muziekUit(); else muziekAan();
+    const aan = muziekSpeelt(); b.setAttribute('aria-pressed', aan); b.title = aan ? 'Muziek uitzetten' : 'Muziek aanzetten'; };
   $('start').addEventListener('cancel', e => { if (!spel) e.preventDefault(); });
   addEventListener('visibilitychange', () => { if (document.hidden) bewaar(); });
   zetSnelheid(5);

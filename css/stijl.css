@@ -50,6 +50,10 @@ button { cursor: pointer; }
 .snelheid button { background: none; border: 0; padding: 6px 10px; font: 600 13px/1 var(--f-cijfer); }
 .snelheid button + button { border-left: 1px solid var(--lijn); }
 .snelheid button.aan { background: var(--accent); color: var(--vlak); }
+.geluid { background: none; border: 1px solid var(--lijn); border-radius: 8px; padding: 4px 7px; display: flex; align-items: center; color: inherit; cursor: pointer; }
+.geluid .golf { display: none; }
+.geluid[aria-pressed="true"] .golf { display: inline; }
+.geluid[aria-pressed="true"] .kruis { display: none; }
 .account { background: none; border: 1px solid var(--lijn); border-radius: 8px; padding: 6px 10px; max-width: 16ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .gereedschap { position: fixed; z-index: 4; left: max(10px, env(safe-area-inset-left, 0px)); top: calc(env(safe-area-inset-top, 0px) + 66px);
