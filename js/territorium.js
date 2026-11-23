@@ -1,7 +1,9 @@
 // Grenzen en territorium.
 // Gemeente-, provincie- en landsgrenzen, steeds duidelijker. Je territorium (waar je haltes hebt) staat in de
 // gewone kleuren, één stap erbuiten wat lichter, de rest zwart-wit.
-//  - kleur: de gemeenten waar je haltes hebt (al bij één halte); vanaf 5 gemeenten in een provincie de hele provincie
+//  Vier gradaties:
+//  - levendig: de gemeenten waar je haltes hebt (al bij één halte), extra verzadigd
+//  - kleur: vanaf 5 gemeenten met haltes in een provincie de rest van die provincie (gewone kaartkleuren)
 //  - licht: de rest van elke provincie waar je haltes hebt; en heb je in een land een hele provincie, dan alle
 //    andere provincies van dat land
 //  - grijs: provincies waar je nog niet bent (zolang je in dat land geen hele provincie hebt) en het buitenland
@@ -37,7 +39,7 @@ function binnen(g, x, y) {
 
 export class Territorium {
   constructor(kaart) {
-    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.sleutel = null; this.actief = false; this.heeftHaltes = false;
+    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.levendig = []; this.sleutel = null; this.actief = false; this.heeftHaltes = false;
     const m = kaart.map;
     if (!m?.getCanvasContainer) { this.cv = null; return; } // testkaart zonder canvas
     this.cv = document.createElement('canvas');
@@ -88,7 +90,7 @@ export class Territorium {
       if (deel) { for (const g of gem) (actief.has(this.gem.indexOf(g)) ? kleur : licht).push(g); return; }
       if (heelLand.has(p.land)) licht.push(p);
     });
-    this.kleur = kleur; this.licht = licht;
+    this.kleur = kleur; this.licht = licht; this.levendig = [...actief].map(i => this.gem[i]);
     this.kaart.map.triggerRepaint?.();
   }
   uitleg() {
@@ -117,5 +119,11 @@ export class Territorium {
     ctx.globalCompositeOperation = 'source-over';
     // de stap erbuiten: kleur, maar lichter
     if (this.licht.length) { pad(this.licht); ctx.fillStyle = 'rgba(255,255,255,0.42)'; ctx.fill('evenodd'); }
+    // gemeenten waar je echt haltes hebt: extra levendig (verzadigder en iets meer contrast)
+    if (this.levendig?.length) {
+      ctx.save(); pad(this.levendig); ctx.clip('evenodd');
+      ctx.filter = 'saturate(1.8) contrast(1.08) brightness(1.03)'; ctx.drawImage(bron, 0, 0); ctx.filter = 'none';
+      ctx.restore();
+    }
   }
 }
