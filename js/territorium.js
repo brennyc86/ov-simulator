@@ -1,0 +1,122 @@
+// Grenzen en territorium.
+// Gemeente-, provincie- en landsgrenzen, steeds duidelijker. Je territorium (waar je haltes hebt) staat in de
+// gewone kleuren, één stap erbuiten wat lichter, de rest zwart-wit.
+//  - territorium: per provincie de gemeenten waar je haltes hebt; vanaf 4 gemeenten in een provincie de hele provincie
+//  - één stap erbuiten: heb je ergens een hele provincie, dan de rest van dat land; anders de rest van de
+//    provincies waarin je actief bent
+//  - een ander land telt pas als één stap erbuiten als je er een hele provincie hebt; anders alleen die provincie
+//    (voor later: er is nu één land)
+import { rdNaarWgs } from './geo.js';
+
+const HELE_PROVINCIE = 4;
+const merc = (x, y) => { const [la, lo] = rdNaarWgs(x, y), f = la * Math.PI / 180; return [(lo + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + f / 2)) / Math.PI) / 2]; };
+
+function gebied(code, naam, rruwe) {
+  const rd = [], mc = []; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const r of rruwe) {
+    const p = new Float64Array(r.length), m = new Float64Array(r.length);
+    let x = 0, y = 0;
+    for (let i = 0; i < r.length; i += 2) {
+      x = i ? x + r[i] : r[0]; y = i ? y + r[i + 1] : r[1];
+      p[i] = x; p[i + 1] = y; const q = merc(x, y); m[i] = q[0]; m[i + 1] = q[1];
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    rd.push(p); mc.push(m);
+  }
+  return { code, naam, rd, mc, bbox: [x0, y0, x1, y1] };
+}
+function binnen(g, x, y) {
+  const [x0, y0, x1, y1] = g.bbox; if (x < x0 || x > x1 || y < y0 || y > y1) return false;
+  let n = 0;
+  for (const p of g.rd) for (let i = 2; i < p.length; i += 2) {
+    const ax = p[i - 2], ay = p[i - 1], bx = p[i], by = p[i + 1];
+    if ((ay > y) !== (by > y) && x < ax + (y - ay) * (bx - ax) / (by - ay)) n++;
+  }
+  return n % 2 === 1;
+}
+
+export class Territorium {
+  constructor(kaart) {
+    this.kaart = kaart; this.prov = []; this.gem = []; this.kleur = []; this.licht = []; this.sleutel = ''; this.actief = false;
+    const m = kaart.map;
+    if (!m?.getCanvasContainer) { this.cv = null; return; } // testkaart zonder canvas
+    this.cv = document.createElement('canvas');
+    this.cv.className = 'territorium';
+    this.cv.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;display:none';
+    m.getCanvasContainer().insertBefore(this.cv, m.getCanvas().nextSibling);
+    this.ctx = this.cv.getContext('2d');
+    m.on('render', () => this.teken());
+  }
+  async laad(url = 'data/grenzen.json') {
+    try {
+      const r = await fetch(url); if (!r.ok) return false;
+      const d = await r.json();
+      this.prov = d.p.map(([c, n, ...rr]) => gebied(c, n, rr));
+      this.gem = d.g.map(([c, n, p, ...rr]) => ({ ...gebied(c, n, rr), p }));
+      this.lagen();
+      return true;
+    } catch (e) { console.warn('grenzen', e); return false; }
+  }
+  // grenslijnen: gemeente dun en gestippeld, provincie steviger; het land zelf zit in de kaartstijl ('grens')
+  lagen() {
+    const k = this.kaart, ll = g => g.rd.map(p => { const c = []; for (let i = 0; i < p.length; i += 2) { const [la, lo] = rdNaarWgs(p[i], p[i + 1]); c.push([+lo.toFixed(5), +la.toFixed(5)]); } return c; });
+    const fs = [...this.gem.map(g => ({ type: 'Feature', properties: { n: 1 }, geometry: { type: 'MultiLineString', coordinates: ll(g) } })),
+      ...this.prov.map(g => ({ type: 'Feature', properties: { n: 2 }, geometry: { type: 'MultiLineString', coordinates: ll(g) } }))];
+    k.bron('grenzen', { type: 'FeatureCollection', features: fs });
+    const voor = k.map.getLayer('grens') ? 'grens' : undefined;
+    k.laag({ id: 'grens-gemeente', type: 'line', source: 'grenzen', minzoom: 8, filter: ['==', ['get', 'n'], 1], layout: { 'line-join': 'round' },
+      paint: { 'line-color': '#7d7590', 'line-opacity': 0.7, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 12, 1, 15, 1.6], 'line-dasharray': [4, 3] } }, voor);
+    k.laag({ id: 'grens-provincie', type: 'line', source: 'grenzen', filter: ['==', ['get', 'n'], 2], layout: { 'line-join': 'round' },
+      paint: { 'line-color': '#5e4a7a', 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1, 10, 2, 14, 3.2] } }, voor);
+  }
+  gemeenteVan(x, y) { for (let i = 0; i < this.gem.length; i++) if (binnen(this.gem[i], x, y)) return i; return -1; }
+
+  // haltes: [{x, y}, ...] (RD). Bepaalt welke gebieden in kleur, lichter of zwart-wit staan.
+  zetHaltes(haltes) {
+    if (!this.gem.length) return;
+    const cel = new Set(); for (const h of haltes) if (h && isFinite(h.x)) cel.add(Math.round(h.x / 250) + ',' + Math.round(h.y / 250));
+    const sleutel = [...cel].sort().join(';'); if (sleutel === this.sleutel) return; this.sleutel = sleutel;
+    const actief = new Set(), cache = new Map();
+    for (const c of cel) { const [i, j] = c.split(',').map(Number); if (!cache.has(c)) cache.set(c, this.gemeenteVan(i * 250, j * 250)); const g = cache.get(c); if (g >= 0) actief.add(g); }
+    this.actief = actief.size > 0;
+    const perProv = new Map(); for (const g of actief) { const p = this.gem[g].p; perProv.set(p, (perProv.get(p) || 0) + 1); }
+    const heel = new Set([...perProv].filter(([, n]) => n >= HELE_PROVINCIE).map(([p]) => p));
+    // één land (Nederland): met een hele provincie is de rest van het land één stap erbuiten
+    const kleur = [], licht = [];
+    this.prov.forEach((p, pi) => {
+      if (heel.has(pi)) { kleur.push(p); return; }
+      const deel = perProv.has(pi), gem = this.gem.filter(g => g.p === pi);
+      if (deel) { for (const g of gem) (actief.has(this.gem.indexOf(g)) ? kleur : licht).push(g); return; }
+      if (heel.size) licht.push(p);
+    });
+    this.kleur = kleur; this.licht = licht;
+    this.kaart.map.triggerRepaint?.();
+  }
+  uitleg() {
+    if (!this.actief) return 'Nog geen territorium: plaats haltes of start een lijn.';
+    return `Territorium: ${this.kleur.map(g => g.naam).join(', ')}`;
+  }
+
+  // na elke kaartteken-beurt: kopie van de kaart in grijs over de gebieden buiten je territorium
+  teken() {
+    if (!this.cv) return;
+    const m = this.kaart.map, bron = m.getCanvas(), cv = this.cv, ctx = this.ctx;
+    if (!this.actief || this.uit) { if (cv.style.display !== 'none') cv.style.display = 'none'; return; }
+    if (cv.width !== bron.width || cv.height !== bron.height) { cv.width = bron.width; cv.height = bron.height; }
+    cv.style.display = '';
+    const W = bron.clientWidth || bron.width, s = bron.width / (W || 1), H = bron.height / s;
+    const ws = 512 * 2 ** m.getZoom(), c = m.getCenter(), cm = (() => { const f = c.lat * Math.PI / 180; return [(c.lng + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + f / 2)) / Math.PI) / 2]; })();
+    const pad = gebieden => { ctx.beginPath(); for (const g of gebieden) for (const r of g.mc) { for (let i = 0; i < r.length; i += 2) { const x = ((r[i] - cm[0]) * ws + W / 2) * s, y = ((r[i + 1] - cm[1]) * ws + H / 2) * s; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.closePath(); } };
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'copy'; ctx.filter = 'grayscale(1)';
+    ctx.drawImage(bron, 0, 0);
+    ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(0, 0, cv.width, cv.height); // zwart-wit iets lichter, zodat het rustig blijft
+    // territorium en de stap erbuiten uit het grijs knippen
+    ctx.globalCompositeOperation = 'destination-out';
+    pad([...this.kleur, ...this.licht]); ctx.fill('evenodd');
+    ctx.globalCompositeOperation = 'source-over';
+    // de stap erbuiten: kleur, maar lichter
+    if (this.licht.length) { pad(this.licht); ctx.fillStyle = 'rgba(255,255,255,0.42)'; ctx.fill('evenodd'); }
+  }
+}

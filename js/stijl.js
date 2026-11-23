@@ -8,7 +8,7 @@ export const THEMA = {
   bebouwd: '#d9705f', industrie: '#c9655a', gebouw: '#a94a3f', gebouwRand: '#8a3a31',
   asfalt: { S: '#585d63', H: '#666b70', R: '#72767b', L: '#7e8287', D: '#8a8d91', B: '#a5523f', O: '#c9a866', F: '#b9483b' },
   rand: '#3f4448', stoep: '#cfc9bd', stoepRand: '#a59f93', markering: '#ffffff', brug: '#2f3336',
-  tekst: '#1f2b24', halo: '#ffffff', grens: '#5a4a6a', waterTekst: '#0f4f80',
+  tekst: '#1f2b24', halo: '#ffffff', grens: '#3b2c50', waterTekst: '#0f4f80',
 };
 
 // pixels per meter op zoom z (breedtegraad ~52,2°, 512-pixeltegels)
@@ -76,7 +76,7 @@ export function kaartStijl() {
         layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': ['get', 'layer'] }, paint: { 'line-color': k.rand, 'line-width': meters(['+', TEGELBREEDTE, 0.8], 0.8) } },
       { id: 'tegelweg', type: 'line', source: 'osm', 'source-layer': 'transportation', filter: ['all', tegelFilter, ['any', ['>=', ['zoom'], 11], ['match', ['get', 'class'], ['motorway', 'trunk', 'primary', 'secondary'], true, false]]],
         layout: { 'line-cap': 'round', 'line-join': 'round', 'line-sort-key': ['get', 'layer'] }, paint: { 'line-color': TEGELKLEUR, 'line-width': meters(TEGELBREEDTE, 0.6) } },
-      { id: 'grens', type: 'line', source: 'osm', 'source-layer': 'boundary', filter: ['==', ['get', 'admin_level'], 2], paint: { 'line-color': k.grens, 'line-width': 1.4, 'line-dasharray': [3, 2] } },
+      { id: 'grens', type: 'line', source: 'osm', 'source-layer': 'boundary', filter: ['==', ['get', 'admin_level'], 2], paint: { 'line-color': k.grens, 'line-opacity': 0.95, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 2, 9, 3.5, 14, 5.5] } },
       { id: 'water-naam', type: 'symbol', source: 'osm', 'source-layer': 'water_name', minzoom: 8,
         layout: { 'text-field': naam, 'text-font': ['Noto Sans Italic'], 'text-size': 12, 'symbol-placement': 'point' }, paint: { 'text-color': k.waterTekst, 'text-halo-color': k.halo, 'text-halo-width': 1 } },
       { id: 'plaats', type: 'symbol', source: 'osm', 'source-layer': 'place', filter: ['match', ['get', 'class'], ['city', 'town', 'village'], true, false],

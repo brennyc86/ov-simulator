@@ -1,0 +1,38 @@
+name: Gemeente- en provinciegrenzen (CBS)
+# Haalt de gegeneraliseerde gemeente- en provinciegrenzen van PDOK en maakt grenzen.json.
+# De data-tak wordt pas vlak voor het wegschrijven opgehaald.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 20 1 *"   # jaarlijks (nieuwe gemeentelijke indeling)
+concurrency:
+  group: data
+  cancel-in-progress: false
+permissions:
+  contents: write
+  actions: write
+jobs:
+  grenzen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Grenzen ophalen
+        run: python3 -u tools/grenzen.py --jaar 2025 --uit /tmp/uit
+      - name: Naar de data-tak (nieuwste versie, alleen grenzen.json erbij)
+        run: |
+          mkdir -p tak && cd tak
+          git init -q
+          git fetch -q --depth 1 "https://github.com/${{ github.repository }}" data && git checkout -q FETCH_HEAD -- .
+          rm -rf .git
+          cp /tmp/uit/grenzen.json .
+          git init -q -b data
+          git config user.name "ov-simulator data"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -qm "Grenzen (CBS) $(date -u +%F)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" data
+      - name: Site opnieuw publiceren
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main

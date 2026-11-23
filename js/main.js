@@ -23,6 +23,7 @@ import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordee
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
 import { muziekAan, muziekUit, muziekSpeelt } from './muziek.js';
+import { Territorium } from './territorium.js';
 import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN, LIJNJAREN_DEEL } from './historie.js';
 import { genereerVervoerder } from './genereer.js';
 
@@ -374,6 +375,13 @@ function netwerkLagen() {
   }
   jaarBijwerken();
   if (!wegen) { wegen = new Wegen(kaart); wegen.start('grens'); }
+  if (!territorium) { territorium = new Territorium(kaart); territorium.laad().then(territoriumBijwerken); }
+}
+// territorium: waar je haltes hebt (eigen haltes en de haltes van je lijnen)
+let territorium = null;
+function territoriumBijwerken() {
+  if (!territorium) return;
+  territorium.zetHaltes(spel ? [...spel.haltes.filter(h => h.eigen), ...spel.lijnen.flatMap(l => l.haltes || [])] : []);
 }
 // bebouwing van dat jaar op de afbeelding tekenen (kleur naar functie: wonen, winkels, bedrijven, voorzieningen)
 function bebouwingTekenen(jaar) {
@@ -448,6 +456,7 @@ function eigenNetBijwerken() {
   if (!kaart?.klaar) return;
   const leeg = { type: 'FeatureCollection', features: [] };
   if (!kaart.map.getSource('perron-voorstel')) kaart.bron('perron-voorstel', leeg);
+  try { territoriumBijwerken(); } catch (e) { console.warn('territorium', e); }
   if (!spel) { kaart.bron('eigen-spoor', leeg); kaart.bron('eigen-lijnen', leeg); kaart.bron('eigen-haltes', leeg); kaart.bron('eigen-perrons', leeg); return; }
   const vl = v => { const c = []; for (let i = 0; i < v.length; i += 2) c.push(lonlat(v[i], v[i + 1])); return c; };
   if (kaart.map.getSource('gebouwen')) kaart.bron('gebouwen', { type: 'FeatureCollection', features: (spel.gebouwen || []).flatMap(g => g.pts.map(v => ({ type: 'Feature', properties: { k: STIJLEN.find(x => x.id === g.stijl)?.kleur || '#999', klaar: isKlaar(g) ? 1 : 0 }, geometry: { type: 'Polygon', coordinates: [vl(v)] } }))) });
@@ -470,7 +479,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
