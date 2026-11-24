@@ -64,6 +64,12 @@
 <div class="melding" id="melding" role="status" aria-live="polite"></div>
 <div class="bron" id="bron"></div>
 
+<div id="laadscherm" style="position:fixed;inset:0;z-index:50;background:#13262b;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px">
+  <div id="laad-plaat" style="width:min(92vw,1100px);aspect-ratio:1200/680;border-radius:14px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.5)"></div>
+  <b id="laad-titel" style="color:#f2efe6;font-size:18px;letter-spacing:.04em">Laden…</b>
+  <div style="width:min(80vw,640px);height:14px;border-radius:7px;background:#2c4249;overflow:hidden"><div id="laad-vol" style="height:100%;width:0;background:linear-gradient(90deg,#f2c14e,#e07a2d);transition:width .25s"></div></div>
+  <p id="laad-tekst" style="color:#c9d3cf;font-size:14px;margin:0;min-height:1.2em"></p>
+</div>
 <dialog id="start">
   <form method="dialog" id="startform">
     <h1>OV-<em>manager</em></h1>

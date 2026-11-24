@@ -31,6 +31,30 @@ export const LIEDJES = [
     'C5 - E5 G5 - E5 C5 .', 'B4 - D5 G5 - D5 B4 .', 'A4 - C5 E5 - D5 C5 .', 'B4 - G4 - D5 . . .',
     'E5 - G5 - E5 C5 A4 .', 'D5 - B4 G4 - B4 D5 .', 'A4 - F#4 - D4 - F#4 -', 'G4 - - - . . . .']),
     schema: ['G', 'C', 'G', 'D', 'G', 'Em', 'D', 'G', 'C', 'G', 'Am', 'G', 'Em', 'G', 'D', 'G'] },
+  { naam: 'Zondagse veerpont', bpm: 96, vorm: 'triangle', wielen: false, fluit: false, melodie: m16([
+    'E5 - - D5 C5 - - .', 'D5 - - C5 A4 - - .', 'C5 - D5 - E5 - G5 .', 'G5 - - - . . . .',
+    'A5 - - G5 E5 - - .', 'F5 - - E5 D5 - - .', 'E5 - D5 - C5 - D5 .', 'D5 - - - . . . .',
+    'E5 - - D5 C5 - - .', 'D5 - - C5 A4 - - .', 'F5 - E5 - D5 - C5 .', 'B4 - - - G4 . . .',
+    'C5 - E5 - G5 - E5 .', 'F5 - A5 - G5 - F5 .', 'E5 - D5 - B4 - D5 -', 'C5 - - - . . . .']),
+    schema: ['C', 'Am', 'F', 'G', 'F', 'Dm', 'C', 'G', 'C', 'Am', 'Dm', 'G', 'C', 'F', 'G7', 'C'] },
+  { naam: 'Nachtmetro', bpm: 110, vorm: 'square', wielen: true, fluit: false, melodie: m16([
+    'A4 . A4 C5 E5 . D5 C5', 'B4 . G#4 . E4 . . .', 'A4 . A4 C5 E5 . A5 G5', 'F5 . E5 . D5 . . .',
+    'D5 . D5 F5 A5 . G5 F5', 'E5 . C5 . A4 . . .', 'B4 . D5 . F5 . E5 D5', 'E5 - - - . . . .',
+    'C5 . E5 . G5 . E5 C5', 'F5 . E5 . D5 . C5 .', 'A4 . C5 . E5 . D5 C5', 'B4 - G#4 - E4 . . .',
+    'A4 . C5 . E5 . A5 .', 'G5 . F5 . E5 . D5 .', 'C5 . B4 . G#4 . B4 .', 'A4 - - - . . . .']),
+    schema: ['Am', 'E', 'Am', 'Dm', 'Dm', 'Am', 'E', 'E', 'C', 'F', 'Am', 'E', 'Am', 'Dm', 'E', 'Am'] },
+  { naam: 'Tramlijn', bpm: 132, vorm: 'triangle', wielen: true, fluit: false, melodie: m16([
+    'D5 . F#5 . A5 . F#5 .', 'G5 . E5 . C5 . . .', 'D5 . F#5 . A5 . D6 .', 'A5 - - - . . . .',
+    'B5 . A5 . G5 . F#5 .', 'E5 . G5 . B5 . . .', 'A5 . F#5 . D5 . E5 .', 'D5 - - - . . . .',
+    'G5 . B5 . G5 . E5 .', 'D5 . F#5 . A5 . . .', 'G5 . E5 . C5 . E5 .', 'D5 - - - A4 . . .',
+    'D5 . F#5 . A5 . F#5 .', 'G5 . B5 . A5 . G5 .', 'F#5 . E5 . D5 . E5 .', 'D5 - - - . . . .']),
+    schema: ['D', 'C', 'D', 'D', 'Em', 'Em', 'D', 'D', 'G', 'D', 'C', 'D', 'D', 'G', 'D', 'D'] },
+  { naam: 'Spitsuur', bpm: 160, vorm: 'square', wielen: true, fluit: true, melodie: m16([
+    'C5 C5 E5 G5 C6 . G5 E5', 'F5 F5 A5 C6 F5 . C5 .', 'G5 G5 B5 D6 G5 . F5 E5', 'D5 . G4 . B4 . D5 .',
+    'C5 C5 E5 G5 C6 . G5 E5', 'A5 A5 C6 A5 E5 . C5 .', 'D5 F5 A5 F5 D5 . F#5 .', 'G5 - - - . . . .',
+    'E5 E5 G5 E5 C5 . E5 .', 'F5 F5 A5 F5 C5 . F5 .', 'G5 G5 B5 G5 D5 . G5 .', 'C5 . E5 . G5 . . .',
+    'A5 G5 F5 E5 F5 . A5 .', 'G5 F5 E5 D5 E5 . G5 .', 'F5 E5 D5 C5 B4 . D5 .', 'C5 - - - . . . .']),
+    schema: ['C', 'F', 'G', 'G', 'C', 'Am', 'D7', 'G', 'C', 'F', 'G', 'C', 'F', 'C', 'G7', 'C'] },
 ];
 let lied = LIEDJES[0];
 export function zetLiedje(i) { lied = LIEDJES[i] || LIEDJES[0]; ACHTSTE = 60 / lied.bpm / 2; stap = 0; }

@@ -18,6 +18,7 @@ import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { planAlles, stationZoeker, stationVinder, zoekAfstemming } from './spoorplan.js';
 import { vluchtRoute } from './vlucht.js';
+import { laad } from './laadscherm.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
 import { kortNaam, stoelNaam, SLAAP, nieuwSlaapDeel, interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
@@ -41,9 +42,11 @@ let net = new Net(null), kaart, spel = null, snelheid = 5, tijdLoopt = true, too
 let bouw = null, selectie = null;
 
 // ---------------------------------------------------------------- data laden
+const laadTel = { klaar: 0, totaal: 17 };
 async function json(pad) {
   try { const r = await fetch(pad, { cache: 'no-cache' }); if (!r.ok) throw 0; D.ok[pad] = true; return await r.json(); }
   catch { D.ok[pad] = false; return null; }
+  finally { laadTel.klaar++; laad.zet(laadTel.klaar / laadTel.totaal * 0.85, `Kaartgegevens laden (${laadTel.klaar} van ${laadTel.totaal})`); }
 }
 // versie van het spel (versie.json wordt bij publiceren geschreven): rechtsonder en in het startscherm
 fetch('versie.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null).then(v => {
@@ -69,6 +72,7 @@ async function laadData() {
   D.perrons = new Perrons(pr);
   for (const v of (spel?.perronVormen || []).filter(v => !v.weg)) D.perrons.voeg({ vlak: true, pts: v.pts, eigen: true });
   D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, b: Math.max(v.b || 0, landSinds(v.x, v.y)), landing: LANDING[v.s] ?? 60 }));
+  laad.zet(0.88, 'Spoornet opbouwen'); await new Promise(r => setTimeout(r, 0));
   net = new Net(spoor); S.zetNet(net); S.zetStopZoeker(stopPlekken);
   // spoor en stations in polders bestonden pas na de drooglegging
   for (const t of net.takken) {
@@ -3636,7 +3640,10 @@ async function busroutesVerfijnen() {
 let laadTimer = 0;
 function laadAIinBeeld() {
   clearTimeout(laadTimer);
-  laadTimer = setTimeout(async () => {
+  laadTimer = setTimeout(aiLaden, 400);
+}
+async function aiLaden() {
+  {
     if (!spel || spel.jaar < 2020) return;
     const [x0, y0, x1, y1] = kaart.zicht(200);
     const lijst = D.vervoerders.filter(v => !vanSpeler(v.id) && v.bbox && !(v.bbox[0] > x1 || v.bbox[2] < x0 || v.bbox[1] > y1 || v.bbox[3] < y0));
@@ -3645,7 +3652,24 @@ function laadAIinBeeld() {
       if (!treinen && kaart.res > 60) continue;
       if (!AI.geladen.has(v.id)) { await laadVervoerderLijnen(v, spel.aiVerschuiving); nieuweStationsInAI(v.id); for (const a of AI.lijnen) if (a.vervoerder === v.id && spel.aiWacht?.[a.sleutel] && !a.dw) for (const [i, m] of Object.entries(spel.aiWacht[a.sleutel])) aiWachtToepassen(a, +i, m); }
     }
-  }, 400);
+  }
+}
+// eenmalig rekenwerk aan het begin van een spel (met laadscherm): de routes van lijnen in beeld op het echte spoor leggen,
+// zodat dat tijdens het spelen niet meer hoeft
+async function voorrekenen(gebied = null) {
+  laad.toon('Het spel wordt klaargezet'); laad.nieuweFase(); laad.zet(0.02, 'Dienstregelingen in de buurt laden');
+  await aiLaden();
+  const RAIL = ['trein', 'metro', 'sneltram', 'tram'], [x0, y0, x1, y1] = gebied ? [gebied[0] - 3000, gebied[1] - 3000, gebied[2] + 3000, gebied[3] + 3000] : kaart.zicht(3000);
+  const inBuurt = l => l.bbox && !(l.bbox[0] > x1 || l.bbox[2] < x0 || l.bbox[1] > y1 || l.bbox[3] < y0);
+  const werk = [...spel.lijnen, ...AI.lijnen.filter(inBuurt)].filter(l => RAIL.includes(l.modus) && l.route?.pts && ((l._spoor === undefined && !l.route.takken) || (!l.ai && l._banenVan !== l.route.pts && l.vertrek?.[1]?.length)));
+  let t0 = performance.now();
+  for (let i = 0; i < werk.length; i++) {
+    const l = werk[i];
+    if (l._spoor === undefined && !l.route.takken) { lijnOpSpoor(net, l, spel.jaar); if (l._spoor && l.echt && !l.ai) delete l.echt.km; }
+    if (!l.ai && l._banenVan !== l.route.pts && l.vertrek?.[1]?.length) rijBanen(net, l, spel.jaar);
+    if (performance.now() - t0 > 40) { laad.zet(0.05 + 0.95 * (i + 1) / werk.length, `Routes op het spoor leggen (${i + 1} van ${werk.length})`); await new Promise(r => setTimeout(r, 0)); t0 = performance.now(); }
+  }
+  laad.zet(1, 'Klaar'); laad.verberg();
 }
 
 // ---------------------------------------------------------------- opslaan en laden
@@ -3720,6 +3744,9 @@ async function laadSpel(data, nieuwSlot) {
   for (const s of spel.spoor) if (s.klaar) { net.voegEigenSpoorToe(s.punten, s.eigenaar, s.sporen + (s.extraSporen || 0), spel.jaar, s.soort || 0, s.dienst || 0); if (s.verdubbelt != null && net.takken[s.verdubbelt]) net.takken[s.verdubbelt].sporen = s.nieuwSporen || 2; }
   for (const b of spel.bovenleiding || []) if (b.klaar) bovenleidingToevoegen(b.punten);
   begin();
+  // het gebied van je eigen lijnen (of wat je nu ziet)
+  const bb = spel.lijnen.reduce((a, l) => l.bbox ? (a ? [Math.min(a[0], l.bbox[0]), Math.min(a[1], l.bbox[1]), Math.max(a[2], l.bbox[2]), Math.max(a[3], l.bbox[3])] : [...l.bbox]) : a, null);
+  voorrekenen(bb);
 }
 function vulVanAI(l, a, alle) {
   const terug = alle.find(x => x.lijnId === a.lijnId && x !== a);
@@ -3782,6 +3809,7 @@ async function nieuwSpelStarten() {
   if (bb) { const b = bb; kaart.vliegNaar((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.max(b[2] - b[0], b[3] - b[1]) / Math.min(kaart.W, kaart.H) * 1.1); }
   else kaart.vliegNaar(140700, 470500, 18); // 't Gooi
   $('s-start').disabled = false; $('s-start').textContent = 'Spel starten';
+  voorrekenen(bb || [130000, 460000, 152000, 482000]);
 }
 // haltenamen van nagebouwde lijnen: de naam die het station in dat jaar had
 function noemOud(lijnen, jaar) {
@@ -3814,6 +3842,7 @@ function begin() {
 }
 
 // Bedrijven: merken en dochters van één concern zijn samen één bedrijf (Arriva-bus, Arriva-trein, Bravo (Arriva) ...)
+const SAMENWERKING = [['Blauwnet', /blauwnet/i], ['R-net', /r-net/i], ['RRReis', /rrreis/i]];
 const CONCERNS = [['Arriva', /arriva/i], ['Keolis', /keolis|^rrreis$|allgo/i], ['Transdev', /connexxion|transdev|hermes/i], ['NS', /^ns\b|^ns international|r-net ns/i], ['Qbuzz', /qbuzz|^u-ov$/i]];
 function bedrijven() {
   const uit = new Map();
@@ -3825,6 +3854,14 @@ function bedrijven() {
     for (const [m, n] of Object.entries(v.modi || {})) b.modi[m] = (b.modi[m] || 0) + n;
     if (v.bbox) b.bbox = b.bbox ? [Math.min(b.bbox[0], v.bbox[0]), Math.min(b.bbox[1], v.bbox[1]), Math.max(b.bbox[2], v.bbox[2]), Math.max(b.bbox[3], v.bbox[3])] : [...v.bbox];
   }
+  // samenwerkingen (merk van meerdere bedrijven): ook als eigen bedrijf te kiezen, met dezelfde onderdelen
+  for (const [naam, re] of SAMENWERKING) {
+    const leden = D.vervoerders.filter(v => re.test(v.naam) || re.test(v.id)); if (leden.length < 2) continue;
+    const b = { id: 'samen:' + naam, naam, leden, modi: {}, lijnen: 0, bbox: null, samenwerking: true };
+    for (const v of leden) { b.lijnen += v.lijnen || 0; for (const [m, n] of Object.entries(v.modi || {})) b.modi[m] = (b.modi[m] || 0) + n;
+      if (v.bbox) b.bbox = b.bbox ? [Math.min(b.bbox[0], v.bbox[0]), Math.min(b.bbox[1], v.bbox[1]), Math.max(b.bbox[2], v.bbox[2]), Math.max(b.bbox[3], v.bbox[3])] : [...v.bbox]; }
+    uit.set(b.id, b);
+  }
   return [...uit.values()].sort((a, b) => b.lijnen - a.lijnen);
 }
 // is deze vervoerder (uit de dienstregeling) van het bedrijf van de speler?
@@ -3834,7 +3871,7 @@ function vulVervoerders(jaar) {
   const modern = jaar >= 2020 && D.vervoerders.length;
   const MODNAAM = { trein: 'trein', bus: 'bus', tram: 'tram', metro: 'metro', veer: 'veer', belbus: 'belbus', vlucht: 'vliegtuig', sneltram: 'sneltram', hov: 'snelbus' };
   const lijst = modern
-    ? bedrijven().map(b => ({ waarde: 'gtfs:' + b.id, naam: b.naam, modi: Object.keys(b.modi), kleur: vervoerderKleur(b.naam), leden: b.leden, info: `${b.lijnen} lijnen · ${Object.entries(b.modi).map(([m, n]) => `${n} ${MODNAAM[m] || m}`).join(', ')}` }))
+    ? bedrijven().map(b => ({ waarde: 'gtfs:' + b.id, naam: b.naam, modi: Object.keys(b.modi), kleur: vervoerderKleur(b.naam), leden: b.leden, info: `${b.samenwerking ? 'samenwerking · ' : ''}${b.lijnen} lijnen · ${Object.entries(b.modi).map(([m, n]) => `${n} ${MODNAAM[m] || m}`).join(', ')}` }))
     : vervoerdersIn(jaar).map(v => ({ waarde: 'hist:' + v.id, naam: v.naam, modi: v.modi, kleur: v.kleur || vervoerderKleur(v.naam), info: `${v.van}–${v.tot > 2050 ? 'nu' : v.tot} · ${v.modi.map(m => MODNAAM[m] || m).join(', ')}` }));
   // filterknoppen per vervoerwijze en zoeken op naam
   const alleModi = [...new Set(lijst.flatMap(v => v.modi))].filter(m => MODNAAM[m]);
@@ -3923,8 +3960,8 @@ function init() {
   $('b-tijdknop').onclick = () => zetTijd(!tijdLoopt);
   Cloud.bijInlog(u => { $('b-account').textContent = u ? (u.displayName || u.email || 'Account').split(' ')[0] : 'Inloggen'; if ($('start').open) toonAccount(); });
   Cloud.start().catch(() => {});
-  toonStart();
-  laadData().then(() => { if ($('start').open) toonStart(); });
+  laad.toon('OV-Manager wordt geladen');
+  laadData().then(() => { laad.zet(1, 'Klaar'); laad.verberg(); toonStart(); });
   requestAnimationFrame(lus);
 }
 // Dienstregeling instellen. Hoogfrequent: per deel van de dag een interval dat in een uurpatroon past, en de minuut
