@@ -301,7 +301,7 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   // busstation
   globalThis.__map.vuur('click', { point: globalThis.__map.project(G6.rdNaarWgs(st.x, st.y).reverse()) }); await wacht(60);
   document.querySelector('[data-actie="bus-kies"]')?.click(); await wacht(30);
-  for (const op of ['rij', 'zaagtand', 'hoekjes', 'naast']) { const r2 = document.querySelector(`[data-wijzig="bs-op"][value="${op}"]`); r2.checked = true; r2.dispatchEvent(new window.Event('change')); await wacht(20); }
+  for (const op of ['rij', 'zaagtand', 'hoekjes', 'naast']) { const r2 = document.querySelector(`[data-wijzig="bs-op"][value="${op}"]`); if (!r2) { log('busstation-ontwerp niet beschikbaar:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160)); break; } r2.checked = true; r2.dispatchEvent(new window.Event('change')); await wacht(20); }
   document.querySelector('[data-actie="bus-plaats"]')?.click(); await wacht(20); globalThis.__map.vuur('click', { point: { x: 640, y: 420 } }); await wacht(40);
   document.querySelector('[data-actie="bus-draai"][data-g="15"]')?.click(); await wacht(20);
   const h0 = sp.haltes.length; document.querySelector('[data-actie="bus-bouw"]')?.click(); await wacht(30);
