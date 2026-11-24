@@ -603,7 +603,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get halteGroepen() { return D.halteGroepen; }, kandidatenTest: m => kandidaten(m), routeVoor: (m, p) => routeVoor(m, p), get voorz() { return D.voorz; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get halteGroepen() { return D.halteGroepen; }, kandidatenTest: m => kandidaten(m), routeVoor: (m, p) => routeVoor(m, p), aansluiten: (p, m) => aansluiten(p, m), get voorz() { return D.voorz; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -3578,6 +3578,29 @@ function spoorCurve(d) {
   }
   return uit;
 }
+// Het einde van een nieuw stuk spoor vloeiend op bestaand spoor laten aansluiten: een boog die raakt aan je nieuwe
+// lijn (een eind terug) en aan het bestaande spoor (een eind verderop, in de richting waarin je erop rijdt), zodat er
+// geen knik in zit. Zoals een wissel. pts = [[x, y], ...]; het laatste punt is het einde dat aansluit.
+function aansluiten(pts, modus) {
+  if (pts.length < 2) return pts;
+  const E = pts[pts.length - 1], r = net.dichtsteTak(E[0], E[1], modus, spel.jaar, 250);
+  if (!r || r.t.dienst || r.t.lengte < 40) return pts;
+  const len = []; let tot = 0; for (let i = pts.length - 1; i >= 0; i--) { if (i < pts.length - 1) tot += Math.hypot(pts[i][0] - pts[i + 1][0], pts[i][1] - pts[i + 1][1]); len[i] = tot; } // afstand tot het einde
+  const R = modus === 'tram' ? 60 : modus === 'metro' ? 150 : 300; // boogstraal-ish: hoe lang de overgang wordt
+  const Lb = Math.max(Math.min(R * 0.6, tot * 0.45), Math.min(tot * 0.45, Math.max(r.d * 2.5, R * 0.4)));
+  let iA = pts.length - 1; while (iA > 0 && len[iA] < Lb) iA--;
+  const A = pts[iA], B = pts[Math.min(pts.length - 1, iA + 1)], P0 = pts[Math.max(0, iA - 1)];
+  let hx = B[0] - P0[0], hy = B[1] - P0[1]; const hl = Math.hypot(hx, hy) || 1; hx /= hl; hy /= hl;               // richting van je lijn bij A
+  const raak = s0 => { const q = net.stuk(r.t, Math.max(0, s0 - 10), Math.min(r.t.lengte, s0 + 10)); const ux = q[q.length - 2] - q[0], uy = q[q.length - 1] - q[1], ul = Math.hypot(ux, uy) || 1; return [ux / ul, uy / ul]; };
+  const [tx0, ty0] = raak(r.s), teken = (tx0 * (E[0] - A[0]) + ty0 * (E[1] - A[1])) >= 0 ? 1 : -1;           // rijrichting op het bestaande spoor
+  const sJ = Math.max(2, Math.min(r.t.lengte - 2, r.s + teken * Math.max(30, Lb * 0.7)));
+  const J = net.stuk(r.t, sJ, sJ).slice(0, 2), [tx, ty] = raak(sJ).map(v => v * teken);
+  const k = Math.hypot(J[0] - A[0], J[1] - A[1]) * 0.42;
+  const P1 = [A[0] + hx * k, A[1] + hy * k], P2 = [J[0] - tx * k, J[1] - ty * k];
+  const n = Math.max(4, Math.ceil(Math.hypot(J[0] - A[0], J[1] - A[1]) / 10)), boog = [];
+  for (let q = 1; q <= n; q++) { const t = q / n, u = 1 - t; boog.push([Math.round((u * u * u * A[0] + 3 * u * u * t * P1[0] + 3 * u * t * t * P2[0] + t * t * t * J[0]) * 10) / 10, Math.round((u * u * u * A[1] + 3 * u * u * t * P1[1] + 3 * u * t * t * P2[1] + t * t * t * J[1]) * 10) / 10]); }
+  return [...pts.slice(0, iA + 1), ...boog];
+}
 // welke delen liggen al op bestaand spoor (evenwijdig, binnen 30 m)? alleen de rest wordt aangelegd
 function spoorStukken(d) {
   const c = spoorCurve(d), modus = d.soort === 'metro' ? 'metro' : d.soort === 'tram' ? 'tram' : 'trein';
@@ -3593,7 +3616,8 @@ function spoorStukken(d) {
   c.forEach((p, i) => { if (!bestaand[i]) { if (!cur) { cur = []; if (i) cur.push(c[i - 1]); } cur.push(p); } else if (cur) { cur.push(p); stukken.push(cur); cur = null; } });
   if (cur) stukken.push(cur);
   const len = pts => pts.reduce((a, q, i) => i ? a + Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) : 0, 0);
-  const nieuw = stukken.filter(x => len(x) > 60), totaal = len(c), nieuwM = nieuw.reduce((a, x) => a + len(x), 0);
+  // uiteinden vloeiend op het bestaande spoor laten aansluiten (als een wissel: raakvlak, in de rijrichting van dat spoor)
+  const nieuw = stukken.filter(x => len(x) > 60).map(x => d.soort === 'trolley' ? x : aansluiten(aansluiten(x, modus).reverse(), modus).reverse()), totaal = len(c), nieuwM = nieuw.reduce((a, x) => a + len(x), 0);
   return { curve: c, nieuw, totaal, nieuwM, bestaandM: totaal - nieuwM };
 }
 const spoorKosten = (d, st) => Math.round(st.nieuwM / 1000 * (d.sporen >= 2 ? SPOORSOORT[d.soort].km[1] + (d.sporen - 2) * SPOORSOORT[d.soort].extra : SPOORSOORT[d.soort].km[0]) / 1e5) * 1e5;
@@ -4050,6 +4074,8 @@ function init() {
   let vorigeZicht = '';
   setInterval(spoorPlannen, 2500);
   setInterval(kandidatenTonen, 400);
+  // bouwprojecten: de voortgangsbalken lopen zichtbaar vol zolang je het paneel open hebt
+  setInterval(() => { if (spel && paneelSoort === 'bouw' && tijdLoopt && !document.querySelector('#paneel :focus')) ververs(); }, 1000);
   setInterval(() => { const z = kaart.zicht().map(v => Math.round(v / 2000)).join(',') + kaart.res.toFixed(0); if (z !== vorigeZicht) { vorigeZicht = z; laadAIinBeeld(); } }, 700);
   $('bron').textContent = '';
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));
