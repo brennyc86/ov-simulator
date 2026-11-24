@@ -180,3 +180,19 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
 .chipkeuze input { margin: 0; }
 .chipkeuze:has(input:checked) { background: var(--accent); color: var(--vlak); border-color: var(--accent); }
 .aandrijving .chip { font-size: 11px; padding: 1px 6px; letter-spacing: 0; }
+
+/* legenda op de kaart (linksonder) */
+.legendaknop { position: fixed; z-index: 4; left: max(10px, env(safe-area-inset-left, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 28px);
+  background: var(--vlak); color: var(--tekst); border: 1px solid var(--lijn); border-radius: 10px; padding: 7px 12px; font: 600 13px/1 var(--f-kop); letter-spacing: .03em; box-shadow: var(--schaduw); cursor: pointer; }
+.legendaknop[aria-pressed="true"] { background: var(--accent); color: var(--vlak); }
+.legenda-kaart { position: fixed; z-index: 5; left: max(10px, env(safe-area-inset-left, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 68px);
+  width: min(340px, calc(100vw - 20px)); max-height: min(70vh, calc(100vh - 140px)); overflow: auto; background: var(--vlak); border: 1px solid var(--lijn); border-radius: 12px; padding: 8px 10px; box-shadow: var(--schaduw); font-size: 13px; }
+.legenda-kop { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.legenda-kop .sluit { background: none; border: 0; font-size: 20px; line-height: 1; cursor: pointer; color: var(--dof); }
+.tabel.legenda th { text-align: left; font: 600 11px/1.2 var(--f-kop); letter-spacing: .05em; text-transform: uppercase; color: var(--dof); padding: 8px 0 2px; }
+.tabel.legenda td { padding: 2px 4px; vertical-align: middle; }
+.tabel.legenda td:first-child { width: 50px; }
+@media (max-width: 760px) {
+  .legendaknop { bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); }
+  .legenda-kaart { bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); max-height: 55vh; }
+}

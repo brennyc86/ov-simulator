@@ -180,6 +180,52 @@ function jaarFilter(jaar) { return ['all', ['<=', ['get', 'van'], jaar], ['>', [
 
 let lagenGemaakt = false, wisselCache = null;
 const PASSAGIER = '#2f9e44', VRACHT = '#f2c200';
+// ---------------------------------------------------------------- legenda (zelfde kleuren en patronen als op de kaart)
+function legendaHTML() {
+  const S = NK.spoor, w = '#ffffff';
+  const lijnSvg = (...l) => `<svg width="46" height="12" aria-hidden="true">${l.map(([kl, br, extra = '']) => `<line x1="2" y1="6" x2="44" y2="6" stroke="${kl}" stroke-width="${br}" stroke-linecap="round" ${extra}/>`).join('')}</svg>`;
+  const stip = (kl, r, rand = '#fff') => `<svg width="46" height="16" aria-hidden="true"><circle cx="23" cy="8" r="${r}" fill="${kl}" stroke="${rand}" stroke-width="1.5"/></svg>`;
+  const rij = (svg, t) => `<tr><td>${svg}</td><td>${t}</td></tr>`;
+  return `<table class="tabel legenda">
+    <tr><th colspan="2">Spoor (dikte = aantal sporen)</th></tr>
+    ${rij(lijnSvg([S, 1.6], [w, 0.8, 'stroke-dasharray="1 4"']), 'Enkelspoor')}
+    ${rij(lijnSvg([S, 2.6]), 'Dubbelspoor')}
+    ${rij(lijnSvg([S, 3.6]), 'Drie of meer sporen')}
+    ${rij(lijnSvg([NK.zij, 1]), 'Opstel- en rangeersporen')}
+    ${rij(lijnSvg(['#c79a00', 1.6]), 'Goederen-, haven- en industriespoor')}
+    <tr><th colspan="2">Stroom en snelheid</th></tr>
+    ${rij(lijnSvg([S, 2.6]), 'Bovenleiding (gewone spanning van het land)')}
+    ${rij(lijnSvg([S, 2.6, 'stroke-dasharray="5 3.5" stroke-linecap="butt"']), 'Geen bovenleiding (diesel, stoom, accu)')}
+    ${rij(lijnSvg([S, 5.2], [w, 1.6]), '<b>Hogesnelheidslijn</b> — breedste lijn, witte middenlijn')}
+    ${rij(lijnSvg([S, 2.6], [w, 1, 'stroke-dasharray="6 3 0 3"']), 'Loc-wisselspoor: twee spanningen (grensstation)')}
+    ${rij(lijnSvg([S, 2.6], [w, 1.4, 'stroke-dasharray="0 4"']), 'Vreemde spanning (bv. 3 kV naar België, 25 kV Betuweroute)')}
+    ${rij(lijnSvg([S, 2.6], ['#f4f1ea', 1.4, 'stroke-dasharray="3 3" stroke-linecap="butt"']), 'Tunnel (onderbroken door lichte streepjes)')}
+    <tr><th colspan="2">Ander railvervoer en veren</th></tr>
+    ${rij(lijnSvg([NK.metro, 2.4]), 'Metro')}
+    ${rij(lijnSvg([NK.snel, 2.2]), 'Sneltram')}
+    ${rij(lijnSvg([NK.tram, 1.6]), 'Tram')}
+    ${rij(lijnSvg([NK.smal, 1.4]), 'Smalspoor')}
+    ${rij(lijnSvg(['#3c4147', 0.7, 'transform="translate(0 -1.5)"'], ['#3c4147', 0.7, 'transform="translate(0 1.5)"']), 'Trolleybus-bovenleiding')}
+    ${rij(lijnSvg([NK.veer, 1.8, 'stroke-dasharray="6 5"']), 'Veerverbinding')}
+    ${rij(lijnSvg([NK.oud, 1.6, 'stroke-dasharray="6 4"']), 'Opgeheven spoor (historisch)')}
+    <tr><th colspan="2">Jouw bedrijf</th></tr>
+    ${rij(lijnSvg([spel?.kleur || '#c2412d', 3.4]), 'Eigen spoor')}
+    ${rij(lijnSvg([spel?.kleur || '#c2412d', 3.4, 'stroke-dasharray="5 5" stroke-linecap="butt"']), 'Eigen spoor in aanbouw')}
+    ${rij(lijnSvg([w, 6], [spel?.kleur || '#c2412d', 3.5]), 'Eigen lijn (in de lijnkleur)')}
+    <tr><th colspan="2">Stippen</th></tr>
+    ${rij(stip(PASSAGIER, 6), 'Treinstation (groen = reizigers; groter = groter station)')}
+    ${rij(stip(PASSAGIER, 3.2), 'Metro-, tram- en bushalte (kleiner)')}
+    ${rij(stip(VRACHT, 5, '#5a4300'), 'Overslagpunt voor goederen (haven, terminal)')}
+    ${rij(`<svg width="46" height="12" aria-hidden="true"><rect x="20" y="3" width="6" height="6" fill="#e0a516"/></svg>`, 'Wissel (ver ingezoomd)')}
+  </table>`;
+}
+function legendaKaart(open) {
+  const el = document.getElementById('legenda'), kn = document.getElementById('b-legenda'); if (!el || !kn) return;
+  if (open === undefined) open = el.hidden;
+  el.hidden = !open; kn.setAttribute('aria-pressed', String(open));
+  if (open) el.innerHTML = `<div class="legenda-kop"><b>Legenda</b><button type="button" class="sluit" aria-label="Legenda sluiten" data-legenda-dicht>×</button></div>${legendaHTML()}`;
+  try { localStorage.setItem('ov_legenda', open ? '1' : '0'); } catch {}
+}
 function netwerkLagen() {
   if (!kaart?.klaar) return;
   const jaar = spel?.jaar ?? 2026;
@@ -354,8 +400,9 @@ function netwerkLagen() {
     // hogesnelheidslijn met een witte middenlijn, loc-wisselspoor met wit streep-punt, vreemde spanning met witte stippen
     const hoofdBreed = ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4];
     lijn('net-hoofd-geen', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 0]], NK.spoor, hoofdBreed, { 'line-dasharray': [2.2, 1.4] });
-    const binnen = ['interpolate', ['linear'], ['zoom'], 6, 0.5, 13, 0.9, 16, 0.6];
-    lijn('net-hsl', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 2]], '#ffffff', binnen, {});
+    // hogesnelheidslijn: breder dan gewoon spoor (zwaarste lijn op de kaart) met een duidelijke witte middenlijn
+    lijn('net-hsl-basis', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 2]], NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 5, 'h2', 4.2, 3.2], 13, ['match', ['get', 'k'], 'h3', 7, 'h2', 6.2, 5], 16, 2.6], {});
+    lijn('net-hsl', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 2]], '#ffffff', ['interpolate', ['linear'], ['zoom'], 6, 1.2, 13, 2, 16, 0.9], {});
     kaart.laag({ id: 'net-locwissel', type: 'line', source: 'spoor', filter: ['all', hoofd, ['==', ['get', 'e'], 3]], layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 13, 1, 16, 0.8], 'line-dasharray': [2.5, 1.5, 0, 1.5], 'line-opacity': SPOOR_UIT } });
     lijn('net-vreemd', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 4]], '#ffffff', ['interpolate', ['linear'], ['zoom'], 6, 0.9, 13, 1.5, 16, 1.1], { 'line-dasharray': [0, 1.6] });
@@ -426,7 +473,7 @@ function jaarBijwerken() {
   for (const [id, c] of [['net-oud', 'oud'], ['net-zij', 'zij'], ['net-goed', 'goed'], ['net-tram', 'tram'], ['net-smal', 'smal'], ['net-snel', 'snel'], ['net-metro', 'metro'], ['net-enkel', 'h1']]) if (m.getLayer(id)) m.setFilter(id, ['all', k(c), f]);
   const hoofd = ['all', ['match', ['get', 'k'], ['h1', 'h2', 'h3'], true, false], f], e = n => ['==', ['get', 'e'], n];
   m.setFilter('net-hoofd', ['all', hoofd, ['!=', ['get', 'e'], 0]]); m.setFilter('net-hoofd-halo', hoofd);
-  for (const [id, n] of [['net-hoofd-geen', 0], ['net-hsl', 2], ['net-locwissel', 3], ['net-vreemd', 4]]) if (m.getLayer(id)) m.setFilter(id, ['all', hoofd, e(n)]);
+  for (const [id, n] of [['net-hoofd-geen', 0], ['net-hsl-basis', 2], ['net-hsl', 2], ['net-locwissel', 3], ['net-vreemd', 4]]) if (m.getLayer(id)) m.setFilter(id, ['all', hoofd, e(n)]);
   m.setFilter('net-stations', ['all', f, ['any', ['==', ['get', 's'], 'trein'], ['>=', ['zoom'], 12.5]]]);
   m.setFilter('net-stations-naam', ['all', f, ['any', ['all', ['==', ['get', 's'], 'trein'], ['any', ['>=', ['get', 'p'], 5], ['>=', ['zoom'], 9.5]]], ['>=', ['zoom'], 14]]]);
   m.setLayoutProperty('net-oud', 'visibility', jaar < 2000 || kaart.achtergrond === 'historisch' ? 'visible' : 'none');
@@ -1563,22 +1610,7 @@ const PANELEN = {
     return `<h2>Kaart</h2><h3>Achtergrond</h3>
       ${Object.entries(ACHTERGROND_KEUZE).map(([id, a]) => `<label class="rij"><input type="radio" name="achtergrond" value="${id}" data-wijzig="achtergrond" ${kaart.achtergrond === id ? 'checked' : ''}> ${a.naam}${id === 'historisch' ? ` (${kaartjaarVoor(spel.jaar)})` : ''}</label>`).join('')}
       <p class="klein">De historische kaart is de Kadaster-tijdreiskaart van het jaar dat het dichtst vóór je speljaar ligt.</p>
-      <h3>Legenda</h3><table class="tabel">
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="1.6"/><line x1="0" y1="5" x2="40" y2="5" stroke="#fff" stroke-width=".7" stroke-dasharray="2 6"/></svg></td><td>Enkelspoor</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="2.4"/></svg></td><td>Dubbelspoor</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3.4"/></svg></td><td>Drie of meer sporen</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#9aa39e" stroke-width="1"/></svg></td><td>Opstel- en rangeersporen</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" stroke-dasharray="7 4"/></svg></td><td>Geen bovenleiding (diesel, stoom, accu)</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /></svg></td><td>Bovenleiding met de gewone spanning van het land</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /><line x1="0" y1="5" x2="40" y2="5" stroke="#fff" stroke-width="1"/></svg></td><td>Hogesnelheidslijn</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /><line x1="1" y1="5" x2="40" y2="5" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-dasharray="6 4 0 4"/></svg></td><td>Loc-wisselspoor: twee spanningen mogelijk (grensstation)</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /><line x1="1" y1="5" x2="40" y2="5" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 4"/></svg></td><td>Vreemde spanning (niet die van het land, bv. 3 kV tot Roosendaal, 25 kV Betuweroute)</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#1f6fd1" stroke-width="2.2"/></svg></td><td>Metro</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#0f7c8a" stroke-width="2"/></svg></td><td>Sneltram</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#c2412d" stroke-width="1.5"/></svg></td><td>Tram</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#1f8fb8" stroke-width="1.6" stroke-dasharray="6 5"/></svg></td><td>Veerverbinding</td></tr>
-      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#8a5a2b" stroke-width="1.4" stroke-dasharray="5 3"/></svg></td><td>Opgeheven spoor (historisch)</td></tr>
-      <tr><td><svg width="40" height="10"><rect x="17" y="2" width="6" height="6" fill="#e0a516"/></svg></td><td>Wissel (ver ingezoomd)</td></tr></table>
+      <h3>Legenda</h3>${legendaHTML()}
       <h3>Gegevens</h3><p class="klein">Spoornet en stations: OpenStreetMap (${net.takken.length.toLocaleString('nl-NL')} spoortakken, ${D.stations.length.toLocaleString('nl-NL')} stations en haltes, ${(D.wissels.length / 2).toLocaleString('nl-NL')} wissels). Dienstregeling: OVapi${D.dag ? ', ' + D.dag.slice(6) + '-' + D.dag.slice(4, 6) + '-' + D.dag.slice(0, 4) : ''}. Het aantal sporen is geschat uit evenwijdig getekende sporen.</p>`;
   },
   station(s) {
@@ -3380,6 +3412,9 @@ function init() {
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));
   document.querySelectorAll('[data-paneel]').forEach(b => b.addEventListener('click', () => paneelSoort === b.dataset.paneel ? sluitPaneel() : openPaneel(b.dataset.paneel)));
   $('paneel-sluit').onclick = sluitPaneel;
+  $('b-legenda').onclick = () => legendaKaart();
+  $('legenda').addEventListener('click', (e) => { if (e.target.closest('[data-legenda-dicht]')) legendaKaart(false); });
+  try { if (localStorage.getItem('ov_legenda') === '1') legendaKaart(true); } catch {}
   document.querySelectorAll('.snelheid button').forEach(b => b.addEventListener('click', () => zetSnelheid(+b.dataset.s)));
   addEventListener('keydown', e => {
     if (e.target.closest('input, select, textarea')) return;
