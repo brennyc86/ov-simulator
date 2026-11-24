@@ -151,22 +151,12 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     log('nieuwe lijn:', t.slice(0, 260));
     const vink = document.querySelector('[data-wijzig="nl-overal"]');
     if (vink) { vink.checked = !vink.checked; vink.dispatchEvent(new window.Event('change')); await wacht(100); t = document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' '); log('na vinkje:', t.slice(t.indexOf('Stoppen op'), t.indexOf('Stoppen op') + 400)); }
-    // eerst als bijzondere rit (museumtrein kopen), daarna dezelfde route nog eens als gewone lijn
-    { const mus = await import('../js/bijzonder.js'); const mt = mus.museumTypen(sp.jaar).find(t => t.modus === 'trein');
-      if (mt) sp.voertuigen[mt.id] = 1;
-      document.querySelector('[data-actie="nl-dienst"][data-w="eenmalig"]').click(); await wacht(100);
-      const sel = document.querySelector('[data-wijzig="nb-veld"][data-k="type"]'); if (mt && sel) { sel.value = mt.id; sel.dispatchEvent(new window.Event('change')); await wacht(100); }
-      document.querySelector('[data-actie="bijzonder-maak"]')?.click(); await wacht(150);
-      const bl = sp.lijnen.find(l => l.bijzonder); log('bijzondere rit:', bl ? `${bl.naam} op dag ${bl.bijzonder.dag}, ${bl.typeId}, actief ${bl.actief}, vertrek ${JSON.stringify(bl.vertrek)}` : 'NIET GEMAAKT', '|', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').match(/Bijzondere ritten.{0,200}/)?.[0]);
-      if (bl) { log('verwachte eindstand:', mus.belangstelling(sp, { ...bl.bijzonder, haltes: bl.haltes, typeId: bl.typeId, modus: bl.modus, lengteKm: bl.lengteKm }, globalThis.__ovTest.plaatsen), 'van', (await import('../js/spel.js')).capaciteit(bl), 'plaatsen');
-        // charter: aanvraag maken en accepteren via het overlegpaneel
-        const c = mus.bedenkCharter(sp, globalThis.__ovTest.stations); c.historisch = true; sp.verzoeken.unshift(c);
-        document.querySelector('[data-paneel="verzoeken"]').click(); await wacht(50); document.querySelector(`[data-actie="vz-ja"][data-id="${c.id}"]`)?.click(); await wacht(100);
-        log('charter:', c.status, c.reden, '| bijzondere lijnen:', sp.lijnen.filter(l => l.bijzonder).length);
-        // dagen doorspoelen tot na de rit: afrekenen
-        const geld0 = sp.geld, d0 = sp.dag; for (let k = d0; k <= bl.bijzonder.dag; k++) { sp.tijd = 29 * 60; globalThis.__ovTest.dagVoorbij(); }
-        log('na', sp.dag - d0, 'dagen: archief', JSON.stringify((sp.bijzonderArchief || []).slice(0, 2)), 'geld', Math.round(sp.geld - geld0));
-        document.querySelector('[data-paneel="verzoeken"]').click(); }
+    // eerst als eenmalige rit (vervalt na die dag), daarna dezelfde route nog eens als gewone lijn
+    { document.querySelector('[data-actie="nl-freq"][data-w="eenmalig"]').click(); await wacht(100);
+      document.querySelector('[data-actie="lijn-maak"]')?.click(); await wacht(150);
+      const el = sp.lijnen.find(l => l.dienst === 'eenmalig'); log('eenmalige rit:', el ? `${el.naam} ${JSON.stringify(el.ritten)}` : 'NIET GEMAAKT');
+      const d0 = sp.dag; for (let k = d0; el && k <= el.ritten[0].dag; k++) { sp.tijd = 29 * 60; globalThis.__ovTest.dagVoorbij(); }
+      log('na', sp.dag - d0, 'dagen: eenmalige lijn vervallen:', el ? !sp.lijnen.includes(el) : '-');
       document.querySelector('[data-tool="lijn"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Trein').click();
       for (const s2 of [a, b]) { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); const p = globalThis.__map.project([lo, la]); globalThis.__map.vuur('click', { point: p }); await wacht(50); }
       await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300); }
