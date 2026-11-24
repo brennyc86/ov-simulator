@@ -11,7 +11,7 @@ const LANG = { trein: 40, metro: 30, sneltram: 30, tram: 35, bus: 30, hov: 30, b
 const RANGEER_V = 25 / 3.6;                                       // m/s bij rangeren (kort stuk)
 const LEEG_V = 60 / 3.6;                                          // m/s leeg naar een verder opstelterrein
 const rangeerV = lengte => lengte > 2000 ? LEEG_V : RANGEER_V;
-const ZOEK = { trein: 20000, metro: 6000, sneltram: 5000, tram: 5000 };
+const ZOEK = { trein: 12000, metro: 6000, sneltram: 5000, tram: 5000 };
 
 const tijden = (l, r) => l.tr?.[r] || l.t;
 // vaste wachttijden uit de spoorplanner (s, opgeteld over de rit)
@@ -101,6 +101,9 @@ export class Opstel {
     const k = sleutel;
     if (this.cache.has(k)) return this.cache.get(k);
     if (this.budget !== undefined && this.budget-- <= 0) return undefined; // later; niet onthouden
+    if (this.tot && performance.now() > this.tot) return undefined;    // tijd op voor dit beeld: later
+    if (this.volgende && performance.now() < this.volgende) return undefined; // hooguit één zoektocht per 0,3 s
+    this.volgende = performance.now() + 300;
     let uit = null;
     const net = this.net, max = ZOEK[modus] || 3000;
     const kand = [];
@@ -113,7 +116,8 @@ export class Opstel {
       if (d < max) kand.push({ t, d });
     }
     kand.sort((a, b) => a.d - b.d);
-    for (const { t } of kand.slice(0, 12)) {
+    for (const { t } of kand.slice(0, 4)) {
+      if (this.tot && performance.now() > this.tot + 20) { this.cache.delete(k); return undefined; }
       const al = this.bezet.get(t) || 0;
       const s = 15 + al * (lengte + 8) + lengte / 2;
       if (s + lengte / 2 > t.lengte - 5) continue;           // vol

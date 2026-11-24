@@ -649,7 +649,7 @@ function tekenVliegtuig(ctx, px, py, hoek, L, id, kleur) {
 }
 
 // ---------------------------------------------------------------- omlopen
-let opstel = null, groepIdx = null, groepIdxSig = '';
+let opstel = null, groepIdx = null, groepIdxSig = '', snapVolgende = 0;
 const omlopen = new Map();
 function groepIndex() {
   const sig = spel.lijnen.length + ':' + AI.lijnen.length;
@@ -682,13 +682,14 @@ function tekenBoven(ctx, k) {
   zichtLijnen.length = 0;
   const vt = [];
   const tm = spel.tijd;
-  let snapBudget = 1; // per beeld hooguit één lijn op het spoor leggen (kost 0,1–0,3 s)
+  void 0; // (snappen: zie onder, na het kiezen van de voertuigen)
   // heen en terug elk op hun eigen spoor (opnieuw als de route is veranderd)
   const banenNodig = l => l._banenVan !== l.route?.pts && r < 40 && l.vertrek?.[1]?.length && ['trein', 'metro', 'sneltram', 'tram'].includes(l.modus);
   const opSpoorNodig = l => l._spoor === undefined && r < 40 && ['trein', 'metro', 'sneltram', 'tram'].includes(l.modus) && !l.route?.takken;
   // voertuigen per omloopgroep: ze rijden, keren, wachten of staan opgesteld, maar verdwijnen nooit
   if (!opstel || opstel.net !== net || opstel.jaar !== spel.jaar) opstel = new Opstel(net, spel.jaar);
-  opstel.budget = 10; // nieuwe opstelroutes per beeld (elk ~2–10 ms)
+  opstel.budget = 3; opstel.tot = performance.now() + 6; // nieuwe opstelroutes per beeld: hooguit een paar, ~6 ms
+  const opstelNu = r < 40 ? opstel : null; // uitgezoomd: geen rangeerritten uitrekenen (je ziet ze toch niet)
   const idx = groepIndex();
   const gedaan = new Set();
   const doeGroep = (l, eigen) => {
@@ -696,21 +697,16 @@ function tekenBoven(ctx, k) {
     if (gedaan.has(g)) return; gedaan.add(g);
     const om = omloopVan(g, idx.get(g) || [l]);
     // uitgezoomd: van andere vervoerders alleen de lange lijnen (internationaal en intercity eerst, lokaal pas ingezoomd)
-    if (om) voertuigenOmloop(om, tm, vt, opstel, lengteVan, eigen ? inZicht : (l2 => inZicht(l2) && lijnKm(l2) >= minKm));
+    if (om) voertuigenOmloop(om, tm, vt, eigen || volg ? opstel : opstelNu, lengteVan, eigen ? inZicht : (l2 => inZicht(l2) && lijnKm(l2) >= minKm));
   };
   const minKm = r > 400 ? 80 : r > 150 ? 25 : r > 60 ? 8 : r > 25 ? 3 : 0;
   for (const l of spel.lijnen) {
     if (!l.actief || !inZicht(l)) continue;
-    if (snapBudget > 0 && opSpoorNodig(l)) { snapBudget--; lijnOpSpoor(net, l, spel.jaar); if (l._spoor && l.echt) delete l.echt.km; }
-    if (snapBudget > 0 && banenNodig(l)) { snapBudget--; rijBanen(net, l, spel.jaar); }
     doeGroep(l, true);
   }
   let eigenN = vt.length;
   for (const l of AI.lijnen) {
     if (!inZicht(l)) continue;
-    // routes uit de dienstregeling op het echte spoor leggen (eenmalig per lijn, een paar per beeld)
-    if (snapBudget > 0 && opSpoorNodig(l)) { snapBudget--; lijnOpSpoor(net, l, spel.jaar); }
-    if (snapBudget > 0 && banenNodig(l)) { snapBudget--; rijBanen(net, l, spel.jaar); }
     if (r > 120 && l.modus !== 'trein') continue;
     if (r > 40 && (l.modus === 'bus' || l.modus === 'belbus')) continue;
     if (lijnKm(l) < minKm) continue;
@@ -725,6 +721,15 @@ function tekenBoven(ctx, k) {
     for (const x of alle) { if (kies.size >= INST.max) break; kies.add(x); }
     const eigen = alle.filter(x => x.eigen && kies.has(x)).map(x => x.v), ander = alle.filter(x => !x.eigen && kies.has(x)).map(x => x.v);
     vt.length = 0; vt.push(...eigen, ...ander); eigenN = eigen.length;
+  }
+  // routes op het echte spoor leggen (en heen/terug op hun eigen spoor): alleen voor lijnen waarvan nu voertuigen
+  // getekend worden, eigen lijnen eerst, hooguit één lijn per 250 ms (elk kost 0,1–0,3 s)
+  if (performance.now() > snapVolgende) {
+    const lijnen = [...new Set(vt.map(v => v.lijn))];
+    for (const l of lijnen) {
+      if (opSpoorNodig(l)) { lijnOpSpoor(net, l, spel.jaar); if (l._spoor && l.echt && !l.ai) delete l.echt.km; snapVolgende = performance.now() + 600; break; }
+      if (banenNodig(l)) { rijBanen(net, l, spel.jaar); snapVolgende = performance.now() + 600; break; }
+    }
   }
   // volgen: de kaart schuift mee met het gevolgde voertuig
   if (volg) { const e = vt.find(v => v.omloop === volg); if (e) { const [la, lo] = rdNaarWgs(e.x, e.y); if (zoomVolg) { zoomVolg = false; kaart.vliegNaar(e.x, e.y, Math.min(r, 3)); } else kaart.map.jumpTo({ center: [lo, la] }); } }
