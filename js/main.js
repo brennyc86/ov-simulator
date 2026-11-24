@@ -907,19 +907,28 @@ function tekenBoven(ctx, k) {
 
 // ---------------------------------------------------------------- spellus
 let hudN = 0, vorige = performance.now(), hudT = 0, laatsteOnline = 0;
+// De spellus plant de volgende beurt altijd eerst in: een fout in de afrekening of het tekenen mag het spel niet
+// laten bevriezen (eerder stond dan de tijd stil terwijl de kaart nog bewoog). Fouten komen één keer in beeld.
+const gemeldeFouten = new Set();
+function lusFout(waar, e) {
+  console.error(waar, e);
+  const k = waar + ':' + (e?.message || e);
+  if (gemeldeFouten.has(k)) return; gemeldeFouten.add(k);
+  melding(`Er ging iets mis (${waar}: ${e?.message || e}). Het spel loopt door; geef deze melding gerust door.`, 12000);
+}
 function lus(nu) {
-  const dt = Math.min(0.25, (nu - vorige) / 1000); vorige = nu;
+  requestAnimationFrame(lus);
+  const dt = Math.min(0.25, Math.max(0, (nu - vorige) / 1000)); vorige = nu;
   if (spel && snelheid && tijdLoopt) {
     const oud = spel.tijd;
     spel.tijd += dt * snelheid / 60;
     // elk vol uur afrekenen
-    for (let u = Math.floor(oud / 60) + 1; u <= Math.floor(spel.tijd / 60); u++) uurVoorbij(u * 60 - 60);
-    if (spel.tijd >= 29 * 60) dagVoorbij(); // speldag loopt van 05:00 tot 05:00 (nacht 00:30–05:00)
-    if (Math.floor(oud) !== Math.floor(spel.tijd)) { bouwOpleveren(); verzoekenAfhandelen(); } // elke spelminuut
+    for (let u = Math.floor(oud / 60) + 1; u <= Math.floor(spel.tijd / 60); u++) { try { uurVoorbij(u * 60 - 60); } catch (e) { lusFout('afrekenen', e); } }
+    if (spel.tijd >= 29 * 60) { try { dagVoorbij(); } catch (e) { lusFout('nieuwe dag', e); if (spel.tijd >= 29 * 60) { spel.tijd -= 24 * 60; spel.dag++; } } } // speldag loopt van 05:00 tot 05:00
+    if (Math.floor(oud) !== Math.floor(spel.tijd)) { try { bouwOpleveren(); verzoekenAfhandelen(); } catch (e) { lusFout('bouwen en verzoeken', e); } } // elke spelminuut
   }
-  kaart.render();
-  hudT += dt; if (hudT > 0.25) { hudT = 0; hud(); }
-  requestAnimationFrame(lus);
+  try { kaart.render(); } catch (e) { lusFout('tekenen', e); }
+  hudT += dt; if (hudT > 0.25) { hudT = 0; try { hud(); } catch (e) { lusFout('kas en klok', e); } }
 }
 function uurVoorbij(uurBegin) {
   for (const l of spel.lijnen) delete l._altD;
@@ -1902,7 +1911,8 @@ const PANELEN = {
       <h3>Gegevens</h3><p class="klein">Spoornet en stations: OpenStreetMap (${net.takken.length.toLocaleString('nl-NL')} spoortakken, ${D.stations.length.toLocaleString('nl-NL')} stations en haltes, ${(D.wissels.length / 2).toLocaleString('nl-NL')} wissels). Dienstregeling: OVapi${D.dag ? ', ' + D.dag.slice(6) + '-' + D.dag.slice(4, 6) + '-' + D.dag.slice(0, 4) : ''}. Het aantal sporen is geschat uit evenwijdig getekende sporen.</p>`;
   },
   station(s) {
-    return `<h2>${esc(s.naam)}</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''}${spel.perrons?.[s.naam] ? ` · ${spel.perrons[s.naam]} extra perron(s) van jou` : ''}</p>
+    if (!s.verbouw) return stationOverzicht(s);
+    return `<div class="rij"><button class="knop klein" data-actie="station-overzicht">← Vertrekken</button></div><h2>${esc(s.naam)} · verbouwen</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''}${spel.perrons?.[s.naam] ? ` · ${spel.perrons[s.naam]} extra perron(s) van jou` : ''}</p>
       ${bouwProjecten().filter(p => p.station === s.naam).map(p => voortgang(p)).join('')}
       ${(spel.gebouwen || []).filter(g => g.station === s.naam).map(g => `<p class="chip">Stationsgebouw: ${esc(STIJLEN.find(x => x.id === g.stijl)?.naam || '')}, ${GROOTTE[g.grootte].naam}${isKlaar(g) ? '' : ' (in aanbouw)'}</p>`).join('')}
       ${stationGebouwNodig(s.naam) ? `<p class="klein" style="color:var(--rood)">Zonder stationsgebouw is er geen loket: in ${spel.jaar} kopen reizigers hun kaartje aan het loket, dus komen er hier minder.</p>` : ''}
@@ -2331,6 +2341,8 @@ function actieUit(a, d) {
     }
     case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
     case 'spoor-afstem': if (l) spoorAfstemmen(l); break;
+    case 'station-verbouw': openPaneel('station', { ...paneelData, verbouw: true }); break;
+    case 'station-overzicht': openPaneel('station', { ...paneelData, verbouw: false }); break;
     case 'terug-direct': { if (!l) break; // terug vertrekken zodra het voertuig heeft gekeerd (uitgaande van de heenrit)
       const voor = l.nodig, aankomst = S.cyclusAnker(l, 0) + Math.ceil((l.tr?.[0]?.at(-1) || 0) / 60) + (MODI[l.modus].keer || 5) + (TYPE[l.typeId]?.keerExtra || 0);
       l.offsetTerug = (l.offsetTerug || 0) + aankomst - S.cyclusAnker(l, 1); l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l);
@@ -4166,7 +4178,7 @@ async function toonAccount() {
 function init() {
   kaart = new Kaart($('kaart'));
   kaart.bijKlaar = () => netwerkLagen();
-  kaart.lagenBoven.push(tekenBoven);
+  kaart.lagenBoven.push((ctx, k) => { try { tekenBoven(ctx, k); } catch (e) { lusFout('voertuigen tekenen', e); } });
   kaart.bijKlik = klik;
   kaart.map.on('dragstart', () => { if (volg) { volg = null; melding('Volgen gestopt.'); if (paneelSoort === 'rit') ververs(); } });
   kaart.bijBeweeg = (px, py) => { if (bouw?.punten?.length) bouw.muis = [px, py]; snapTonen(px, py); };
@@ -4176,6 +4188,7 @@ function init() {
   setInterval(spoorPlannen, 2500);
   setInterval(kandidatenTonen, 400);
   // bouwprojecten: de voortgangsbalken lopen zichtbaar vol zolang je het paneel open hebt
+  setInterval(() => { if (spel && paneelSoort === 'station' && !paneelData?.verbouw && tijdLoopt) ververs(); }, 3000); // vertrekbord bijwerken
   setInterval(() => { if (spel && paneelSoort === 'bouw' && tijdLoopt && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) ververs(); }, 1000);
   setInterval(() => { const z = kaart.zicht().map(v => Math.round(v / 2000)).join(',') + kaart.res.toFixed(0); if (z !== vorigeZicht) { vorigeZicht = z; laadAIinBeeld(); } }, 700);
   $('bron').textContent = '';
@@ -4242,6 +4255,37 @@ function dienstBlok(l) {
 }
 // welk materieel rijdt er op een lijn (bij een mix alle typen)
 const lijnModellen = l => { const ids = (l.mix || []).filter(m => TYPE[m.id]).map(m => m.id); const lijst = ids.length ? ids : [l.typeId]; return [...new Set(lijst.filter(id => TYPE[id]).map(id => vlootNaam(id)))].join(' + ') || 'geen materieel'; };
+// Stationsoverzicht: de vertrekken van de komende anderhalf uur van alle lijnen die hier stoppen (eigen en van
+// anderen), met soort vervoer, vervoerder, richting en hoeveel mensen er op die rit wachten.
+function stationOverzicht(s) {
+  const nu = spel.tijd, bij = h => Math.hypot(h.x - s.x, h.y - s.y) < 350 || h.naam === s.naam;
+  const rijen = [];
+  for (const l of [...spel.lijnen.filter(l => l.actief !== false), ...AI.lijnen]) {
+    if (!l.vertrek || !l.haltes?.some(bij)) continue;
+    for (let r = 0; r < S.ritRichtingen(l); r++) {
+      const n = l.haltes.length, volg = r ? [...l.haltes].reverse() : l.haltes, i = volg.findIndex(bij);
+      if (i < 0 || i === n - 1) continue; // hier eindigt de rit
+      const t = l.tr?.[r] || l.t;
+      for (const v of l.vertrek[r] || []) {
+        const pw = l._ritWacht?.get(`${r}:${v}`) || [], extra = pw.reduce((a, q) => a + (q.t <= t[i] + 1 ? q.w : 0), 0);
+        const dep = v + (t[i] + extra) / 60 + ((l.halteWacht?.[`${r}:${i}`] || l.dw?.[i] || 0));
+        if (dep >= nu - 0.5 && dep <= nu + 90) rijen.push({ l, r, v, i, dep, naar: volg[n - 1].naam });
+      }
+    }
+  }
+  rijen.sort((a, b) => a.dep - b.dep);
+  const toon = rijen.slice(0, 16);
+  const wachtend = x => { try { const typeId = x.l.ai ? typeVoor(x.l, spel.jaar, standaardType) : x.l.typeId; const rr = ritReizigers(spel, x.l, x.r, x.v, typeId, ctx()); return Math.round(rr.haltes?.[x.i]?.in || 0); } catch { return null; } };
+  const eigen = l => !l.ai;
+  return `<div class="rij"><button class="knop hoofd" data-actie="station-verbouw">Verbouwen</button></div>
+    <h2>${esc(s.naam)}</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''} · vertrekken de komende anderhalf uur (nu ${S.klok(nu)})</p>
+    ${toon.length ? `<table class="tabel"><tr><th>Tijd</th><th>Lijn</th><th>Soort</th><th>Vervoerder</th><th>Richting</th><th class="getal">Wachtend</th></tr>
+      ${toon.map(x => { const w = wachtend(x); return `<tr ${eigen(x.l) ? `data-actie="toon-lijn" data-id="${x.l.id}" style="cursor:pointer"` : ''}><td class="getal"><b>${S.klok(Math.floor(x.dep))}</b></td>
+        <td><span class="lijnnr" style="background:${eigen(x.l) ? spel.kleur : esc(x.l.kleur || '#777')}">${esc(x.l.nr || '')}</span></td><td>${esc(MODI[x.l.modus]?.naam || x.l.modus)}</td>
+        <td>${esc(eigen(x.l) ? spel.naam : x.l.vervoerderNaam || '')}</td><td>${esc(x.naar)}</td><td class="getal">${w == null ? '—' : w}</td></tr>`; }).join('')}</table>
+      ${rijen.length > toon.length ? `<p class="klein">En nog ${rijen.length - toon.length} vertrekken later.</p>` : ''}` : '<p>De komende anderhalf uur vertrekt hier niets.</p>'}
+    <p class="klein">Wachtend = reizigers die bij deze halte instappen op die rit.</p>`;
+}
 // samenvatting van de spoorplanner voor een lijn: waar wordt gewacht (kruisen op enkelspoor, achter een voorganger)
 function spoorplanTekst(l) {
   const k = l._kruis; if (l.modus !== 'trein' || !k) return '';
