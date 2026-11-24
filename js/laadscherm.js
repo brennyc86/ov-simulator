@@ -2,6 +2,25 @@
 // 'OV-Manager', en een balk die volloopt met een schatting van de resterende tijd. Gebruikt bij het laden van de
 // gegevens en bij eenmalig rekenwerk aan het begin van een spel (routes op het spoor leggen).
 import { schets } from './schets.js';
+import { muziekAan, muziekUit, muziekSpeelt, zetLiedje, liedjeNr, LIEDJES } from './muziek.js';
+
+// muziek bij het laadscherm: 'Spitsuur' (uit te zetten; de keuze wordt onthouden). Daarna weer de muziek van het spel.
+const SPITSUUR = Math.max(0, LIEDJES.findIndex(l => l.naam === 'Spitsuur'));
+let voorLaden = null; // {aan, lied} van voor het laadscherm
+const laadMuziekWil = () => { try { return localStorage.getItem('ov_laadmuziek') !== 'uit'; } catch { return true; } };
+function knopTekst() { const b = document.getElementById('laad-muziek'); if (b) b.textContent = muziekSpeelt() ? '♪ Muziek uit' : '♪ Muziek aan'; }
+function laadMuziekStart() {
+  if (!laadMuziekWil()) { knopTekst(); return; }
+  if (!voorLaden) voorLaden = { aan: muziekSpeelt(), lied: liedjeNr() };
+  zetLiedje(SPITSUUR); try { muziekAan(); } catch {} knopTekst();
+}
+function laadMuziekStop() {
+  if (!voorLaden) return;
+  const v = voorLaden; voorLaden = null;
+  zetLiedje(v.lied); if (!v.aan) muziekUit(); else { muziekUit(); muziekAan(); }
+}
+// zonder klik mag de browser geen geluid maken: bij de eerste klik alsnog starten (als het laadscherm er nog is)
+if (typeof document !== 'undefined') document.addEventListener('pointerdown', () => { const el = document.getElementById('laadscherm'); if (el?.style.display === 'flex' && laadMuziekWil() && voorLaden) { try { muziekAan(); } catch {} knopTekst(); } }, { capture: true });
 
 // een schets-svg (van schets.js) op een plek in de scène zetten
 function plaats(svg, x, y, w, h) {
@@ -18,7 +37,7 @@ export function illustratie() {
     return `<rect x="${x}" y="${330 - h}" width="44" height="${h}" fill="${kl}"/>${ramen}`;
   }).join('');
   const voertuig = (ids, modus, x, y, w, h) => plaats(schets(ids, modus, { breed: Math.round(w), hoog: 70 }), x, y, w, h);
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="OV-Manager">
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spitsuur">
     <defs>
       <linearGradient id="ls-lucht" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fc4ec"/><stop offset="1" stop-color="#d9eef8"/></linearGradient>
       <linearGradient id="ls-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3f8fc4"/><stop offset="1" stop-color="#2a6d9e"/></linearGradient>
@@ -48,7 +67,7 @@ export function illustratie() {
     <use href="#ls-boog" stroke="#f2c14e" stroke-width="3" fill="none" stroke-dasharray="10 8" transform="translate(0 -36)"/>
     <use href="#ls-boog" stroke="#f2c14e" stroke-width="3" fill="none" stroke-dasharray="10 8" transform="translate(0 36)"/>
     <text font-family="Barlow Semi Condensed, Arial, sans-serif" font-weight="800" font-size="78" fill="#fff8e6" letter-spacing="3" dy="26" style="paint-order:stroke" stroke="#5a1520" stroke-width="5">
-      <textPath href="#ls-boog" startOffset="50%" text-anchor="middle">OV-Manager</textPath></text>
+      <textPath href="#ls-boog" startOffset="50%" text-anchor="middle">Spitsuur</textPath></text>
   </svg>`;
 }
 
@@ -58,7 +77,9 @@ export const laad = {
   toon(titel) {
     const el = document.getElementById('laadscherm'); if (!el) return;
     if (el.style.display !== 'flex') { document.getElementById('laad-plaat').innerHTML = illustratie(); begin = performance.now(); }
+    const was = el.style.display === 'flex';
     el.style.display = 'flex'; document.getElementById('laad-titel').textContent = titel || 'Laden…';
+    if (!was) { laadMuziekStart(); const b = document.getElementById('laad-muziek'); if (b) b.onclick = e => { e.stopPropagation(); if (muziekSpeelt()) { muziekUit(); try { localStorage.setItem('ov_laadmuziek', 'uit'); } catch {} } else { try { localStorage.removeItem('ov_laadmuziek'); } catch {} if (!voorLaden) voorLaden = { aan: false, lied: liedjeNr() }; zetLiedje(SPITSUUR); muziekAan(); } knopTekst(); }; }
     this.zet(0, '');
   },
   zet(f, tekst) {
@@ -68,6 +89,6 @@ export const laad = {
     const verstreken = (performance.now() - begin) / 1000, rest = f > 0.04 ? verstreken / f * (1 - f) : null;
     document.getElementById('laad-tekst').textContent = `${tekst || ''}${rest != null && f < 0.995 ? ` · nog ongeveer ${rest < 60 ? Math.max(1, Math.round(rest)) + ' s' : Math.round(rest / 60) + ' min'}` : ''}`;
   },
-  verberg() { const el = document.getElementById('laadscherm'); if (el) el.style.display = 'none'; },
+  verberg() { const el = document.getElementById('laadscherm'); if (el) el.style.display = 'none'; laadMuziekStop(); },
   nieuweFase() { begin = performance.now(); },
 };

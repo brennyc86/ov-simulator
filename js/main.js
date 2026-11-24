@@ -3814,7 +3814,7 @@ async function bewaar(hand) {
   if (Cloud.gebruiker && (hand || performance.now() - laatsteOnline > 60000)) {
     laatsteOnline = performance.now();
     try { await Cloud.bewaarOnline(slot, spel.naam, vorm, samenvatting); if (hand) melding('Opgeslagen in je account.'); }
-    catch (e) { if (hand) melding('Online opslaan mislukte: ' + (e.code === 'permission-denied' ? 'de database-regels voor OV-manager staan nog niet in Firebase.' : e.message)); }
+    catch (e) { if (hand) melding('Online opslaan mislukte: ' + (e.code === 'permission-denied' ? 'de database-regels voor het spel staan nog niet in Firebase.' : e.message)); }
   } else if (hand) melding(lokaal ? 'Opgeslagen in deze browser. Log in om op elk apparaat verder te spelen.' : 'Opslaan in de browser lukte niet.');
 }
 async function laadSpel(data, nieuwSlot) {
@@ -4074,7 +4074,7 @@ function init() {
   $('b-tijdknop').onclick = () => zetTijd(!tijdLoopt);
   Cloud.bijInlog(u => { $('b-account').textContent = u ? (u.displayName || u.email || 'Account').split(' ')[0] : 'Inloggen'; if ($('start').open) toonAccount(); });
   Cloud.start().catch(() => {});
-  laad.toon('OV-Manager wordt geladen');
+  laad.toon('Spitsuur wordt geladen');
   laadData().then(() => { laad.zet(1, 'Klaar'); laad.verberg(); toonStart(); });
   requestAnimationFrame(lus);
 }
