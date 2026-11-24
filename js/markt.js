@@ -25,7 +25,7 @@ const verkoperVan = t => { const w = (t.wie || '').split(/[,(]/)[0].trim(); retu
 // een partij van een vervoerder die zijn vloot vernieuwt
 function partij(spel) {
   const j = spel.jaar;
-  const kand = VLOOT.filter(v => MODI_MARKT.includes(v.modus) && !v.samen && v.van <= j - 12 && v.tot >= j - 1 && !['ice3', 'ice4', 'tgvduplex', 'thalys'].includes(v.id));
+  const kand = VLOOT.filter(v => MODI_MARKT.includes(v.modus) && !v.samen && v.soort !== 'wagon' && v.van <= j - 12 && v.tot >= j - 1 && !['ice3', 'ice4', 'tgvduplex', 'thalys'].includes(v.id));
   if (!kand.length) return null;
   // vaker typen die (bijna) uitgefaseerd worden
   const gewogen = kand.flatMap(v => Array(v.tot - j <= 5 ? 4 : 1).fill(v));
@@ -38,7 +38,7 @@ function partij(spel) {
 // een klassieker: lang uit dienst, één of een paar stuks
 function klassieker(spel) {
   const j = spel.jaar;
-  const kand = VLOOT.filter(v => MODI_MARKT.includes(v.modus) && !v.samen && v.tot < j - 5 && v.van < j);
+  const kand = VLOOT.filter(v => MODI_MARKT.includes(v.modus) && !v.samen && v.soort !== 'wagon' && v.tot < j - 5 && v.van < j);
   if (!kand.length) return null;
   const t = kies(kand), leeftijd = j - t.van - rnd(0, Math.max(0, t.tot - t.van));
   const staat = kies(['slecht', 'slecht', 'matig', 'goed']);

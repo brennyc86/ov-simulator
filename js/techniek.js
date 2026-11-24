@@ -10,6 +10,7 @@ const T = {
   coupe: [0, 18, true, 'Coupérijtuig', 'Compartment coach'], staalrijtuig: [0, 38, true, 'Blokkendoos (spoorwegrijtuig)', 'NS steel coaches'], plane: [0, 40, true, 'Plan E', 'NS Plan E'], planw: [0, 42, true, 'Plan W', 'NS Plan W'],
   icr: [0, 42, true, 'Intercityrijtuig', 'ICR (railway coach)'], icrbvk: [0, 46, true, 'Intercityrijtuig', 'ICR (railway coach)'], ddm1: [0, 50, true, 'Dubbeldeksmaterieel', 'NS double-deck coaches'], ddm1bvk: [0, 55, true, 'Dubbeldeksmaterieel', 'NS double-deck coaches'],
   viaggio: [0, 48, true, 'Siemens Viaggio', 'Siemens Viaggio Comfort'], viaggiobvk: [0, 52, true, 'Siemens Viaggio', 'Siemens Viaggio Comfort'],
+  goederenwagen: [0, 80, false, 'Goederenwagen', 'Goods wagon'],
   stoomtramloc: [150, 22, true, 'Stoomtramlocomotief (los)', 'Stoomtramlocomotief (los)'],
   dieseltramloc: [180, 20, true, 'Dieseltramlocomotief (motortram als trekker)', 'Dieseltramlocomotief (motortram als trekker)'],
   tramelloc: [300, 22, true, 'Elektrische tramloc (ook voor goederen door de straat)', 'Elektrische tramloc (ook voor goederen door de straat)'],

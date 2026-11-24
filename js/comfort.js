@@ -382,6 +382,7 @@ export const samenstellingVan = id => typeof id === 'string' && id.startsWith('s
 // benodigd materieel voor een hele lijn: {typeId: aantal}. Met loc-wissel aan de grens rijdt elke loc alleen in zijn
 // eigen deel van de route (aandeel van de rijtijd), plus één die aan de grens op de terugkerende trein wacht.
 export function nodigLijn(l, typeId = l.typeId, nodig = l.nodig) {
+  if (l.vracht && l.vracht.venster !== 'spits') return {}; // goederen buiten de spits: de locs worden apart ingepland (gedeeld met de spits)
   const per = nodigPer(typeId), uit = {}, w = l.locWissel, frac = l._landFrac;
   const metWissel = w && frac?.length && Object.keys(w).length;
   const locs = Object.entries(per).filter(([c]) => TYPE[c]?.soort === 'loc'), nLoc = locs.reduce((a, [, k]) => a + k, 0);
@@ -399,6 +400,6 @@ export function nodigLijn(l, typeId = l.typeId, nodig = l.nodig) {
 // hoeveel van elk voertuig zit er in één trein van dit type: {typeId: aantal}
 export function nodigPer(typeId) {
   const uit = {};
-  for (const c of delenVan(typeId)) uit[c] = (uit[c] || 0) + 1;
+  for (const c of delenVan(typeId)) if (TYPE[c]?.soort !== 'wagon') uit[c] = (uit[c] || 0) + 1; // goederenwagens zijn van de klant
   return uit;
 }

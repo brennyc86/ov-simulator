@@ -63,6 +63,7 @@ const U = {
   ddm1bvk:     { bakken: [26.8], neus: 'rond', kleur: '#ffc917', dd: true },
   viaggio:     { bakken: [26.5], neus: 'plat', kleur: '#c9cdd1' },
   viaggiobvk:  { bakken: [26.5], neus: 'spits', kleur: '#c9cdd1' },
+  goederenwagen:{ bakken: [16], neus: 'plat', kleur: '#6b4a2f' },
   stoomtramloc: { bakken: [3.9, 2.6], neus: 'stoom', kleur: '#4a3326', smal: true, loc: 1 },
   dieseltramloc: { bakken: [8], neus: 'loc', kleur: '#5b3a1f', smal: true, loc: 1 },
   tramelloc: { bakken: [9], neus: 'loc', kleur: '#e2a400', smal: true, loc: 1, pant: [0] },

@@ -88,6 +88,8 @@ export const VLOOT = [
   { id: 'metroloc', soort: 'loc', naam: 'Metroloc (accu, werkloc; als trekker een concept)', modus: 'metro', van: 1968, tot: 2060, zit: 0, sta: 0, vmax: 70, acc: 0.5, prijs: 2.5e+06, km: 1.6, energie: 'accu-hybride', pers: 1, leven: 35, wie: 'GVB, RET (werktreinen), concept' },
   { id: 'metrorijtuig', soort: 'rijtuig', naam: 'Metro-aanhangrijtuig (concept)', modus: 'metro', van: 1968, tot: 2060, zit: 50, sta: 110, vmax: 80, acc: 0, prijs: 1.4e+06, km: 0.4, energie: '-', pers: 0, leven: 35, wie: 'concept' },
   { id: 'metrostuur', soort: 'stuurstand', naam: 'Metro-stuurstandrijtuig (concept)', modus: 'metro', van: 1968, tot: 2060, zit: 44, sta: 100, vmax: 80, acc: 0, prijs: 1.9e+06, km: 0.45, energie: '-', pers: 0, leven: 35, wie: 'concept' },
+  // goederenwagen: van de klant (telt niet in je vloot), alleen voor gewicht, lengte en tekening van een goederentrein
+  { id: 'goederenwagen', soort: 'wagon', naam: 'Goederenwagen (van de klant)', modus: 'trein', van: 1839, tot: 2100, zit: 0, sta: 0, vmax: 100, acc: 0, prijs: 0, km: 0.3, energie: '-', pers: 0, leven: 40, wie: 'klant' },
   // uitbreiding: meer locs (stoom, diesel, elektrisch; NL, BE, LU, DE, FR) en losse rijtuigen en stuurstandrijtuigen
   { id: 'stoomloc3900', soort: 'loc', naam: 'Stoomlocomotief NS 3900 (los)', modus: 'trein', van: 1929, tot: 1958, zit: 0, sta: 0, vmax: 100, acc: 0.3, prijs: 3e+06, km: 3.8, energie: 'kolen', pers: 2, leven: 40, wie: 'NS' },
   { id: 'stoomlocbr01', soort: 'loc', naam: 'Stoomlocomotief DR/DB baureihe 01 (los)', modus: 'trein', van: 1926, tot: 1977, zit: 0, sta: 0, vmax: 130, acc: 0.3, prijs: 3.2e+06, km: 4.0, energie: 'kolen', pers: 2, leven: 40, wie: 'DR, DB' },
