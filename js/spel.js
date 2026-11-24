@@ -243,6 +243,10 @@ export function vertrekken(lijn) {
   // beide richtingen; [richting][minuten]
   const uit = [[], []];
   // laagfrequent: losse ritten met een eigen tijd en eigen dagen (bv. alleen in het weekend, of 1× per week)
+  if (lijn.dienst === 'eenmalig') { // één dag: alleen die ritten
+    for (const x of lijn.ritten || []) if (x.dag === dagNu && x.r < ritRichtingen(lijn)) uit[x.r].push(x.t);
+    return uit;
+  }
   if (lijn.dienst === 'laag') {
     const wd = weekdag(dagNu);
     for (const x of lijn.ritten || []) if (x.r < ritRichtingen(lijn) && (!x.dagen || x.dagen.includes(wd))) uit[x.r].push(x.t);

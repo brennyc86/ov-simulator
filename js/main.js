@@ -1200,7 +1200,13 @@ let dagLaag = -1;
 function dienstVoorDag() {
   // laagfrequente lijnen: elke dag opnieuw welke ritten vandaag rijden
   S.zetDag(spel.dag);
-  if (dagLaag !== spel.dag) { dagLaag = spel.dag; for (const l of spel.lijnen) if (l.dienst === 'laag') S.herbereken(l); }
+  if (dagLaag !== spel.dag) {
+    dagLaag = spel.dag;
+    // eenmalige lijnen waarvan de dag voorbij is: vervallen
+    const weg = spel.lijnen.filter(l => l.dienst === 'eenmalig' && (l.ritten || []).every(x => x.dag < spel.dag));
+    if (weg.length) { spel.lijnen = spel.lijnen.filter(l => !weg.includes(l)); melding(`Eenmalige rit${weg.length > 1 ? 'ten' : ''} gereden: lijn ${weg.map(l => l.nr).join(', ')} vervalt.`); }
+    for (const l of spel.lijnen) if (l.dienst === 'laag' || l.dienst === 'eenmalig') S.herbereken(l);
+  }
   const w = S.isWeekend(spel.dag);
   if (spel._weekend === w) return;
   spel._weekend = w; S.zetWeekend(w);
@@ -1385,6 +1391,24 @@ const PANEEL_VRACHT = d => {
     ${lijst.length ? lijst.map(kaart_).join('') : '<p>Er zijn nu geen aanvragen. Er komen er regelmatig nieuwe bij.</p>'}`;
 };
 // formulier voor een eenmalige of terugkerende bijzondere dienst: datum/dagen, vertrek, pendelen, langere stops, prijs
+// nieuwe lijn, laagfrequent: per richting een aantal vertrektijden, per tijd (optioneel) de dagen
+function nieuwLaagBlok(d) {
+  const twee = (d.richting || 'beide') === 'beide';
+  d.laag = d.laag || { 0: [{ t: 540, dagen: null }, { t: 900, dagen: null }], 1: [{ t: 600, dagen: null }, { t: 960, dagen: null }] };
+  const rij = r => `<h4>${r ? 'Terug' : 'Heen'} vanaf ${esc(r ? d.haltes[d.haltes.length - 1].naam : d.haltes[0].naam)}</h4>
+    <label class="veld">Aantal tijdstippen per dag<input type="number" min="1" max="30" value="${d.laag[r].length}" data-wijzig="nlb-n" data-r="${r}" style="width:5em"></label>
+    <table class="tabel klein">${d.laag[r].map((x, k) => `<tr><td><input type="time" value="${S.klok(x.t)}" data-wijzig="nlb-t" data-r="${r}" data-k="${k}"></td>
+      <td>${DAG_KORT.map((dn, i) => `<button class="knop klein ${!x.dagen || x.dagen.includes(i) ? 'hoofd' : ''}" data-actie="nlb-dag" data-r="${r}" data-k="${k}" data-d="${i}">${dn}</button>`).join('')}</td>
+      <td>${!x.dagen ? 'elke dag' : x.dagen.length + '× per week'}</td></tr>`).join('')}</table>`;
+  return `<div class="kaartje">${rij(0)}${twee ? rij(1) : ''}</div>`;
+}
+// nieuwe lijn, eenmalig: dag en tijd van vertrek (en eventueel een terugrit dezelfde dag)
+function nieuwEenmaligBlok(d) {
+  d.een = d.een || { dag: spel.dag + 7, t: 600, terug: (d.richting || 'beide') === 'beide' ? 960 : null };
+  return `<div class="kaartje raster2"><label class="veld">Dag<select data-wijzig="nle-dag">${Array.from({ length: 120 }, (_, i) => spel.dag + 1 + i).map(dg => `<option value="${dg}" ${dg === d.een.dag ? 'selected' : ''}>${S.datumTekst(dg)}</option>`).join('')}</select></label>
+    <label class="veld">Vertrek ${esc(d.haltes[0].naam)}<input type="time" value="${S.klok(d.een.t)}" data-wijzig="nle-t"></label>
+    ${(d.richting || 'beide') === 'beide' ? `<label class="veld">Terugrit (leeg = geen)<input type="time" value="${d.een.terug != null ? S.klok(d.een.terug) : ''}" data-wijzig="nle-terug"></label>` : ''}</div>`;
+}
 function bijzonderFormulier(d) {
   const nb = d.nb || (d.nb = { over: 14, tijd: '10:00', keer: 0, keertijd: 20, dagen: [5, 6], wacht: {}, prijs: Math.round(gewonePrijs(d.modus, d.route.lengte / 1000) * 1.8) });
   const typen = [...typenVoor(d.modus), ...museumTypen(spel.jaar).filter(t => t.modus === d.modus), ...Object.keys(spel.voertuigen).map(id => TYPE[id]).filter(t => t?.modus === d.modus)]
@@ -2039,11 +2063,12 @@ const PANELEN = {
       <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.nrIn ?? (d.terugVan ? d.terugVan.nr : d.modus === 'trein' ? 'RE' + vrijNr : vrijNr))}" maxlength="8"></label>
       <label class="veld">Naam<input id="nl-naam" value="${esc(d.naamIn ?? (d.rond ? 'Ring ' + d.haltes[0].naam.split(',')[0] : d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0]))}" maxlength="60"></label></div>
       <h3>Materieel</h3>${d.modus === 'vlucht' ? `<div class="veld"><select id="nl-type" data-wijzig="nl-type">${typen.map(v => `<option value="${v.id}" ${v.id === d.typeKeuze ? 'selected' : ''}>${esc(v.naam)} · ${plaatsenVan(v.id)} pl. · ${S.euroKort(v.prijs)}${spel.voertuigen[v.id] ? ` · ${spel.voertuigen[v.id]} in bezit` : ''}</option>`).join('')}</select></div>${nodigBlok(d, typen)}` : mixBlok('nl', d, typen)}
-      <div class="raster2" ${d.bijzonder ? 'hidden' : ''}>${[['nl-spits', 'Spits', d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)], ['nl-dal', 'Overdag', d.dalIn ?? 30], ['nl-avond', '\'s Avonds', d.avondIn ?? 60]].map(([id, n, w]) => `<label class="veld">${n}<select id="${id}">${S.FREQS.map(f => `<option value="${f}" ${+w === f ? 'selected' : ''}>${freqNaam(f)}</option>`).join('')}</select></label>`).join('')}</div>
-      <div class="veld"><label>Soort dienst</label><div class="segment">${[['regulier', 'Regulier'], ['eenmalig', 'Eenmalig'], ['bijzonder', 'Bijzonder (terugkerend)']].map(([k, n]) => `<button class="knop klein ${(d.dienst || 'regulier') === k ? 'hoofd' : ''}" data-actie="nl-dienst" data-w="${k}">${n}</button>`).join('')}</div>
-        <p class="klein">${d.dienst === 'eenmalig' ? 'Eén dag: een rit (bv. een stoomtrein of themarit) of een dag heen en weer pendelen. Mensen schrijven zich in tot de dag zelf.' : d.dienst === 'bijzonder' ? 'Terugkerend maar beperkt, bv. een museumlijn die alleen in het weekend een paar keer rijdt.' : 'De gewone dienstregeling, elke dag.'}</p></div>
-      ${d.bijzonder ? bijzonderFormulier(d) : ''}
-      <div ${d.bijzonder ? 'hidden' : ''}>
+      <h3>Dienstregeling</h3>
+      <div class="segment">${[['hoog', 'Hoogfrequent'], ['laag', 'Laagfrequent'], ['eenmalig', 'Eenmalig']].map(([k, n]) => `<button class="knop klein ${(d.freqSoort || 'hoog') === k ? 'hoofd' : ''}" data-actie="nl-freq" data-w="${k}">${n}</button>`).join('')}</div>
+      <p class="klein">${{ hoog: 'Een vast patroon dat elk uur terugkomt: kies per deel van de dag hoe vaak.', laag: 'Een paar ritten per dag op vaste tijden; per tijd kun je de dagen kiezen (bv. alleen in het weekend, of één keer per week).', eenmalig: 'Eén rit op een gekozen dag en tijd (eventueel met een terugrit). Daarna vervalt de lijn.' }[d.freqSoort || 'hoog']}</p>
+      <div class="raster2" ${(d.freqSoort || 'hoog') === 'hoog' ? '' : 'hidden'}>${[['nl-spits', 'Spits', d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)], ['nl-dal', 'Overdag', d.dalIn ?? 30], ['nl-avond', '\'s Avonds', d.avondIn ?? 60]].map(([id, n, w]) => `<label class="veld">${n}<select id="${id}">${S.FREQS.map(f => `<option value="${f}" ${+w === f ? 'selected' : ''}>${freqNaam(f)}</option>`).join('')}</select></label>`).join('')}</div>
+      ${d.freqSoort === 'laag' ? nieuwLaagBlok(d) : d.freqSoort === 'eenmalig' ? nieuwEenmaligBlok(d) : ''}
+      <div>
       ${d.richting === 'heen' && !d.terugVan && !d.rond ? '<label class="rij"><input type="checkbox" id="nl-terug" checked> Daarna meteen de terugweg bouwen (andere route of andere haltes)</label>' : ''}
       <label class="rij"><input type="checkbox" id="nl-koop" checked> Wat nog ontbreekt meteen (nieuw) bijkopen van het bovenste materieel</label>
       <label class="rij"><input type="checkbox" id="nl-concessie" checked> Concessie (subsidie) aanvragen bij de provincie</label>
@@ -2366,6 +2391,8 @@ function actieUit(a, d) {
     case 'lijn-maak': maakNieuweLijn(); break;
     case 'mix-n': case 'mix-op': case 'mix-weg': case 'mix-erbij': case 'mix-koopnieuw': case 'mix-tweedehands': case 'mix-koop': case 'mix-markt': case 'mix-bouwer': mixActie(a, d); break;
     case 'nl-dienst': { const dd = paneelData; dd.dienst = d.w; dd.bijzonder = d.w !== 'regulier'; ververs(); break; }
+    case 'nl-freq': { const dd = paneelData; nlBewaar(dd); dd.freqSoort = d.w; ververs(); break; }
+    case 'nlb-dag': { const dd = paneelData, x = dd.laag?.[+d.r]?.[+d.k]; if (!x) break; nlBewaar(dd); const g = new Set(x.dagen || [0, 1, 2, 3, 4, 5, 6]); g.has(+d.d) ? g.delete(+d.d) : g.add(+d.d); x.dagen = g.size === 7 ? null : [...g].sort(); ververs(); break; }
     case 'bijzonder-maak': {
       const dd = paneelData, nb = dd.nb, typeId = nb?.type;
       if (!typeId) { melding('Koop eerst materieel (Vloot), bijvoorbeeld museummaterieel of een klassieker van de tweedehandsmarkt.'); break; }
@@ -2492,6 +2519,12 @@ function wijzig(w, i) {
     case 'inst-max': INST.max = +i.value || 100; instBewaar(); return;
     case 'inst-lied': INST.liedje = +i.value || 0; instBewaar(); zetLiedje(INST.liedje); return;
     case 'inst-muziek': { if (i.checked) muziekAan(); else muziekUit(); const b = $('b-muziek'); b.setAttribute('aria-pressed', String(muziekSpeelt())); return; }
+    case 'nlb-n': { const dd = paneelData, r = +i.dataset.r, n = Math.max(1, Math.min(30, Math.round(+i.value || 1))), lijst = dd.laag[r];
+      while (lijst.length < n) lijst.push({ t: Math.min(23 * 60, (lijst.at(-1)?.t ?? 480) + 120), dagen: null }); lijst.length = n; nlBewaar(dd); i.blur(); setTimeout(() => ververs(), 0); return; }
+    case 'nlb-t': { const x = paneelData.laag?.[+i.dataset.r]?.[+i.dataset.k]; if (x && i.value) { const [h, m] = i.value.split(':').map(Number); x.t = h * 60 + m; } return; }
+    case 'nle-dag': paneelData.een.dag = +i.value; return;
+    case 'nle-t': if (i.value) { const [h, m] = i.value.split(':').map(Number); paneelData.een.t = h * 60 + m; } return;
+    case 'nle-terug': if (i.value) { const [h, m] = i.value.split(':').map(Number); paneelData.een.terug = h * 60 + m; } else paneelData.een.terug = null; return;
     case 'freq': { for (const p of i.dataset.p.split(',')) l.interval[p] = +i.value || 999; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break; }
     case 'minuut': { const m = Math.max(0, Math.min(59, Math.round(+i.value || 0)));
       if (+i.dataset.r) l.offsetTerug = (l.offsetTerug || 0) + m - S.cyclusMinuut(l, 1); else { const terug = S.ritRichtingen(l) > 1 ? S.cyclusMinuut(l, 1) : null; l.offset = m; if (terug != null) l.offsetTerug = (l.offsetTerug || 0) + terug - S.cyclusMinuut(l, 1); }
@@ -3489,6 +3522,9 @@ function maakNieuweLijn() {
   const l = S.maakLijn(spel, { nr: $('nl-nr').value.trim() || String(spel.lijnen.length + 1), naam: $('nl-naam').value.trim(), modus: d.modus, typeId,
     haltes: d.haltes, route: d.route, interval: { vroeg: dal, ochtendspits: spits, dal, avondspits: spits, avond }, richting: d.rond ? 'rond' : d.richting || 'beide' });
   l.eigenSpoor = eigenSpoor;
+  // laagfrequent of eenmalig: losse ritten in plaats van het uurpatroon
+  if (d.freqSoort === 'laag' && d.laag) { l.dienst = 'laag'; l.ritten = [0, 1].flatMap(r => (S.ritRichtingen(l) > r ? d.laag[r] : []).map(x => ({ r, t: x.t, dagen: x.dagen }))); S.herbereken(l); }
+  if (d.freqSoort === 'eenmalig' && d.een) { l.dienst = 'eenmalig'; l.ritten = [{ r: 0, t: d.een.t, dag: d.een.dag }, ...(d.een.terug != null && S.ritRichtingen(l) > 1 ? [{ r: 1, t: d.een.terug, dag: d.een.dag }] : [])]; S.herbereken(l); }
   if (d.terugVan) { l.paar = d.terugVan.id; d.terugVan.paar = l.id; S.herbereken(d.terugVan); S.herbereken(l); }
   const terugBouwen = d.richting === 'heen' && !d.terugVan && !d.rond && $('nl-terug')?.checked;
   if (mix) { l.mix = mix.map(m => ({ id: m.id, n: Math.max(0, Math.min(m.n || 0, vrijVoor(spel, m.id, l))), rol: m.rol || 'hoofd' })); S.herbereken(l); }
@@ -4110,6 +4146,7 @@ function init() {
 const DAG_KORT = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
 const freqNaam = f => !f || f >= 999 ? 'geen' : f >= 60 ? `elke ${f / 60 === Math.round(f / 60) ? f / 60 + ' uur' : String(f / 60).replace('.', ',') + ' uur'}` : `elke ${String(f).replace('.', ',')} min`;
 function dienstBlok(l) {
+  if (l.dienst === 'eenmalig') { const r = l.ritten || []; return `<p>Eenmalige rit op <b>${S.datumTekst(r[0]?.dag ?? spel.dag)}</b>: ${r.map(x => `${x.r ? 'terug' : 'heen'} ${S.klok(x.t)}`).join(', ')}. Daarna vervalt de lijn.</p>`; }
   const laag = l.dienst === 'laag', twee = S.ritRichtingen(l) > 1;
   const kop = `<div class="rij"><label><input type="radio" name="dienst-${l.id}" data-wijzig="dienst" data-id="${l.id}" value="hoog" ${laag ? '' : 'checked'}> Vast patroon per uur</label>
     <label><input type="radio" name="dienst-${l.id}" data-wijzig="dienst" data-id="${l.id}" value="laag" ${laag ? 'checked' : ''}> Losse ritten (laagfrequent)</label></div>
