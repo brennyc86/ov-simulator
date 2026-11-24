@@ -16,7 +16,7 @@ import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeT
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
-import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter } from './bijzonder.js';
+import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
 import { interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht, bakkenVan, vervoerderKleur, dof, tekenIcoon } from './voertuig.js';
 import { Net, wegRoute, bboxVan, BEHEERDER } from './net.js';
@@ -1013,6 +1013,32 @@ function prijzenBlok(l) {
     <div style="overflow-x:auto"><table class="tabel klein"><tr><th>Klasse</th><th>Stoelen</th><th class="getal">Prijs</th><th>Catering aan je plaats</th><th class="getal">Comfort</th></tr>${rijen}</table></div>${rest}
     <p class="klein">Verwachte reizigers ${eff.factor >= 1 ? '+' : ''}${Math.round((eff.factor - 1) * 100)}% t.o.v. standaard · gemiddelde prijs ${Math.round(eff.gemPrijs * 100)}% · gemiddeld comfort ${komma(eff.gemComfort)} · catering en voorzieningen € ${Math.round(uurKosten(l, l.typeId))} per voertuiguur.</p>`;
 }
+// formulier voor een eenmalige of terugkerende bijzondere dienst: datum/dagen, vertrek, pendelen, langere stops, prijs
+function bijzonderFormulier(d) {
+  const nb = d.nb || (d.nb = { over: 14, tijd: '10:00', keer: 0, keertijd: 20, dagen: [5, 6], wacht: {}, prijs: Math.round(gewonePrijs(d.modus, d.route.lengte / 1000) * 1.8) });
+  const typen = [...typenVoor(d.modus), ...museumTypen(spel.jaar).filter(t => t.modus === d.modus), ...Object.keys(spel.voertuigen).map(id => TYPE[id]).filter(t => t?.modus === d.modus)]
+    .filter((t, i, a) => t && a.indexOf(t) === i && inzetbaar(spel, t.id) > 0);
+  if (!typen.some(t => t.id === nb.type)) nb.type = typen[0]?.id;
+  const [hh, mm] = nb.tijd.split(':').map(Number), eerste = hh * 60 + mm, n = d.haltes.length;
+  let tijden = null, ritten = { heen: [eerste], terug: [] };
+  if (nb.type) { const tmp = { modus: d.modus, typeId: nb.type, haltes: d.haltes, route: d.route, interval: { vroeg: 999, ochtendspits: 999, dal: 999, avondspits: 999, avond: 999 }, eerste: 0, laatste: 0, offset: 0, richting: 'beide',
+      halteWacht: Object.fromEntries(Object.entries(nb.wacht).flatMap(([i, m]) => +m > 0 ? [[`0:${i}`, +m], [`1:${n - 1 - i}`, +m]] : [])) };
+    try { S.herbereken(tmp); tijden = tmp.tr; ritten = pendel(eerste, +nb.keer || 0, +nb.keertijd || 15, tmp.duur); } catch { /* geen route */ } }
+  const dag = d.dienst === 'eenmalig' ? spel.dag + Math.max(1, Math.min(120, +nb.over || 14)) : null;
+  const verwacht = nb.type && tijden ? belangstelling(spel, { prijs: +nb.prijs, dag: dag ?? (spel.dag + ((5 - S.weekdag(spel.dag) + 7) % 7)), haltes: d.haltes, typeId: nb.type, modus: d.modus, lengteKm: d.route.lengte / 1000,
+    ritten: ritten.heen.length + ritten.terug.length, terugkerend: d.dienst === 'bijzonder' }, D.plaatsen) : 0;
+  const veld = (k, label, attr) => `<label class="veld">${label}<input data-wijzig="nb-veld" data-k="${k}" value="${esc(String(nb[k]))}" ${attr}></label>`;
+  return `<div class="kaartje">
+    <div class="raster2">${d.dienst === 'eenmalig' ? veld('over', `Over hoeveel dagen <span class="klein">(${S.datumTekst(dag)})</span>`, 'type="number" min="1" max="120"') : `<div class="veld"><label>Rijdt op</label><div class="rij">${DAGNAAM.map((n, i) => `<label class="rij klein"><input type="checkbox" data-wijzig="nb-dag" data-w="${i}" ${nb.dagen.includes(i) ? 'checked' : ''}>${n}</label>`).join('')}</div></div>`}
+      ${veld('tijd', 'Eerste vertrek', 'type="time"')}${veld('keer', 'Keer heen en terug <span class="klein">(0 = alleen heen)</span>', 'type="number" min="0" max="12"')}${veld('keertijd', 'Keertijd (min)', 'type="number" min="5" max="180"')}
+      ${veld('prijs', 'Prijs per persoon €', 'type="number" min="0" step="1"')}</div>
+    <div class="veld"><label>Materieel (in bezit en inzetbaar)</label><select data-wijzig="nb-veld" data-k="type">${typen.map(t => `<option value="${t.id}" ${t.id === nb.type ? 'selected' : ''}>${esc(t.naam)}${isMuseum(t, spel.jaar) ? ' (museum/klassieker)' : ''} · ${inzetbaar(spel, t.id)} inzetbaar</option>`).join('') || '<option value="">— geen materieel: koop eerst bij Vloot (ook tweedehands) —</option>'}</select></div>
+    ${tijden ? `<table class="tabel"><tr><th>Halte</th><th class="getal">heen</th>${ritten.terug.length ? '<th class="getal">terug</th>' : ''}<th class="getal">extra stop (min)</th></tr>${d.haltes.map((h, i) => `<tr><td>${esc(h.naam)}</td>
+      <td class="getal">${S.klok(eerste + Math.round(tijden[0][i] / 60))}</td>${ritten.terug.length ? `<td class="getal">${S.klok(ritten.terug[0] + Math.round(tijden[1][n - 1 - i] / 60))}</td>` : ''}
+      <td class="getal">${i > 0 && i < n - 1 ? `<input type="number" min="0" max="120" style="width:4em" data-wijzig="nb-wacht" data-i="${i}" value="${nb.wacht[i] || 0}">` : ''}</td></tr>`).join('')}</table>
+      <p class="klein">${ritten.heen.length + ritten.terug.length} rit(ten): heen ${ritten.heen.map(S.klok).join(', ')}${ritten.terug.length ? ` · terug ${ritten.terug.map(S.klok).join(', ')}` : ''}. Verwacht ongeveer <b>${verwacht}</b> reizigers per rit${d.dienst === 'bijzonder' ? ' op een weekenddag' : ''}. Klassiekers en museummaterieel trekken veel meer mensen, die er ook meer voor over hebben.</p>` : ''}
+    <div class="rij"><button class="knop hoofd" data-actie="bijzonder-maak" ${nb.type && (d.dienst === 'eenmalig' || nb.dagen.length) ? '' : 'disabled'}>${d.dienst === 'eenmalig' ? 'Rit uitschrijven' : 'Dienst starten'}</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div></div>`;
+}
 // eigen materieel dat niet meer nieuw te koop is (tweedehands klassiekers, oude locs en rijtuigen)
 function eigenOudBlok() {
   const getoond = new Set([...beschikbaar(spel.jaar), ...beschikbaarLos(spel.jaar), ...museumTypen(spel.jaar)].map(v => v.id));
@@ -1077,45 +1103,55 @@ function serieVoor(basis, ink, naam) {
 }
 
 // ---------------------------------------------------------------- bijzondere ritten
-function maakBijzonder({ nr, naam, modus, typeId, haltes, route, dag, vertrek, prijs, charter = false, bod = 0, personen = 0, wie = '' }) {
+function maakBijzonder({ nr, naam, modus, typeId, haltes, route, dag, vertrek, prijs, charter = false, bod = 0, personen = 0, wie = '', soort = 'eenmalig', heen, terug, dagen, vanaf, tot, wacht }) {
   const l = S.maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interval: { vroeg: 999, ochtendspits: 999, dal: 999, avondspits: 999, avond: 999 } });
-  l.bijzonder = { dag, vertrek, prijs, charter, bod, personen, wie, gepland: spel.dag, ingeschreven: 0 };
+  if (wacht) { const n = haltes.length; l.halteWacht = {}; for (const [i, m] of Object.entries(wacht)) if (+m > 0) { l.halteWacht[`0:${i}`] = +m; l.halteWacht[`1:${n - 1 - i}`] = +m; } }
+  l.bijzonder = { soort, dag, vertrek, heen: heen || [vertrek], terug: terug || [], dagen, vanaf, tot, prijs, charter, bod, personen, wie, gepland: spel.dag, ingeschreven: 0 };
   bijzonderBijwerken(l);
   return l;
 }
+// verwachte reizigers per rit (eenmalig groeit naar de dag toe, terugkerend is gewoon de vraag van die dag)
+const ritInfo = (l, dag) => ({ ...l.bijzonder, dag, haltes: l.haltes, typeId: l.typeId, modus: l.modus, lengteKm: l.lengteKm, ritten: aantalRitten(l.bijzonder), terugkerend: l.bijzonder.soort === 'bijzonder' });
 function bijzonderBijwerken(l) {
   const b = l.bijzonder;
   l.echt = { v: vertrekOpDag(l, spel.dag) }; l.aangepast = false;
   S.herbereken(l);
-  l.actief = spel.dag === b.dag;
-  if (!b.charter && spel.dag <= b.dag) b.ingeschreven = inschrijvingen(spel, l, D.plaatsen, S.capaciteit(l));
+  l.actief = rijdtOp(b, spel.dag);
+  if (b.charter) return;
+  if (b.soort === 'bijzonder') b.ingeschreven = Math.min(S.capaciteit(l), belangstelling(spel, ritInfo(l, spel.dag), D.plaatsen));
+  else if (spel.dag <= b.dag) b.ingeschreven = inschrijvingen(spel, { ...l, bijzonder: ritInfo(l, b.dag) }, D.plaatsen, S.capaciteit(l));
 }
-// na de dag van de rit: afrekenen en opruimen
+// na een rijdag: afrekenen; eenmalige ritten daarna opruimen, terugkerende blijven staan
 function bijzonderAfrekenen() {
   for (const l of [...spel.lijnen]) {
     if (!l.bijzonder) continue;
-    if (spel.dag <= l.bijzonder.dag) { bijzonderBijwerken(l); continue; }
-    const b = l.bijzonder, t = TYPE[l.typeId];
+    const b = l.bijzonder, gisteren = spel.dag - 1, eenmalig = b.soort !== 'bijzonder';
+    if (eenmalig && spel.dag <= b.dag) { bijzonderBijwerken(l); continue; }
+    if (!eenmalig && !rijdtOp(b, gisteren)) { if (b.tot != null && spel.dag > b.tot) spel.lijnen.splice(spel.lijnen.indexOf(l), 1); else bijzonderBijwerken(l); continue; }
+    const t = TYPE[l.typeId], ritten = aantalRitten(b);
     const heeft = (spel.voertuigen[l.typeId] || 0) > 0;
-    const opbrengst = !heeft ? 0 : b.charter ? b.bod : Math.min(b.ingeschreven, S.capaciteit(l)) * b.prijs;
-    const kosten = heeft ? ritKosten(spel, l) : 0;
+    const reizigers = b.charter ? b.personen : Math.min(b.ingeschreven, S.capaciteit(l)) * ritten;
+    const opbrengst = !heeft ? 0 : b.charter ? b.bod : reizigers * b.prijs;
+    const kosten = heeft ? ritKosten(spel, l) * (1 + 0.7 * (ritten - 1)) : 0; // opstoken/voorbereiden één keer per dag
     spel.geld += opbrengst - kosten; spel.maand.kaartjes += opbrengst; spel.maand.overig += kosten;
     if (b.charter) spel.reputatie = Math.min(100, spel.reputatie + (heeft ? 1 : -4));
-    (spel.bijzonderArchief ||= []).unshift({ naam: l.naam, dag: b.dag, reizigers: b.charter ? b.personen : b.ingeschreven, opbrengst, kosten, type: t?.naam });
+    (spel.bijzonderArchief ||= []).unshift({ naam: l.naam, dag: eenmalig ? b.dag : gisteren, reizigers, opbrengst, kosten, type: t?.naam });
     spel.bijzonderArchief.length = Math.min(spel.bijzonderArchief.length, 20);
-    melding(heeft ? `Bijzondere rit ${l.naam} gereden: ${b.charter ? b.personen : b.ingeschreven} reizigers, resultaat ${S.euro(opbrengst - kosten)}.` : `Bijzondere rit ${l.naam} kon niet rijden: geen ${t?.naam || 'materieel'} meer in bezit.`, 7000);
-    spel.lijnen.splice(spel.lijnen.indexOf(l), 1);
+    if (eenmalig || Math.random() < 0.3) melding(heeft ? `${eenmalig ? 'Bijzondere rit' : 'Museumlijn'} ${l.naam} gereden: ${reizigers} reizigers${ritten > 1 ? ` in ${ritten} ritten` : ''}, resultaat ${S.euro(opbrengst - kosten)}.` : `${l.naam} kon niet rijden: geen ${t?.naam || 'materieel'} meer in bezit.`, 7000);
+    if (eenmalig || (b.tot != null && spel.dag > b.tot)) spel.lijnen.splice(spel.lijnen.indexOf(l), 1); else bijzonderBijwerken(l);
   }
 }
+const DAGNAAM = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
+const wanneerTekst = b => b.soort === 'bijzonder' ? `elke ${(b.dagen || []).map(d => DAGNAAM[d]).join(', ')}` : S.datumTekst(b.dag, true);
 function bijzonderTabel() {
   const lijst = spel.lijnen.filter(l => l.bijzonder);
   const rij = l => { const b = l.bijzonder, cap = S.capaciteit(l), n = b.charter ? b.personen : b.ingeschreven;
-    return `<tr data-actie="toon-lijn" data-id="${l.id}" style="cursor:pointer"><td>${esc(l.naam)}<br><span class="klein">${S.datumTekst(b.dag, true)} · ${S.klok(b.vertrek)} · ${esc(TYPE[l.typeId]?.naam || '')}${b.charter ? ` · charter ${esc(b.wie)}` : ''}</span></td>
+    return `<tr data-actie="toon-lijn" data-id="${l.id}" style="cursor:pointer"><td>${esc(l.naam)}<br><span class="klein">${wanneerTekst(b)} · ${rittenVan(b)[0].map(S.klok).join(', ')}${b.terug?.length ? ` (terug ${b.terug.map(S.klok).join(', ')})` : ''} · ${esc(TYPE[l.typeId]?.naam || '')}${b.charter ? ` · charter ${esc(b.wie)}` : ''}</span></td>
       <td class="getal">${n} / ${cap}<br><span class="klein">${b.charter ? S.euroKort(b.bod) : S.euroKort(n * b.prijs)}</span></td></tr>`; };
   const arch = (spel.bijzonderArchief || []).slice(0, 5);
-  return `${lijst.length ? `<table class="tabel"><tr><th>Rit</th><th class="getal">ingeschreven</th></tr>${lijst.map(rij).join('')}</table>` : '<p class="klein">Geen bijzondere ritten gepland.</p>'}
+  return `${lijst.length ? `<table class="tabel"><tr><th>Rit</th><th class="getal">per rit</th></tr>${lijst.map(rij).join('')}</table>` : '<p class="klein">Geen bijzondere ritten gepland.</p>'}
     ${arch.length ? `<p class="klein">Gereden: ${arch.map(a => `${esc(a.naam)} (${a.reizigers} reizigers, ${S.euroKort(a.opbrengst - a.kosten)})`).join(' · ')}</p>` : ''}
-    <p class="klein">Een bijzondere rit plan je met <b>＋ Lijn</b>: klik de route aan en vink daarna <b>eenmalige bijzondere rit</b> aan. Museummaterieel koop je bij <b>Vloot</b>.</p>`;
+    <p class="klein">Een eenmalige rit of een terugkerende bijzondere dienst (bv. museumlijn in het weekend) plan je met <b>＋ Lijn</b>: klik de route aan en kies bij <b>Soort dienst</b>. Museummaterieel en klassiekers koop je bij <b>Vloot</b> (ook op de tweedehandsmarkt).</p>`;
 }
 
 // ---------------------------------------------------------------- panelen
@@ -1223,12 +1259,15 @@ const PANELEN = {
   },
   lijn(l) {
     if (!l) return '';
-    if (l.bijzonder) { const b = l.bijzonder, n = b.charter ? b.personen : b.ingeschreven;
+    if (l.bijzonder) { const b = l.bijzonder, n = b.charter ? b.personen : b.ingeschreven, [heen, terug] = rittenVan(b), ritten = heen.length + terug.length;
+      const tr = r => l.tr?.[r] || l.t, wacht = (r, i) => (l.halteWacht?.[`${r}:${i}`] || 0);
+      const tabel = (r, v) => { const volg = r ? [...l.haltes].reverse() : l.haltes;
+        return `<table class="tabel"><tr><th>${r ? 'Terug' : 'Heen'}</th>${v.map(x => `<th class="getal">${S.klok(x)}</th>`).join('')}</tr>${volg.map((h, i) => `<tr><td>${esc(h.naam)}${wacht(r, i) ? ` <span class="klein">(+${wacht(r, i)} min stop)</span>` : ''}</td>${v.map(x => `<td class="getal">${S.klok(x + Math.round(tr(r)[i] / 60))}</td>`).join('')}</tr>`).join('')}</table>`; };
       return `<h2><span class="lijnnr" style="background:${spel.kleur}">★</span> ${esc(l.naam)}</h2>
-        <p>Bijzondere rit op <b>${S.datumTekst(b.dag)}</b>, vertrek ${S.klok(b.vertrek)} · ${esc(TYPE[l.typeId]?.naam || '')}${isMuseum(TYPE[l.typeId], spel.jaar) ? ' (museum)' : ''}</p>
-        <p>${b.charter ? `Charter voor ${esc(b.wie)}: ${b.personen} personen, opbrengst ${S.euro(b.bod)}.` : `Ingeschreven: <b>${n}</b> van ${S.capaciteit(l)} plaatsen à ${S.euro(b.prijs)} = ${S.euro(n * b.prijs)}.`} Verwachte kosten ${S.euro(ritKosten(spel, l))}.</p>
-        <ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">${S.klok(b.vertrek + Math.round(l.t[i] / 60))}</span></li>`).join('')}</ol>
-        <button class="knop gevaar" data-actie="opheffen" data-id="${l.id}">Rit afblazen</button>`; }
+        <p>${b.soort === 'bijzonder' ? `Bijzondere dienst <b>${wanneerTekst(b)}</b>${b.tot != null ? ` tot ${S.datumTekst(b.tot)}` : ''}` : `Eenmalig op <b>${S.datumTekst(b.dag)}</b>`} · ${ritten} rit(ten) · ${esc(TYPE[l.typeId]?.naam || '')}${isMuseum(TYPE[l.typeId], spel.jaar) ? ' (museum)' : ''}</p>
+        <p>${b.charter ? `Charter voor ${esc(b.wie)}: ${b.personen} personen, opbrengst ${S.euro(b.bod)}.` : `${b.soort === 'bijzonder' ? 'Verwacht vandaag' : 'Ingeschreven'}: <b>${n}</b> per rit van ${S.capaciteit(l)} plaatsen à ${S.euro(b.prijs)} = ${S.euro(n * b.prijs * ritten)}${ritten > 1 ? ' voor alle ritten' : ''}.`} Verwachte kosten ${S.euro(ritKosten(spel, l) * (1 + 0.7 * (ritten - 1)))} per rijdag.</p>
+        ${tabel(0, heen)}${terug.length ? tabel(1, terug) : ''}
+        <button class="knop gevaar" data-actie="opheffen" data-id="${l.id}">${b.soort === 'bijzonder' ? 'Dienst stoppen' : 'Rit afblazen'}</button>`; }
     const t = TYPE[l.typeId];
     const typen = typenVoor(l.modus);
     const st = l.stat;
@@ -1615,13 +1654,10 @@ const PANELEN = {
         <button class="knop klein hoofd" data-actie="nl-bouwer">＋ Nieuwe voertuigen samenstellen…</button></div>
       ${d.geenEigen ? '<p class="klein">Je hebt nog geen voertuigen van deze soort: de lijst toont wat te koop is. Met "Nieuwe voertuigen samenstellen" kies je zelf (foto, interieur, aantal).</p>' : ''}
       ${nodigBlok(d, typen)}
-      <div class="raster2"><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="${d.dalIn ?? 30}" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="${d.avondIn ?? 60}" min="3"></label></div>
-      <label class="rij"><input type="checkbox" data-wijzig="nl-bijzonder" ${d.bijzonder ? 'checked' : ''}> Eenmalige bijzondere rit (bv. stoomtrein of themarit)</label>
-      ${d.bijzonder ? `<div class="raster2"><label class="veld">Over hoeveel dagen<input id="nb-dagen" type="number" min="3" max="90" value="14"></label><label class="veld">Vertrek<input id="nb-tijd" type="time" value="10:00"></label>
-        <label class="veld">Prijs per persoon €<input id="nb-prijs" type="number" min="0" step="1" value="${Math.round(gewonePrijs(d.modus, d.route.lengte / 1000) * 1.8)}"></label></div>
-        <div class="veld"><label for="nb-type">Materieel (in bezit)</label><select id="nb-type">${[...typenVoor(d.modus), ...museumTypen(spel.jaar).filter(t => t.modus === d.modus)].filter(t => spel.voertuigen[t.id]).map(t => `<option value="${t.id}">${esc(t.naam)}${isMuseum(t, spel.jaar) ? ' (museum)' : ''} · ${spel.voertuigen[t.id]} in bezit</option>`).join('') || '<option value="">— geen materieel in bezit: koop eerst bij Vloot —</option>'}</select></div>
-        <p class="klein">Mensen schrijven zich in tot de dag van de rit. Museummaterieel en weekenddagen trekken veel meer belangstelling.</p>
-        <div class="rij"><button class="knop hoofd" data-actie="bijzonder-maak">Rit uitschrijven</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div>` : ''}
+      <div class="raster2" ${d.bijzonder ? 'hidden' : ''}><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="${d.dalIn ?? 30}" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="${d.avondIn ?? 60}" min="3"></label></div>
+      <div class="veld"><label>Soort dienst</label><div class="segment">${[['regulier', 'Regulier'], ['eenmalig', 'Eenmalig'], ['bijzonder', 'Bijzonder (terugkerend)']].map(([k, n]) => `<button class="knop klein ${(d.dienst || 'regulier') === k ? 'hoofd' : ''}" data-actie="nl-dienst" data-w="${k}">${n}</button>`).join('')}</div>
+        <p class="klein">${d.dienst === 'eenmalig' ? 'Eén dag: een rit (bv. een stoomtrein of themarit) of een dag heen en weer pendelen. Mensen schrijven zich in tot de dag zelf.' : d.dienst === 'bijzonder' ? 'Terugkerend maar beperkt, bv. een museumlijn die alleen in het weekend een paar keer rijdt.' : 'De gewone dienstregeling, elke dag.'}</p></div>
+      ${d.bijzonder ? bijzonderFormulier(d) : ''}
       <div ${d.bijzonder ? 'hidden' : ''}>
       ${d.richting === 'heen' && !d.terugVan && !d.rond ? '<label class="rij"><input type="checkbox" id="nl-terug" checked> Daarna meteen de terugweg bouwen (andere route of andere haltes)</label>' : ''}
       <label class="rij"><input type="checkbox" id="nl-koop" checked> Benodigd materieel meteen kopen</label>
@@ -1934,13 +1970,16 @@ function actieUit(a, d) {
       bouw = null; zetTool('kijk'); break;
     }
     case 'lijn-maak': maakNieuweLijn(); break;
+    case 'nl-dienst': { const dd = paneelData; dd.dienst = d.w; dd.bijzonder = d.w !== 'regulier'; ververs(); break; }
     case 'bijzonder-maak': {
-      const dd = paneelData, typeId = $('nb-type').value;
-      if (!typeId) { melding('Koop eerst materieel (Vloot), bijvoorbeeld museummaterieel.'); break; }
-      const [hh, mm] = $('nb-tijd').value.split(':').map(Number);
-      const nl = maakBijzonder({ nr: '★', naam: `${dd.haltes[0].naam.split(',')[0]} – ${dd.haltes[dd.haltes.length - 1].naam.split(',')[0]}`, modus: dd.modus, typeId, haltes: dd.haltes, route: dd.route,
-        dag: spel.dag + Math.max(3, Math.min(90, +$('nb-dagen').value || 14)), vertrek: hh * 60 + mm, prijs: Math.max(0, +$('nb-prijs').value || 0) });
-      melding(`Bijzondere rit uitgeschreven voor ${S.datumTekst(nl.bijzonder.dag)}. Verwachting: ${Math.min(S.capaciteit(nl), belangstelling(spel, { ...nl.bijzonder, haltes: nl.haltes, typeId, modus: nl.modus, lengteKm: nl.lengteKm }, D.plaatsen))} inschrijvingen.`, 7000);
+      const dd = paneelData, nb = dd.nb, typeId = nb?.type;
+      if (!typeId) { melding('Koop eerst materieel (Vloot), bijvoorbeeld museummaterieel of een klassieker van de tweedehandsmarkt.'); break; }
+      const [hh, mm] = nb.tijd.split(':').map(Number), eerste = hh * 60 + mm;
+      const tmp = maakBijzonder({ nr: '★', naam: `${dd.haltes[0].naam.split(',')[0]} – ${dd.haltes[dd.haltes.length - 1].naam.split(',')[0]}`, modus: dd.modus, typeId, haltes: dd.haltes, route: dd.route,
+        soort: dd.dienst, dag: dd.dienst === 'eenmalig' ? spel.dag + Math.max(1, Math.min(120, +nb.over || 14)) : undefined, dagen: dd.dienst === 'bijzonder' ? [...nb.dagen].sort() : undefined, vanaf: spel.dag + 1,
+        vertrek: eerste, prijs: Math.max(0, +nb.prijs || 0), wacht: nb.wacht });
+      const r = pendel(eerste, +nb.keer || 0, +nb.keertijd || 15, tmp.duur); tmp.bijzonder.heen = r.heen; tmp.bijzonder.terug = r.terug; bijzonderBijwerken(tmp);
+      melding(dd.dienst === 'eenmalig' ? `Bijzondere rit uitgeschreven voor ${S.datumTekst(tmp.bijzonder.dag)} (${aantalRitten(tmp.bijzonder)} rit(ten)).` : `Bijzondere dienst ${wanneerTekst(tmp.bijzonder)} gestart (${aantalRitten(tmp.bijzonder)} ritten per dag).`, 7000);
       bouw = null; zetTool('kijk'); openPaneel('lijnen'); break;
     }
     case 'open-markt': openPaneel('markt'); break;
@@ -1985,6 +2024,9 @@ function wijzig(w, i) {
     case 'perron-vorm': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, i.value, perronOntwerp.eind); return;
     case 'lijn-richting': l.richting = i.value; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
+    case 'nb-veld': paneelData.nb[i.dataset.k] = i.value; i.blur(); setTimeout(() => ververs(), 0); return;
+    case 'nb-wacht': paneelData.nb.wacht[i.dataset.i] = Math.max(0, Math.min(120, Math.round(+i.value || 0))); i.blur(); setTimeout(() => ververs(), 0); return;
+    case 'nb-dag': { const l2 = paneelData.nb.dagen, w2 = +i.dataset.w, k = l2.indexOf(w2); if (i.checked && k < 0) l2.push(w2); else if (!i.checked && k >= 0) l2.splice(k, 1); ververs(); return; }
     case 'lijn-type': l.typeId = i.value; S.herbereken(l); stroomBijwerken(l); break;
     case 'lw-kies': { const land = +i.dataset.land; l.locWissel = { ...(l.locWissel || {}) }; if (i.value) l.locWissel[land] = i.value; else delete l.locWissel[land];
       if (!Object.keys(l.locWissel).length) delete l.locWissel;

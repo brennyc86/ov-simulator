@@ -2,7 +2,7 @@
 // Amsterdam) of die een groep bij je boekt (charter). Mensen schrijven zich in tot de dag van de rit; de rit
 // rijdt die dag echt over de kaart. Museummaterieel (buiten zijn eigen tijd) trekt extra belangstelling.
 import { VLOOT, TYPE, MODI } from './vloot.js';
-import { vangst, TARIEF, isWeekend, kmKosten, nieuwId } from './spel.js';
+import { vangst, TARIEF, isWeekend, weekdag, kmKosten, nieuwId } from './spel.js';
 
 // museummaterieel: gerestaureerd tweedehands te koop, ook als het type allang niet meer rijdt
 export const museumTypen = jaar => VLOOT.filter(v => !v.soort && v.tot <= jaar && v.van < jaar && ['trein', 'tram', 'bus'].includes(v.modus));
@@ -23,6 +23,9 @@ export function belangstelling(spel, rit, plaatsen) {
   let n = Math.sqrt(inw) * 0.35;
   if (isMuseum(t, spel.jaar)) n *= t.energie === 'kolen' ? 3.2 : 2.2;     // stoom en oud materieel: veel liefhebbers
   if (isWeekend(rit.dag)) n *= 1.7;
+  // meer ritten op één dag: wat meer mensen in totaal, maar verdeeld over de ritten; terugkerend (museumlijn) is minder uniek
+  const ritten = Math.max(1, rit.ritten || 1); n *= (1 + 0.5 * (ritten - 1)) / ritten;
+  if (rit.terugkerend) n *= 0.55;
   const km = rit.lengteKm || 50;
   n *= km < 15 ? 0.5 : km < 60 ? 0.9 : km < 220 ? 1.15 : 0.8;              // een dagje uit: niet te kort, niet te lang
   const verhouding = rit.prijs / Math.max(1, gewonePrijs(rit.modus, km) * (isMuseum(t, spel.jaar) ? 1.6 : 1));
@@ -37,7 +40,17 @@ export function inschrijvingen(spel, lijn, plaatsen, cap) {
   return Math.round(eind * (1 - Math.exp(-3 * verstreken / geplandDagen)) / (1 - Math.exp(-3)));
 }
 // vertrektijden van een bijzondere lijn op een speldag: alleen op de dag zelf één rit
-export const vertrekOpDag = (lijn, dag) => dag === lijn.bijzonder.dag ? [[lijn.bijzonder.vertrek], []] : [[], []];
+// eenmalig: op die ene dag (eventueel heen en weer pendelen); bijzonder (terugkerend): op de gekozen weekdagen
+export const rittenVan = b => [b.heen || [b.vertrek], b.terug || []];
+export const rijdtOp = (b, dag) => b.soort === 'bijzonder' ? dag >= (b.vanaf ?? 0) && (b.tot == null || dag <= b.tot) && (b.dagen || []).includes(weekdag(dag)) : dag === b.dag;
+export const vertrekOpDag = (lijn, dag) => rijdtOp(lijn.bijzonder, dag) ? rittenVan(lijn.bijzonder).map(x => [...x]) : [[], []];
+export const aantalRitten = b => rittenVan(b)[0].length + rittenVan(b)[1].length;
+// vertrektijden: eerste vertrek, aantal keer heen-en-terug (0 = alleen heen), keertijd, rijtijd (s)
+export function pendel(eerste, keer, keertijd, duur) {
+  const rit = Math.ceil(duur / 60), heen = [eerste], terug = [];
+  for (let k = 0; k < keer; k++) { const t = heen[k] + rit + keertijd; terug.push(t); if (k < keer - 1) heen.push(t + rit + keertijd); }
+  return { heen, terug };
+}
 
 // kosten van de rit: energie/onderhoud per km (museum duurder) en personeel (machinist, conducteurs, begeleiding)
 export function ritKosten(spel, lijn) {

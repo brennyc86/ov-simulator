@@ -144,8 +144,8 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
     // eerst als bijzondere rit (museumtrein kopen), daarna dezelfde route nog eens als gewone lijn
     { const mus = await import('../js/bijzonder.js'); const mt = mus.museumTypen(sp.jaar).find(t => t.modus === 'trein');
       if (mt) sp.voertuigen[mt.id] = 1;
-      const vb = document.querySelector('[data-wijzig="nl-bijzonder"]'); vb.checked = true; vb.dispatchEvent(new window.Event('change')); await wacht(100);
-      const sel = document.getElementById('nb-type'); if (mt && sel) sel.value = mt.id;
+      document.querySelector('[data-actie="nl-dienst"][data-w="eenmalig"]').click(); await wacht(100);
+      const sel = document.querySelector('[data-wijzig="nb-veld"][data-k="type"]'); if (mt && sel) { sel.value = mt.id; sel.dispatchEvent(new window.Event('change')); await wacht(100); }
       document.querySelector('[data-actie="bijzonder-maak"]')?.click(); await wacht(150);
       const bl = sp.lijnen.find(l => l.bijzonder); log('bijzondere rit:', bl ? `${bl.naam} op dag ${bl.bijzonder.dag}, ${bl.typeId}, actief ${bl.actief}, vertrek ${JSON.stringify(bl.vertrek)}` : 'NIET GEMAAKT', '|', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').match(/Bijzondere ritten.{0,200}/)?.[0]);
       if (bl) { log('verwachte eindstand:', mus.belangstelling(sp, { ...bl.bijzonder, haltes: bl.haltes, typeId: bl.typeId, modus: bl.modus, lengteKm: bl.lengteKm }, globalThis.__ovTest.plaatsen), 'van', (await import('../js/spel.js')).capaciteit(bl), 'plaatsen');
