@@ -6,7 +6,7 @@
 //   rijden; een snellere trein wacht dus tot hij achter de voorganger past. Vanaf 3 sporen kan inhalen.
 // Bestaande vervoerders rijden hun echte dienstregeling: die ligt vast en wordt alleen geboekt (niet verschoven).
 // Daarna worden jouw lijnen (en bijzondere ritten en goederentreinen) op vertrektijd ingepland.
-// Resultaat per lijn: lijn._ritWacht = Map('r:vertrek' -> Float32Array wachttijd (s) per halte in rijvolgorde)
+// Resultaat per lijn: lijn._ritWacht = Map('r:vertrek' -> [{t, w, h}] wachtplekken (op een halte of vóór het enkelspoor))
 // en lijn._kruis = { ritten, wacht, mislukt } voor het overzicht.
 import { puntOp } from './spel.js';
 import { MODI } from './vloot.js';
@@ -32,7 +32,7 @@ function opTak(t, x, y) {
 
 // stukken spoor langs de lijn (in lijn-meters, cum): [{tak, s0, s1, dir, enkel}], plus enkelspoorblokken
 export function blokkenVan(lijn, net, jaar, bijStation = () => false) {
-  if (lijn._blokVan === lijn.route?.pts && lijn._blokJaar === jaar) return lijn._blok;
+  if (lijn._blokVan === lijn.route?.pts && lijn._blokJaar === jaar && lijn._blokVersie === (bijStation.versie || 0)) return lijn._blok;
   const cum = lijn.cum, L = cum?.[cum.length - 1] || 0, stukken = [];
   let cur = null;
   for (let s = STAP / 2; s < L; s += STAP) {
@@ -64,22 +64,20 @@ export function blokkenVan(lijn, net, jaar, bijStation = () => false) {
   // korte stukjes 'enkelspoor' (boogjes bij een kruising, ongelijkvloerse aansluitingen, gaten in de data) worden in één
   // richting bereden: geen echt enkelspoor
   for (const b of blok) if (b.enkel && b.s1 - b.s0 < MIN_ENKEL) b.enkel = false;
-  lijn._blokVan = lijn.route?.pts; lijn._blokJaar = jaar; lijn._blok = blok;
+  lijn._blokVan = lijn.route?.pts; lijn._blokJaar = jaar; lijn._blokVersie = bijStation.versie || 0; lijn._blok = blok;
   return blok;
 }
 
 // tijden van één rit (s vanaf middernacht van de vertrekdag) per halte in rijvolgorde, met planwachttijden w
-function ritTijden(lijn, r, v, w) {
+function ritTijden(lijn, r, v, stops = []) {
   const t = lijn.tr?.[r] || lijn.t, n = t.length, halte = lijn._halteTijd ?? MODI[lijn.modus]?.halteTijd ?? 30;
   const dep = new Float64Array(n), aan = new Float64Array(n);
-  let C = 0;
   for (let i = 0; i < n; i++) {
     const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
-    aan[i] = v * 60 + (i ? t[i] - (i < n - 1 ? halte : 0) : 0) + C;
-    C += w[i] || 0;
-    dep[i] = v * 60 + t[i] + extra + C;
+    aan[i] = v * 60 + (i ? t[i] - (i < n - 1 ? halte : 0) : 0);
+    dep[i] = v * 60 + t[i] + extra;
   }
-  return { dep, aan };
+  return { dep, aan, stops };
 }
 // afstand langs de rijrichting voor lijn-meter s
 const rijAfst = (lijn, r, s) => r ? lijn.cum[lijn.cum.length - 1] - s : s;
@@ -88,13 +86,14 @@ function halteAfst(lijn, r) {
   const n = lijn.km.length, L = lijn.cum[lijn.cum.length - 1];
   return Array.from({ length: n }, (_, i) => { const k = r ? lijn.km[n - 1 - i] : lijn.km[i]; return r ? L - k : k; });
 }
-// tijdstip op rijafstand d
-function tijdOp(D, T, d) {
+// tijdstip op rijafstand d (zonder planwachttijden), en met: elke wachtplek vóór d schuift de tijd op
+function basisTijd(D, T, d) {
   const n = D.length;
   if (d <= D[0]) return T.dep[0];
   for (let i = 0; i < n - 1; i++) if (d <= D[i + 1]) { const f = (d - D[i]) / Math.max(1, D[i + 1] - D[i]); return T.dep[i] + (T.aan[i + 1] - T.dep[i]) * f; }
   return T.aan[n - 1];
 }
+function tijdOp(D, T, d) { let t = basisTijd(D, T, d); for (const s of T.stops) if (s.d < d - 1) t += s.w; return t; }
 
 // bezetting per tak per uur: key `${tak}:${uur}` -> [{in, uit, dir, enkel}]
 class Bezetting {
@@ -142,7 +141,7 @@ const log = (soort, tak, o, a0, a1, wie) => { if (globalThis.__planLog && wie.li
 // plan één rit: wachttijden per halte (rijvolgorde) zodat alle blokken vrij zijn; daarna boeken
 function planRit(bez, lijn, r, v, blokken, wie, vast = false, relevant = null) {
   const t = lijn.tr?.[r] || lijn.t, n = t.length;
-  const D = halteAfst(lijn, r), w = new Float32Array(n);
+  const D = halteAfst(lijn, r);
   const rdir = r ? -1 : 1;
   // alleen het deel van de route tussen de eerste en laatste halte (een vorm kan langer zijn dan de rit)
   const lo = D[0], hi = D[n - 1];
@@ -157,31 +156,40 @@ function planRit(bez, lijn, r, v, blokken, wie, vast = false, relevant = null) {
     const pA = st.pA + k * (cA - dA), pB = st.pA + k * (cB - dA);
     return [{ tak: st.tak, pA, pB, tA: tijdOp(D, T, cA), tB: tijdOp(D, T, cB), dir: st.dir * rdir }];
   });
-  let T = ritTijden(lijn, r, v, w), totaal = 0, mislukt = false;
+  // wachtplekken: {d (rijafstand), w (s), h (halte-index of -1 = bij een sein/passeerspoor vóór het enkelspoor)}
+  const stops = [];
+  let T = ritTijden(lijn, r, v, stops), totaal = 0, mislukt = false;
   for (let k = 0; k < (vast ? 0 : bl.length); k++) {
     const x = bl[k];
     for (let poging = 0; poging < 8; poging++) {
       const tin = tijdOp(D, T, x.in), tuit = tijdOp(D, T, x.uit);
       const d = nodigVoor(bez, x.b, stukTijden(x, T), tin, tuit, wie);
       if (d <= 0.5) break;
-      // wachten op de laatste halte vóór het blok (niet de eindhalte)
+      // waar wachten: op de laatste halte vóór het blok als die dichtbij ligt (reizigers kunnen dan uitstappen),
+      // anders vlak voor het blok (op het passeerspoor, dubbelspoor of bij het sein)
       let h = 0; for (let i = 0; i < n - 1; i++) if (D[i] <= x.in + 5) h = i;
+      const bijHalte = x.in - D[h] < 1500 || k === 0;
+      const plek = bijHalte ? D[h] : x.in - 60;
       const stap = Math.ceil(d / 30) * 30;
       if (totaal + stap > MAX_WACHT) { mislukt = true; break; }
-      w[h] += stap; totaal += stap;
-      T = ritTijden(lijn, r, v, w);
-      // eerdere blokken na de wachthalte opnieuw nalopen (hun tijden zijn verschoven)
-      const terug = bl.findIndex(y => y.uit > D[h]);
+      const st = stops.find(q => Math.abs(q.d - plek) < 1);
+      if (st) st.w += stap; else { stops.push({ d: plek, w: stap, h: bijHalte ? h : -1 }); stops.sort((a, b) => a.d - b.d); }
+      totaal += stap;
+      // eerdere blokken na de wachtplek opnieuw nalopen (hun tijden zijn verschoven)
+      const terug = bl.findIndex(y => y.uit > plek);
       if (terug >= 0 && terug < k) { k = terug - 1; break; }
     }
     if (mislukt) break;
   }
-  for (const x of bl) {
+  // past de rit niet, dan rijdt hij niet (geen pad) en bezet hij ook geen spoor
+  for (const x of mislukt ? [] : bl) {
     // vaste ritten alleen boeken waar ze ertoe doen: op spoor dat jouw treinen ook gebruiken
     if (relevant && !x.b.stukken.some(st => relevant.has(st.tak))) continue;
     const tin = tijdOp(D, T, x.in), tuit = tijdOp(D, T, x.uit);
     for (const e of stukTijden(x, T)) bez.zet(e.tak, { tak: e.tak, pA: e.pA, pB: e.pB, tA: e.tA, tB: e.tB, dir: e.dir, in: tin, uit: tuit, enkel: x.b.enkel, inhalen: x.b.inhalen, wie });
   }
+  // voor de weergave: per wachtplek de tijd (s na vertrek, zonder eerdere wachttijden) waarop de trein er staat
+  const v60 = v * 60, w = stops.map(q => ({ t: (q.h >= 0 ? T.dep[q.h] : basisTijd(D, T, q.d)) - v60, w: q.w, h: q.h }));
   return { w, totaal, mislukt };
 }
 
@@ -219,9 +227,9 @@ export async function planAlles(lijnen, net, jaar, { budget = 12, stop = () => f
   return { ritten: ritten.length };
 }
 
-// extra wachttijd (s) bij halte i (rijvolgorde) en opgeteld tot en met i, voor één rit
+// wachtplekken van één rit: [{t (s na vertrek in de dienstregeling zonder planwachten), w (s), h (halte, of -1)}]
 export const ritWacht = (lijn, r, v) => lijn._ritWacht?.get(`${r}:${v}`) || null;
-export function ritExtra(lijn, r, v) { const w = ritWacht(lijn, r, v); if (!w) return 0; let s = 0; for (const x of w) s += x; return s; }
+export function ritExtra(lijn, r, v) { const w = ritWacht(lijn, r, v); if (!w) return 0; let s = 0; for (const x of w) s += x.w; return s; }
 
 // snel opzoeken of een punt bij een treinstation ligt (stations: [{s, x, y}]); r in m
 export function stationZoeker(stations, r = 450) {

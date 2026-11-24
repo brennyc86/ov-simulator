@@ -261,21 +261,24 @@ export function ritPositie(lijn, r, v, tm, zonderStops = false) {
   if (v > tm) return null;
   const verstreken = (tm - v) * 60;
   const t = lijn.tr?.[r] || lijn.t, n = t.length;
-  // vaste wachttijden uit de spoorplanner (kruisen op enkelspoor, achter een voorganger aan): per halte, opgeteld
+  // vaste wachttijden uit de spoorplanner (kruisen op enkelspoor, achter een voorganger aan): de trein staat op
+  // plek-tijd q.t stil gedurende q.w seconden; daarna rijdt hij volgens de dienstregeling verder (zoveel later)
+  if (lijn._kruis?.mislukte?.length && lijn._kruis.mislukte.includes(`${r}:${v}`)) return null; // geen pad: rijdt niet
   const w = lijn._ritWacht?.get(`${r}:${v}`);
-  const C = i => { if (!w) return 0; let s = 0; for (let k = 0; k <= i; k++) s += w[k]; return s; };
-  if (verstreken > t[n - 1] + C(n - 2)) return null;
+  let el = verstreken;
+  if (w) for (const q of w) { if (el <= q.t) break; if (el < q.t + q.w) { el = q.t; break; } el -= q.w; }
+  if (el > t[n - 1]) return null;
   if (zonderStops) { // lege rit: gelijkmatig door, niet stilstaan bij haltes
-    const s = verstreken / t[n - 1] * (n - 1), i = Math.min(n - 2, Math.floor(s));
+    const s = el / t[n - 1] * (n - 1), i = Math.min(n - 2, Math.floor(s));
     return ritPlek(lijn, r, i, s - i, v);
   }
   let i = 0;
-  while (i < n - 2 && t[i + 1] + C(i) <= verstreken) i++;
+  while (i < n - 2 && t[i + 1] <= el) i++;
   const halte = lijn._halteTijd ?? MODI[lijn.modus].halteTijd;
   // extra wachttijd bij de halte waar dit stuk begint: eerst blijven staan
-  const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60, ci = C(i);
-  const begin = t[i] + extra + ci, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0) + ci;
-  const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
+  const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
+  const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
+  const f = Math.max(0, Math.min(1, (el - begin) / Math.max(1, eind - begin)));
   return ritPlek(lijn, r, i, f, v);
 }
 // plek tussen halte i en i+1 (in rijvolgorde van richting r), fractie f
@@ -366,8 +369,10 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const type = TYPE[lijn.typeId];
     const mod = MODI[lijn.modus];
     // ritten die in dit uur vertrokken
-    let ritten = 0;
-    for (const r of lijn.vertrek) for (const v of r) if (v >= uurBegin && v < uurBegin + 60) ritten++;
+    // ritten zonder pad (passen niet in het spoorplan, zie spoorplan.js) rijden niet: die vallen uit
+    let ritten = 0, geenPad = 0;
+    const mislukt = lijn._kruis?.mislukte?.length ? new Set(lijn._kruis.mislukte) : null;
+    lijn.vertrek.forEach((rr, ri) => { for (const v of rr) if (v >= uurBegin && v < uurBegin + 60) { if (mislukt?.has(`${ri}:${v}`)) geenPad++; else ritten++; } });
     // voertuiguren: voertuigen in omloop in dit uur
     const actief = periode ? Math.min(lijn.nodig, Math.ceil(ritten * (lijn.duur / 60 + mod.keer) / 60)) : 0;   // (bij een mix: hetzelfde getal als verdeling().nodig)
     if (!ritten && !actief) continue;
@@ -449,7 +454,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
     lijn.stat.vu = (lijn.stat.vu || 0) + voertuigUren; lijn.stat.subsidie = (lijn.stat.subsidie || 0) + subsidie; lijn.stat.kaartjes = (lijn.stat.kaartjes || 0) + kaartjes + boetes;
     lijn.stat.reizigers += reizigers; lijn.stat.opbrengst += kaartjes + boetes + subsidie; lijn.stat.achter = (lijn.stat.achter || 0) + over; lijn.stat.vraag = (lijn.stat.vraag || 0) + vraagUur;
     lijn.stat.kosten += personeel + energie + gebruik; lijn.stat.ritten += ritten;
-    lijn.stat.uitval += ritten / Math.max(rijdt, 0.001) - ritten;
+    lijn.stat.uitval += ritten / Math.max(rijdt, 0.001) - ritten + geenPad;
     lijn.bezetting = ritten ? reizigers / (ritten * capaciteit(lijn)) : 0;
     spel.geld += kaartjes + boetes + subsidie - personeel - energie - gebruik;
   }

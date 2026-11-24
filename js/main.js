@@ -598,9 +598,9 @@ function groepIndex() {
 // omloop opnieuw als een dienstregeling, route of actief-status van een lijn in de groep veranderd is
 function omloopVan(g, lijnen) {
   const c = omlopen.get(g);
-  if (c && c.lijnen.length === lijnen.length && c.lijnen.every((l, i) => l === lijnen[i] && c.v[i] === l.vertrek && c.a[i] === l.actief && c.t[i] === (l.tr || l.t) && c.w[i] === l._ritWacht)) return c.om;
+  if (c && c.lijnen.length === lijnen.length && c.lijnen.every((l, i) => l === lijnen[i] && c.v[i] === l.vertrek && c.a[i] === l.actief && c.t[i] === (l.tr || l.t) && c.w[i] === l._ritWacht && c.k[i] === l._kruis)) return c.om;
   const om = maakOmloop(lijnen); om.id = g;
-  omlopen.set(g, { lijnen: [...lijnen], v: lijnen.map(l => l.vertrek), a: lijnen.map(l => l.actief), t: lijnen.map(l => l.tr || l.t), w: lijnen.map(l => l._ritWacht), om });
+  omlopen.set(g, { lijnen: [...lijnen], v: lijnen.map(l => l.vertrek), a: lijnen.map(l => l.actief), t: lijnen.map(l => l.tr || l.t), w: lijnen.map(l => l._ritWacht), k: lijnen.map(l => l._kruis), om });
   for (const l of lijnen) l._omloopN = om.voertuigen.length;
   return om;
 }
@@ -1397,21 +1397,24 @@ const PANELEN = {
     // tijden: aankomst = vertrek + t[i]; vertrek bij de halte = aankomst + extra wachttijd
     const rr = ritReizigers(spel, l, r, v.vertrek, typeId, ctx());
     // huidig stuk: na vertrek bij halte i en voor aankomst bij i+1
+    // vaste wachttijden uit de spoorplanner (minuten opgeteld tot dienstregelingstijd s, in seconden)
+    const pw = l._ritWacht?.get(`${r}:${v.vertrek}`) || [], vóór = sec => pw.reduce((a, q) => a + (q.t < sec - 0.5 ? q.w : 0), 0) / 60;
     let seg = -1;
-    for (let i = 0; i < n - 1; i++) if (v.vertrek + t[i] / 60 + extra(i) <= nu) seg = i;
-    const klaar = nu > v.vertrek + t[n - 1] / 60;
+    for (let i = 0; i < n - 1; i++) if (v.vertrek + t[i] / 60 + extra(i) + vóór(t[i] + extra(i) * 60 + 1) <= nu) seg = i;
+    const klaar = nu > v.vertrek + t[n - 1] / 60 + vóór(Infinity);
     const nuAan = !v.wacht && seg >= 0 && !klaar ? rr.segmenten[seg] : null;
     const hT = MODI[l.modus].halteTijd;
     const oud = l._vorigeTr?.[r];
     const rijen = volg.map((h, i) => {
       const verblijf = i > 0 && i < n - 1 ? hT : 0;
-      const aan = v.vertrek + (t[i] - verblijf) / 60, weg = v.vertrek + t[i] / 60 + extra(i);
+      const aan = v.vertrek + (t[i] - verblijf) / 60 + vóór(t[i] - verblijf), weg = v.vertrek + t[i] / 60 + extra(i) + vóór(t[i] + extra(i) * 60 + 1);
       const voorbij = weg < nu, hier = aan <= nu && nu <= weg + 0.5;
+      const kruisW = Math.round(vóór(t[i] + extra(i) * 60 + 1) - vóór(t[i] - verblijf)), planVoor = vóór(t[i] - verblijf);
       const hr = rr.haltes[i];
       const traag = eigen && i && l.trMin ? Math.round((t[i] - verblijf - l.trMin[r][i]) / 60) : 0;
       const delta = oud && oud[i] != null ? Math.round((t[i] - oud[i]) / 60) : 0;
-      const aanVeld = !i ? '' : eigen ? `<input type="time" value="${S.klok(Math.round(aan))}" data-wijzig="aankomst" data-id="${l.id}" data-k="${r}:${i}" data-dep="${v.vertrek}" title="gewenste aankomst; later = rustiger rijden" style="width:5.6em">` : S.klok(Math.round(aan));
-      return `<tr class="${voorbij ? 'voorbij' : ''}${hier ? ' hier' : ''}"><td>${esc(h.naam)}${traag > 0 ? ` <span class="chip" title="rijdt rustiger dan het maximum">+${traag}′ rustig</span>` : ''}${delta ? ` <span class="chip let" title="verschil door je laatste wijziging">${delta > 0 ? '+' : ''}${delta}′</span>` : ''}</td><td class="getal">${aanVeld}</td><td class="getal">${i < n - 1 ? S.klok(Math.round(weg)) : ''}</td>
+      const aanVeld = !i ? '' : eigen ? `<input type="time" value="${S.klok(Math.round(aan - planVoor))}" data-wijzig="aankomst" data-id="${l.id}" data-k="${r}:${i}" data-dep="${v.vertrek}" title="gewenste aankomst; later = rustiger rijden" style="width:5.6em">` : S.klok(Math.round(aan));
+      return `<tr class="${voorbij ? 'voorbij' : ''}${hier ? ' hier' : ''}"><td>${esc(h.naam)}${traag > 0 ? ` <span class="chip" title="rijdt rustiger dan het maximum">+${traag}′ rustig</span>` : ''}${kruisW > 0 ? ` <span class="chip" title="vaste wachttijd uit het spoorplan: een tegentrein op enkelspoor of een voorganger">+${kruisW}′ kruisen</span>` : ''}${delta ? ` <span class="chip let" title="verschil door je laatste wijziging">${delta > 0 ? '+' : ''}${delta}′</span>` : ''}</td><td class="getal">${aanVeld}</td><td class="getal">${i < n - 1 ? S.klok(Math.round(weg)) : ''}</td>
         <td class="getal klein">${hr.in ? '+' + hr.in : ''}${hr.uit ? ' −' + hr.uit : ''}${hr.achter ? ` <b style="color:var(--rood)" title="achtergebleven: voertuig vol">⚠${hr.achter}</b>` : ''}</td>
         <td>${eigen ? `<input type="number" min="0" max="15" value="${extra(i)}" data-wijzig="halte-wacht" data-id="${l.id}" data-k="${wachtKey(i)}" title="extra minuten wachten" style="width:3.4em">` : (i < n - 1 ? `<button class="knop klein" data-actie="rit-wacht" data-i="${i}">langer wachten</button>` : '')}</td></tr>`;
     }).join('');
@@ -1688,6 +1691,10 @@ const PANELEN = {
   },
   perronVoorstel(o) {
     const kosten = perronKosten(o);
+    if (o.verdubbel && o.passeer) return `<h2>Passeerspoor${o.naam && o.naam !== 'spoor' ? ' · ' + esc(o.naam) : ''}</h2>
+      <p>Een tweede spoor van ${komma(o.lengte / 1000)} km naast het enkelspoor, met wissels aan beide kanten${o.vrij ? '' : ' <b>(let op: aan deze kant ligt iets in de weg)</b>'}. Treinen kunnen elkaar hier kruisen in plaats van op het volgende station te wachten; de spoorplanner gebruikt het meteen.</p>
+      <p>Kosten <b>${S.euroKort(kosten)}</b>, bouwtijd 2 speluren.</p>
+      <div class="rij"><button class="knop hoofd" data-actie="perron-bouw">Bouwen</button><button class="knop" data-actie="perron-kant">Andere kant</button><button class="knop" data-actie="perron-stop">Annuleren</button></div>`;
     if (o.verdubbel) return `<h2>${(o.bestaand || 1) >= 2 ? `${(o.bestaand || 1) + 1}e spoor erbij` : 'Enkelspoor verdubbelen'}${o.naam && o.naam !== 'spoor' ? ' · ' + esc(o.naam) : ''}</h2>
       <p>${(o.bestaand || 1) >= 2 ? `Er liggen hier ${o.bestaand} sporen; een` : 'Een tweede'} spoor van ${komma(o.lengte / 1000)} km naast het bestaande, van wissel tot wissel, op 4,5 m hart-op-hart${o.vrij ? '' : ' <b>(let op: aan deze kant ligt iets in de weg)</b>'}.</p>
       <p>Kosten <b>${S.euroKort(kosten)}</b>, bouwtijd 2 speluren. Daarna telt dit stuk als ${(o.bestaand || 1) + 1 >= 3 ? `${(o.bestaand || 1) + 1} sporen: snelle en langzame treinen kunnen elkaar inhalen` : 'dubbelspoor: treinen hoeven niet meer op elkaar te wachten'}.</p>
@@ -2089,7 +2096,7 @@ function actieUit(a, d) {
     case 'bewaar': bewaar(true); break;
     case 'nieuw': toonStart(); break;
     case 'perron-ontwerp': perronOntwerpen(d.naam, +d.x, +d.y); break;
-    case 'perron-kant': if (perronOntwerp?.verdubbel) verdubbelOntwerpen(perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); else if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); break;
+    case 'perron-kant': if (perronOntwerp?.verdubbel) verdubbelOntwerpen(perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant, !!perronOntwerp.passeer); else if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, -perronOntwerp.kant); break;
     case 'perron-eind': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, perronOntwerp.vorm, -perronOntwerp.eind); break;
     case 'spoed': {
       const p = bouwProjecten()[+d.i]; if (!p || p.spoed) break;
@@ -2106,9 +2113,9 @@ function actieUit(a, d) {
       const kosten = perronKosten(o);
       if (!betaal(kosten, o.verdubbel ? 'de verdubbeling' : 'het perronspoor')) break;
       const tijd = bouwKlaar(), project = S.nieuwId('b');
-      const naam = o.verdubbel ? `${(o.bestaand || 1) >= 2 ? `${(o.bestaand || 1) + 1}e spoor` : 'Verdubbeling'} ${o.naam !== 'spoor' ? o.naam : ''} (${komma(o.lengte / 1000)} km)`.replace('  ', ' ') : `${{ zij: 'Spoor met perron', eiland: 'Eilandperron met 2 sporen', langs: 'Spoor langs perron', kop: 'Kopspoor met perron', kopLangs: 'Kopspoor langs perron', kop2: '2 kopsporen met eilandperron', opstel: 'Opstelspoor', opstel2: '2 opstelsporen' }[o.vorm]} · ${o.naam}`;
+      const naam = o.passeer ? `Passeerspoor ${o.naam !== 'spoor' ? o.naam : ''} (${komma(o.lengte / 1000)} km)`.replace('  ', ' ') : o.verdubbel ? `${(o.bestaand || 1) >= 2 ? `${(o.bestaand || 1) + 1}e spoor` : 'Verdubbeling'} ${o.naam !== 'spoor' ? o.naam : ''} (${komma(o.lengte / 1000)} km)`.replace('  ', ' ') : `${{ zij: 'Spoor met perron', eiland: 'Eilandperron met 2 sporen', langs: 'Spoor langs perron', kop: 'Kopspoor met perron', kopLangs: 'Kopspoor langs perron', kop2: '2 kopsporen met eilandperron', opstel: 'Opstelspoor', opstel2: '2 opstelsporen' }[o.vorm]} · ${o.naam}`;
       o.sporen.forEach((pts, k) => spel.spoor.push({ punten: pts, sporen: 1, eigenaar: 'speler', ...tijd, klaar: false, perron: o.verdubbel ? undefined : o.naam,
-        verdubbelt: o.verdubbel && !k ? o.tak : undefined, nieuwSporen: o.verdubbel ? (o.bestaand || 1) + 1 : undefined, dienst: o.vorm?.startsWith('opstel') ? 1 : 0, project, projectNaam: naam, kosten: k ? 0 : kosten }));
+        verdubbelt: o.verdubbel && !o.passeer && !k ? o.tak : undefined, passeer: o.passeer || undefined, nieuwSporen: o.verdubbel ? (o.bestaand || 1) + 1 : undefined, dienst: o.vorm?.startsWith('opstel') ? 1 : 0, project, projectNaam: naam, kosten: k ? 0 : kosten }));
       spel.perronVormen = spel.perronVormen || [];
       for (const v of o.vlakken) { spel.perronVormen.push({ station: o.naam, pts: v, ...tijd, project }); D.perrons.voeg({ vlak: true, pts: v, eigen: true }); }
       if (!o.verdubbel && !o.vorm?.startsWith('opstel')) { spel.perrons = spel.perrons || {}; spel.perrons[o.naam] = (spel.perrons[o.naam] || 0) + o.sporen.length; }
@@ -2442,8 +2449,9 @@ function zetTool(t) {
   if (t === 'station') hint('Klik op het spoor waar het station moet komen.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'perron') hint('Klik bij een treinstation: er komt een voorstel voor een extra spoor met perron.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'spoor') hint('Wat wil je aanleggen?', [['Treinspoor', () => spoorBegin('trein')], ['Metrospoor', () => spoorBegin('metro')], ['Tramspoor', () => spoorBegin('tram')], ['Trambaan in de weg (volgt de straat)', () => spoorBegin('trambaan')], ['Trolleybus-bovenleiding', () => spoorBegin('trolley')],
-    ['Spoor erbij (2e, 3e, 4e spoor)', () => zetTool('verdubbel')], ['Opstelspoor bij station', () => zetTool('perron')], ['Kruising ongelijkvloers maken', () => zetTool('kruising')], ['Stoppen', () => zetTool('kijk')]]);
+    ['Spoor erbij (2e, 3e, 4e spoor)', () => zetTool('verdubbel')], ['Passeerspoor op enkelspoor (1 km)', () => zetTool('passeer')], ['Opstelspoor bij station', () => zetTool('perron')], ['Kruising ongelijkvloers maken', () => zetTool('kruising')], ['Stoppen', () => zetTool('kijk')]]);
   if (t === 'kruising') hint('Klik op een gelijkvloerse kruising of splitsing van sporen: die wordt een flyover (over het andere spoor heen) of een dive-under (eronderdoor).', [['Stoppen', () => zetTool('kijk')]]);
+  if (t === 'passeer') hint('Klik op enkelspoor waar treinen elkaar moeten kunnen kruisen: er komt ongeveer 1 km tweede spoor met wissels aan beide kanten.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'verdubbel') hint('Klik op het spoor waar een extra spoor naast moet komen (van wissel tot wissel): van enkel- naar dubbelspoor, of een 3e of 4e spoor.', [['Stoppen', () => zetTool('kijk')]]);
 }
 function kiesModus() {
@@ -2568,8 +2576,8 @@ function perronOntwerpen(naam, x, y, kant = 0, vorm = perronOntwerp?.vorm || 'zi
   if (kaart.res > 3) kaart.vliegNaar(m[0], m[1], 1.6);
   openPaneel('perronVoorstel', perronOntwerp);
 }
-function verdubbelOntwerpen(x, y, kant = 0) {
-  const o = ontwerpVerdubbeling(net, D.perrons, x, y, spel.jaar, kant);
+function verdubbelOntwerpen(x, y, kant = 0, passeer = false) {
+  const o = ontwerpVerdubbeling(net, D.perrons, x, y, spel.jaar, kant, passeer);
   if (o.fout) { melding(o.fout); return; }
   perronOntwerp = { ...o, naam: net.takken[o.tak]?.naam || 'spoor', x, y, verdubbel: true };
   voorstelTekenen(o);
@@ -3325,6 +3333,7 @@ function klik(px, py) {
   }
   if (tool === 'spoor' && bouw) { bouw.punten.push({ x, y }); return; }
   if (tool === 'verdubbel') { verdubbelOntwerpen(x, y); return; }
+  if (tool === 'passeer') { verdubbelOntwerpen(x, y, 0, true); return; }
   if (tool === 'kruising') { const r = net.dichtsteTak(x, y, 'trein', spel.jaar, 80); if (!r) { melding('Klik op het spoor bij een kruising of splitsing.'); return; }
     // dichtstbijzijnde knoop met 3 of meer takken (splitsing of kruising)
     let best = null; const gez = new Set();
@@ -3661,21 +3670,29 @@ function init() {
 function spoorplanTekst(l) {
   const k = l._kruis; if (l.modus !== 'trein' || !k) return '';
   const n = l.haltes.length, per = new Map();
-  for (const [sl, w] of l._ritWacht || []) { const r = +sl[0]; w.forEach((x, i) => { if (x > 0) { const h = l.haltes[r ? n - 1 - i : i]?.naam || '?'; per.set(h, (per.get(h) || 0) + x); } }); }
+  for (const [sl, w] of l._ritWacht || []) { const r = +sl[0]; for (const q of w) { const h = q.h >= 0 ? l.haltes[r ? n - 1 - q.h : q.h]?.naam || '?' : 'een passeerspoor of sein'; per.set(h, (per.get(h) || 0) + q.w); } }
   const top = [...per].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h, s]) => `${esc(h)} (${Math.round(s / 60)} min/dag)`).join(', ');
   return `<p class="klein">Spoorplan: ${k.ritten ? `${k.ritten} rit(ten) wachten vast op een tegentrein (enkelspoor) of voorganger, samen ${Math.round(k.wacht / 60)} min per dag${top ? `; vooral bij ${top}` : ''}.` : 'geen wachttijden: het spoor is vrij.'}
-    ${k.mislukt ? `<span class="chip fout">${k.mislukt} rit(ten) passen niet (meer dan 25 min wachten)</span> Leg een passeerspoor (kort stuk dubbelspoor) of dubbelspoor aan, of verschuif de vertrektijden.` : ''}</p>`;
+    ${k.mislukt ? `<span class="chip fout">${k.mislukt} rit(ten) krijgen geen pad en vallen uit</span> (ze zouden meer dan 25 min moeten wachten). Leg een passeerspoor (kort stuk dubbelspoor) of dubbelspoor aan, of verschuif de vertrektijden.` : ''}</p>`;
+}
+// plekken waar treinen elkaar kunnen kruisen: stations en je eigen (opgeleverde) passeersporen
+function kruisPlek() {
+  stationBij = stationBij || stationZoeker(D.stations);
+  const lussen = (spel.spoor || []).filter(s => s.passeer && s.klaar).map(s => s.punten);
+  const f = (x, y) => stationBij(x, y) || lussen.some(p => p.some(([px, py], i) => i % 3 === 0 && Math.hypot(px - x, py - y) < 60));
+  f.versie = lussen.length;
+  return f;
 }
 // spoorplanner: opnieuw zodra een treinlijn (van jou of een vervoerder) verandert. Rekent op de achtergrond.
 let planSig = '', planLoopt = null, stationBij = null;
 function spoorPlannen() {
   if (!spel || !net) return;
   const treinen = [...AI.lijnen.filter(l => l.modus === 'trein').map(lijn => ({ lijn, vast: 1 })), ...spel.lijnen.filter(l => l.modus === 'trein' && l.actief !== false).map(lijn => ({ lijn, vast: 0 }))];
-  const sig = spel.jaar + '|' + treinen.map(({ lijn: l }) => `${l.id || l.sleutel}:${l.vertrek?.[0]?.length || 0},${l.vertrek?.[1]?.length || 0},${l.vertrek?.[0]?.[0] ?? ''}:${Math.round((l.tr || [l.t])[0]?.at(-1) || 0)}:${l.route?.pts?.length || 0}:${l.actief === false ? 0 : 1}`).join('|');
+  const sig = spel.jaar + '|' + (spel.spoor || []).filter(s => s.passeer && s.klaar).length + '|' + treinen.map(({ lijn: l }) => `${l.id || l.sleutel}:${l.vertrek?.[0]?.length || 0},${l.vertrek?.[1]?.length || 0},${l.vertrek?.[0]?.[0] ?? ''}:${Math.round((l.tr || [l.t])[0]?.at(-1) || 0)}:${l.route?.pts?.length || 0}:${l.actief === false ? 0 : 1}`).join('|');
   if (sig === planSig) return;
   if (planLoopt) planLoopt.stop = true;
   const taak = { stop: false }; planLoopt = taak;
-  planAlles(treinen, net, spel.jaar, { stop: () => taak.stop, bijStation: stationBij || (stationBij = stationZoeker(D.stations)) }).then(r => { if (taak.stop || !r) return; planSig = sig; planLoopt = null; if (paneelSoort === 'lijn') ververs(); }).catch(e => { console.error(e); planLoopt = null; planSig = sig; });
+  planAlles(treinen, net, spel.jaar, { stop: () => taak.stop, bijStation: kruisPlek() }).then(r => { if (taak.stop || !r) return; planSig = sig; planLoopt = null; if (paneelSoort === 'lijn') ververs(); }).catch(e => { console.error(e); planLoopt = null; planSig = sig; });
 }
 function zetTijd(aan) { tijdLoopt = aan; $('b-tijdknop').setAttribute('aria-pressed', String(aan)); $('b-tijdstand').textContent = aan ? '▶' : '❚❚'; }
 function zetSnelheid(s) { if (!s) return zetTijd(false); snelheid = s; zetTijd(true); document.querySelectorAll('.snelheid button').forEach(b => b.classList.toggle('aan', +b.dataset.s === s)); }

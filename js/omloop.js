@@ -13,7 +13,7 @@ const ZOEK = { trein: 8000, metro: 5000, sneltram: 4000, tram: 4000 };
 
 const tijden = (l, r) => l.tr?.[r] || l.t;
 // vaste wachttijden uit de spoorplanner (s, opgeteld over de rit)
-const extraVan = (l, r, v) => { const w = l._ritWacht?.get(`${r}:${v}`); if (!w) return 0; let s = 0; for (const x of w) s += x; return s; };
+const extraVan = (l, r, v) => { const w = l._ritWacht?.get(`${r}:${v}`); if (!w) return 0; let s = 0; for (const x of w) s += x.w; return s; };
 const eindVan = (l, r) => { const h = l.haltes; return r ? h[0] : h[h.length - 1]; };
 const beginVan = (l, r) => { const h = l.haltes; return r ? h[h.length - 1] : h[0]; };
 
@@ -26,7 +26,7 @@ export function maakOmloop(lijnen) {
       const t = tijden(l, r);
       if (!t?.length) continue;
       const duur = t[t.length - 1] / 60;
-      for (const v of l.vertrek[r]) ritten.push({ l, r, dep: v, arr: v + duur + extraVan(l, r, v) / 60, van: beginVan(l, r), naar: eindVan(l, r) });
+      for (const v of l.vertrek[r]) if (!l._kruis?.mislukte?.includes(`${r}:${v}`)) ritten.push({ l, r, dep: v, arr: v + duur + extraVan(l, r, v) / 60, van: beginVan(l, r), naar: eindVan(l, r) });
     }
   }
   ritten.sort((a, b) => a.dep - b.dep);

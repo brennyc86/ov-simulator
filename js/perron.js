@@ -193,13 +193,17 @@ export function ontwerpPerron(net, perrons, x, y, jaar, { kant = 0, lengte = 250
 
 // Enkelspoor verdubbelen: een tweede spoor evenwijdig aan de hele spoortak (van wissel tot wissel),
 // op 4,5 m hart-op-hart aan de vrije kant, met wisselbogen aan beide uiteinden.
-export function ontwerpVerdubbeling(net, perrons, x, y, jaar, kant = 0) {
+export function ontwerpVerdubbeling(net, perrons, x, y, jaar, kant = 0, passeer = false) {
   const raak = net.dichtsteTak(x, y, 'trein', jaar, 150);
   if (!raak) return { fout: 'Hier ligt geen spoor.' };
   const t = raak.t;
   if (t.lengte < 150) return { fout: 'Dit stuk spoor is te kort voor een extra spoor (minder dan 150 m tussen twee wissels).' };
   if ((t.sporen || 1) >= 6) return { fout: 'Hier liggen al zes sporen naast elkaar.' };
-  let as = herbemonster(net.stuk(t, 0, t.lengte), 10);
+  // passeerspoor: een kort stuk dubbelspoor (~1 km) rond de klik, zodat treinen elkaar daar kunnen kruisen
+  const PL = 1000, deel = passeer && t.lengte > PL + 300;
+  if (passeer && (t.sporen || 1) >= 2) return { fout: 'Hier ligt al dubbelspoor; een passeerspoor is voor enkelspoor.' };
+  const ps0 = deel ? Math.max(0, Math.min(t.lengte - PL, raak.s - PL / 2)) : 0, ps1 = deel ? ps0 + PL : t.lengte;
+  let as = herbemonster(net.stuk(t, ps0, ps1), 10);
   const n = as.length / 2, cum = [0];
   for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(as[i * 2] - as[i * 2 - 2], as[i * 2 + 1] - as[i * 2 - 1]));
   const normaal = i => { const j = Math.min(n - 1, i + 1), h = Math.max(0, i - 1); let lx = as[j * 2] - as[h * 2], ly = as[j * 2 + 1] - as[h * 2 + 1]; const ll = Math.hypot(lx, ly) || 1; return [lx / ll, ly / ll]; };
@@ -213,7 +217,7 @@ export function ontwerpVerdubbeling(net, perrons, x, y, jaar, kant = 0) {
     const f = Math.min(1, cum[i] / boog, (L - cum[i]) / boog), g = f * f * (3 - 2 * f), [lx, ly] = normaal(i);
     punten.push([Math.round((as[i * 2] - ly * Dv * tk * g) * 10) / 10, Math.round((as[i * 2 + 1] + lx * Dv * tk * g) * 10) / 10]);
   }
-  return { punten, sporen: [punten], vlakken: [], perron: null, kant: tk, lengte: L, tak: t.i, vrij: obstakels(tk, Dv) === 0, bestaand: Math.max(t.sporen || 1, Math.round(Dv / 4.5)), afstand: Dv };
+  return { punten, sporen: [punten], vlakken: [], perron: null, kant: tk, lengte: L, tak: t.i, passeer: deel, vrij: obstakels(tk, Dv) === 0, bestaand: Math.max(t.sporen || 1, Math.round(Dv / 4.5)), afstand: Dv };
 }
 
 // Een eenvoudig perron langs een spoorlijn (voor oude stations zonder ingetekend perron).
