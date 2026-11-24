@@ -137,3 +137,44 @@ export function wisselsPerRit(net, lijn) {
   for (const i of tk) { const t = i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i]; if (!t || t.dienst) continue; const loc = w[t.land || 0] || ''; if (vorige !== undefined && loc !== vorige) n++; vorige = loc; }
   return n;
 }
+
+// ---------------------------------------------------------------- soort bovenleiding (voor de kaart)
+// 0 geen bovenleiding, 1 gewoon (de spanning van dat land), 2 hogesnelheidslijn, 3 loc-wisselspoor (twee spanningen
+// mogelijk: op een grensstation of waar twee systemen elkaar raken), 4 vreemde spanning (niet die van het land,
+// bv. 3 kV van de grens tot Roosendaal of 25 kV op de Betuweroute). null = geen treinspoor.
+const THUIS = [['1500DC'], ['3000DC'], ['25kVAC'], ['15kVAC'], ['25kVAC', '1500DC']];
+export function wisselTakken(spel, net, bereik = 350) {
+  // knopen waar takken met verschillende spanningen samenkomen, en takken met een tweede spanning (OSM voltage=a;b)
+  const sysPer = new Map(), uit = new Set(), start = [];
+  for (const t of [...net.takken, ...net.eigen]) {
+    if (t.weg || !(t.soort === 0 || t.soort === 4)) continue;
+    if (t.elek2) uit.add(t);
+    const s = spanningVan(spel, t); if (!s) continue;
+    for (const k of [t.a, t.b]) { if (!sysPer.has(k)) sysPer.set(k, new Set()); sysPer.get(k).add(s); }
+  }
+  // korte stukjes zonder spanning (scheiding tussen twee systemen, of een gat in de kaartdata) verbinden hun uiteinden
+  for (const t of net.takken) if ((t.soort === 0 || t.soort === 4) && !spanningVan(spel, t) && t.lengte < 150) {
+    const a = sysPer.get(t.a), b = sysPer.get(t.b); if (!a || !b) continue;
+    const samen = new Set([...a, ...b]); if (samen.size > 1) { start.push(t.a, t.b); uit.add(t); }
+  }
+  for (const [k, s] of sysPer) if (s.size > 1) start.push(k);
+  // vanaf die knopen een stukje het spoor op (het hele emplacement waar omgeschakeld kan worden)
+  const afst = new Map(start.map(k => [k, 0])), rij = [...start];
+  while (rij.length) {
+    const k = rij.shift(), d0 = afst.get(k);
+    for (const { t, naar } of net.buren.get(k) || []) {
+      if (!(t.soort === 0 || t.soort === 4) || !spanningVan(spel, t)) continue;
+      const d = d0 + t.lengte; if (d0 < bereik) uit.add(t);
+      if (d < bereik && (afst.get(naar) ?? Infinity) > d) { afst.set(naar, d); rij.push(naar); }
+    }
+  }
+  return uit;
+}
+export function bovenleidingKlasse(spel, t, wissel) {
+  if (!(t.soort === 0 || t.soort === 4)) return null;
+  const sys = spanningVan(spel, t); if (!sys) return 0;
+  if (wissel?.has(t)) return 3;
+  if ((t.vmax || 0) >= 200) return 2;
+  return (THUIS[t.land || 0] || THUIS[0]).includes(sys) ? 1 : 4;
+}
+export const BOVENLEIDING_NAAM = ['geen bovenleiding', 'bovenleiding (gewone spanning)', 'hogesnelheidslijn', 'loc-wisselspoor (twee spanningen)', 'vreemde spanning'];

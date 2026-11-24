@@ -10,7 +10,7 @@ import { prestaties, vermogen, massa, doorloop } from './techniek.js';
 import { schets, aandrijving } from './schets.js';
 import { STAAT, marktPrijs, marktBijwerken, koopVanMarkt, renovatieKosten, renovatieDagen, inzetbaar, buitenDienst, wachtOpRevisie, startRevisie, renovatiesAfronden } from './markt.js';
 import { perronVanaf } from './correcties.js';
-import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom, landVerdeling, wisselsPerRit, WISSEL_MIN } from './stroom.js';
+import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom, landVerdeling, wisselsPerRit, WISSEL_MIN, wisselTakken, bovenleidingKlasse, BOVENLEIDING_NAAM } from './stroom.js';
 import { LANDEN } from './schets.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
@@ -176,14 +176,15 @@ function jaarVan(t) {
 }
 function jaarFilter(jaar) { return ['all', ['<=', ['get', 'van'], jaar], ['>', ['get', 'tot'], jaar]]; }
 
-let lagenGemaakt = false;
+let lagenGemaakt = false, wisselCache = null;
 function netwerkLagen() {
   if (!kaart?.klaar) return;
   const jaar = spel?.jaar ?? 2026;
+  const wissel = wisselCache = wisselTakken(spel, net);
   const sporen = { type: 'FeatureCollection', features: [...net.takken, ...net.eigen].filter(t => !t.weg).map(t => {
     const j = jaarVan(t), m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
     if (land > j.van) j.van = land; // in een polder: pas na de drooglegging
-    return { type: 'Feature', properties: { k: klasseVan(t), ...j, n: t.sporen, h: t.hoogte || 0 }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } };
+    return { type: 'Feature', properties: { k: klasseVan(t), ...j, n: t.sporen, h: t.hoogte || 0, e: bovenleidingKlasse(spel, t, wissel) ?? -1 }, geometry: { type: 'LineString', coordinates: lijnGeo(t.pts) } };
   }) };
   // (verdwenen lijnen uit OpenHistoricalMap zitten als takken in het net en worden hierboven al meegenomen)
   kaart.bron('spoor', sporen);
@@ -344,7 +345,16 @@ function netwerkLagen() {
     // hoofdspoor: dikte naar aantal sporen; ver ingezoomd is elk spoor apart getekend in OSM, dan dun
     const hoofd = ['all', ['match', ['get', 'k'], ['h1', 'h2', 'h3'], true, false], jaarFilter(jaar)];
     lijn('net-hoofd-halo', 'spoor', hoofd, NK.halo, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 4.5, 'h2', 3.5, 2.6], 13, ['match', ['get', 'k'], 'h3', 6, 'h2', 5, 3.6], 16, 3]);
-    lijn('net-hoofd', 'spoor', hoofd, NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4]);
+    lijn('net-hoofd', 'spoor', ['all', hoofd, ['!=', ['get', 'e'], 0]], NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4]);
+    // bovenleiding als patroon (dikte = aantal sporen, kleur = eigenaar): zonder bovenleiding gestreept,
+    // hogesnelheidslijn met een witte middenlijn, loc-wisselspoor met wit streep-punt, vreemde spanning met witte stippen
+    const hoofdBreed = ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4];
+    lijn('net-hoofd-geen', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 0]], NK.spoor, hoofdBreed, { 'line-dasharray': [2.2, 1.4] });
+    const binnen = ['interpolate', ['linear'], ['zoom'], 6, 0.5, 13, 0.9, 16, 0.6];
+    lijn('net-hsl', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 2]], '#ffffff', binnen, {});
+    kaart.laag({ id: 'net-locwissel', type: 'line', source: 'spoor', filter: ['all', hoofd, ['==', ['get', 'e'], 3]], layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: { 'line-color': '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.6, 13, 1, 16, 0.8], 'line-dasharray': [2.5, 1.5, 0, 1.5], 'line-opacity': SPOOR_UIT } });
+    lijn('net-vreemd', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 4]], '#ffffff', ['interpolate', ['linear'], ['zoom'], 6, 0.9, 13, 1.5, 16, 1.1], { 'line-dasharray': [0, 1.6] });
     lijn('net-enkel', 'spoor', ['all', k('h1'), jaarFilter(jaar)], NK.halo, ['interpolate', ['linear'], ['zoom'], 6, 0.5, 13, 0.8, 16, 0], { 'line-dasharray': [1, 3] });
     // ondergronds (tunnel): de lijn wordt onderbroken door lichte streepjes, zodat zichtbaar is dat het spoor onder de grond ligt
     lijn('net-tunnel', 'spoor', ['all', ['==', ['coalesce', ['get', 'h'], 0], -1], ['!=', ['get', 'k'], 'oud'], ['!=', ['get', 'k'], 'zij'], jaarFilter(jaar)], '#f4f1ea',
@@ -1483,6 +1493,11 @@ const PANELEN = {
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="2.4"/></svg></td><td>Dubbelspoor</td></tr>
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3.4"/></svg></td><td>Drie of meer sporen</td></tr>
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#9aa39e" stroke-width="1"/></svg></td><td>Opstel- en rangeersporen</td></tr>
+      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" stroke-dasharray="7 4"/></svg></td><td>Geen bovenleiding (diesel, stoom, accu)</td></tr>
+      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /></svg></td><td>Bovenleiding met de gewone spanning van het land</td></tr>
+      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /><line x1="0" y1="5" x2="40" y2="5" stroke="#fff" stroke-width="1"/></svg></td><td>Hogesnelheidslijn</td></tr>
+      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /><line x1="1" y1="5" x2="40" y2="5" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-dasharray="6 4 0 4"/></svg></td><td>Loc-wisselspoor: twee spanningen mogelijk (grensstation)</td></tr>
+      <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#2a3431" stroke-width="3" /><line x1="1" y1="5" x2="40" y2="5" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="0 4"/></svg></td><td>Vreemde spanning (niet die van het land, bv. 3 kV tot Roosendaal, 25 kV Betuweroute)</td></tr>
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#1f6fd1" stroke-width="2.2"/></svg></td><td>Metro</td></tr>
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#0f7c8a" stroke-width="2"/></svg></td><td>Sneltram</td></tr>
       <tr><td><svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="#c2412d" stroke-width="1.5"/></svg></td><td>Tram</td></tr>
@@ -1553,7 +1568,7 @@ const PANELEN = {
     const keuze = d.kies !== undefined ? d.kies : undefined, kc = keuze !== undefined ? conflict(keuze) : [];
     return `<h2>${soortNaam[0].toUpperCase() + soortNaam.slice(1)}${t.naam && typeof t.naam === 'string' ? ' · ' + esc(t.naam) : ''}</h2>
       <p class="klein">Baanvak ${komma(km)} km · ${t.sporen >= 2 ? t.sporen + ' sporen' : 'enkelspoor'} · max ${t.vmax || '?'} km/u · spoorwijdte ${t.soort === 4 ? 'smalspoor' : 'normaalspoor (1435 mm)'} · ${t.eigenaar === 'speler' ? 'van jou' : BEHEERDER[t.land || 0]}${t.hoogte > 0 ? ' · viaduct' : t.hoogte < 0 ? ' · tunnel' : ''}</p>
-      <p>Elektrificatie: <b>${nu ? SYSTEMEN[nu].naam : 'geen bovenleiding'}</b></p>
+      <p>Elektrificatie: <b>${nu ? SYSTEMEN[nu].naam : 'geen bovenleiding'}</b>${(() => { const kl = bovenleidingKlasse(spel, t, wisselCache); return kl > 1 ? ` · ${BOVENLEIDING_NAAM[kl]}` : ''; })()}</p>
       <div class="veld"><label>Andere spanning voor dit baanvak</label>${opties.map(sys => { const c = sys === nu ? [] : conflict(sys); return `<label class="rij" style="${c.length ? 'opacity:.45' : ''}"><input type="radio" name="sv" data-wijzig="sv-kies" value="${sys || ''}" ${sys === (keuze !== undefined ? keuze : nu) ? 'checked' : ''}> ${sys ? SYSTEMEN[sys].naam : 'geen bovenleiding (alleen diesel, stoom, accu)'}${sys === nu ? ' (nu)' : c.length ? ` <span class="klein">— ${c.length} lijn(en) kunnen dan niet rijden</span>` : sys ? ` <span class="klein">${S.euroKort(ombouwKostenStroom(nu, sys, km))}</span>` : ''}</label>`; }).join('')}</div>
       ${keuze !== undefined && keuze !== nu ? (kc.length ? `<div class="kaartje"><b>Deze lijnen kunnen dan niet meer rijden:</b>${kc.map(x => `<p class="klein">${x.lijn.ai ? esc(x.lijn.vervoerderNaam || '') : 'Jouw lijn'} <b>${esc(x.lijn.nr || x.lijn.naam || '')}</b> (${esc(TYPE[x.typeId]?.naam || x.typeId)})
           ${x.lijn.ai ? '— van een andere vervoerder: die rijdt dan niet meer. Kies een spanning waar hun materieel op kan.' : `<br><button class="knop klein" data-actie="toon-lijn" data-id="${x.lijn.id}">Ander materieel kiezen</button> ${sleeplocKnoppen(x.lijn, keuze)}`}</p>`).join('')}</div>` : '')
@@ -1769,7 +1784,7 @@ function actieUit(a, d) {
       const t = takVan(+d.ti), bv = baanvak(spel, net, t), naar = paneelData.kies ?? null, kosten = ombouwKostenStroom(bv.sys, naar, bv.lengte / 1000);
       if (!betaal(kosten, 'de ombouw van de bovenleiding')) break;
       spel.spanning = spel.spanning || {}; for (const x of bv.takken) spel.spanning[x.i] = naar || 0;
-      for (const x of spel.lijnen) stroomBijwerken(x);
+      for (const x of spel.lijnen) stroomBijwerken(x); netwerkLagen();
       melding(`Baanvak (${komma(bv.lengte / 1000)} km) omgebouwd naar ${naar ? SYSTEMEN[naar].naam : 'geen bovenleiding'}.`); paneelData.kies = undefined; ververs(); break;
     }
     case 'sleeploc': {
@@ -1784,7 +1799,7 @@ function actieUit(a, d) {
       kaart.vliegNaar((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(1.5, Math.max(bb[2] - bb[0], bb[3] - bb[1]) / Math.min(kaart.W, kaart.H) * 1.6)); melding('De stukken waar de trein niet kan rijden zijn gestippeld. Klik op het spoor voor de spanning en om om te bouwen.', 7000); break; }
     case 'stroom-aanleg': { const c = stroomCheck(spel, net, l), p = aanlegPlan(l, c); if (!p.takken.length || !betaal(p.kosten, 'de bovenleiding')) break;
       spel.spanning = spel.spanning || {}; for (const t of p.takken) spel.spanning[t.i] = p.sys;
-      for (const x of spel.lijnen) stroomBijwerken(x); perronVoorstelWissen();
+      for (const x of spel.lijnen) stroomBijwerken(x); perronVoorstelWissen(); netwerkLagen();
       melding(`Bovenleiding aangelegd: ${komma(p.km)} km ${SYSTEMEN[p.sys].naam} (${S.euroKort(p.kosten)}).`, 7000); ververs(); break; }
     case 'sleeploc-weg': l.sleeploc = null; stroomBijwerken(l); ververs(); break;
     case 'kruising-bouw': { const g = paneelData, kosten = d.s === 'flyover' ? 60e6 : 90e6; if (!betaal(kosten, d.s === 'flyover' ? 'de flyover' : 'de dive-under')) break;

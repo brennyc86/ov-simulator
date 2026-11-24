@@ -44,9 +44,14 @@ GEBRUIK = {"main": 0, "branch": 1, "industrial": 2, "tourism": 3, "military": 4}
 LANDEN = "NL|BE|LU|DE|FR"  # de RD-formule is tot in Duitsland en Frankrijk op enkele meters nauwkeurig
 LAND_NR = {"NL": 0, "BE": 1, "LU": 2, "DE": 3, "FR": 4}
 DETAIL = {"NL", "BE", "LU"}  # perrons, wissels, gebouwen en voorzieningen alleen hier (DE/FR zijn te groot)
-GROOT = {  # grote landen in stukken vragen (zuid, west, noord, oost), anders lopen de servers vast
-    "DE": [(47.2, 5.8, 51.2, 10.5), (47.2, 10.5, 51.2, 15.1), (51.2, 5.8, 55.1, 10.5), (51.2, 10.5, 55.1, 15.1)],
-    "FR": [(41.3, -5.3, 46.3, 2.5), (41.3, 2.5, 46.3, 9.7), (46.3, -5.3, 51.2, 2.5), (46.3, 2.5, 51.2, 9.7)],
+def _raster(z, w, n, o, rijen, kolommen):
+    dz, dw = (n - z) / rijen, (o - w) / kolommen
+    return [(round(z + i * dz, 3), round(w + j * dw, 3), round(z + (i + 1) * dz, 3), round(w + (j + 1) * dw, 3)) for i in range(rijen) for j in range(kolommen)]
+
+
+GROOT = {  # grote landen in stukken vragen (zuid, west, noord, oost), anders lopen de servers vast; een mislukt stuk slaat alleen dat stuk over
+    "DE": _raster(47.2, 5.8, 55.1, 15.1, 3, 3),
+    "FR": _raster(41.3, -5.3, 51.2, 9.7, 3, 3),
 }
 
 
@@ -72,24 +77,25 @@ def overpass(query, pogingen=8, detail=False, alleen=None):
             return overpass_een(q, pogingen)
         q = q.replace("@GEBIED@", f'area["ISO3166-1"="{land}"]["admin_level"="2"]->.nl;')
         stukken = [q.replace("(area.nl)", f"(area.nl)({z},{w},{n},{o})") for z, w, n, o in GROOT[land]] if land in GROOT else [q]
-        n = 0
-        try:
-            for st in stukken:
-                if not eerste:
-                    time.sleep(15)
-                eerste = False
-                res = overpass_een(st, pogingen if land in DETAIL else 5)
-                for e in res.get("elements", []):
-                    k = (e["type"], e.get("id"))
-                    if k in gezien:
-                        continue
-                    gezien.add(k); e["_l"] = LAND_NR.get(land, 0); alles.append(e); n += 1
-        except SystemExit as fout:
-            if land in DETAIL:
-                raise
-            print(f"    {land}: overgeslagen ({fout})", flush=True)  # buurland mislukt: de rest gaat door
-            continue
-        print(f"    {land}: {n} elementen", flush=True)
+        n, mis = 0, 0
+        for st in stukken:
+            if not eerste:
+                time.sleep(15)
+            eerste = False
+            try:
+                res = overpass_een(st, pogingen if land in DETAIL else 6)
+            except SystemExit as fout:
+                if land in DETAIL:
+                    raise
+                mis += 1
+                print(f"    {land}: stuk overgeslagen ({fout})", flush=True)  # buurland: de rest gaat door
+                continue
+            for e in res.get("elements", []):
+                k = (e["type"], e.get("id"))
+                if k in gezien:
+                    continue
+                gezien.add(k); e["_l"] = LAND_NR.get(land, 0); alles.append(e); n += 1
+        print(f"    {land}: {n} elementen{f' ({mis} van {len(stukken)} stukken mislukt)' if mis else ''}", flush=True)
     return {"elements": alles}
 
 
@@ -323,6 +329,13 @@ out body geom;"""  # DE/FR: eerst alleen het landelijke net (hoofd- en zijlijnen
             except (AttributeError, ValueError):
                 v = 1
             elek = -v if t.get("electrified") == "rail" and v > 1 else v
+        # tweede spanning (bv. voltage=1500;3000 op een grensstation): hier kan een loc gewisseld worden
+        elek2 = 0
+        try:
+            vv = [int(x) for x in re.findall(r"\d+", t.get("voltage", "")) if int(x) >= 600]
+            elek2 = next((x for x in vv[1:] if x != abs(elek)), 0) if elek else 0
+        except ValueError:
+            elek2 = 0
         start = jaar(t.get("start_date") or t.get("opening_date"))
         eind = jaar(t.get("end_date") or t.get("closing_date") or t.get("abandoned:date")
                     or t.get("razed:date"))
@@ -355,7 +368,7 @@ out body geom;"""  # DE/FR: eerst alleen het landelijke net (hoofd- en zijlijnen
                     for x, y in vs[1:-1]:
                         tussen += [x - px, y - py]
                         px, py = x, y
-                    takken.append({"a": a, "b": b, "soort": soort, "dienst": dienst,
+                    takken.append({"elek2": elek2, "a": a, "b": b, "soort": soort, "dienst": dienst,
                                    "gebruik": gebr, "sporen": sporen_tag, "vmax": vmax,
                                    "elek": elek, "start": start, "eind": eind,
                                    "naam": naam, "pts": vs, "tussen": tussen, "hoogte": hoogte,
@@ -372,10 +385,10 @@ out body geom;"""  # DE/FR: eerst alleen het landelijke net (hoofd- en zijlijnen
             naam_idx[n] = len(namen)
             namen.append(n)
         rij.append([tk["a"], tk["b"], tk["soort"], tk["dienst"], tk["gebruik"], tk["sporen"],
-                    tk["vmax"], tk["elek"], tk["start"], tk["eind"], naam_idx[n], tk["tussen"], tk["hoogte"], tk["land"]])
+                    tk["vmax"], tk["elek"], tk["start"], tk["eind"], naam_idx[n], tk["tussen"], tk["hoogte"], tk["land"], tk.get("elek2", 0)])
     schrijf(uit, "spoor.json", {
         "uitleg": "takken: [knoopA, knoopB, soort, dienst, gebruik, sporen, vmax, elek, "
-                  "startjaar, eindjaar, naamIdx, tussenpunten(delta vanaf A), hoogte(-1 tunnel, 1 viaduct), land]",
+                  "startjaar, eindjaar, naamIdx, tussenpunten(delta vanaf A), hoogte(-1 tunnel, 1 viaduct), land, tweede spanning (0 = geen)]",
         "landen": list(LAND_NR.keys()),
         "soorten": list(SOORT.keys()), "diensten": list(DIENST.keys()),
         "gebruik": list(GEBRUIK.keys()),
