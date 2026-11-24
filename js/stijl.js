@@ -46,13 +46,8 @@ export function kaartStijl() {
     },
     layers: [
       { id: 'land', type: 'background', paint: { 'background-color': k.land } },
+      // eerst het landgebruik (wijken, industrie), daarna het groen erover: parken in een woonwijk blijven groen
       lc('akker', ['farmland'], k.akker),
-      lc('gras', ['grass'], k.gras),
-      lc('moeras', ['wetland'], k.moeras),
-      lc('bos', ['wood', 'forest'], k.bos),
-      { id: 'zand', type: 'fill', source: 'osm', 'source-layer': 'landcover', filter: ['match', ['get', 'class'], ['sand', 'beach'], true, false],
-        paint: { 'fill-color': ['match', ['get', 'subclass'], 'beach', k.strand, k.zand], 'fill-antialias': false } },
-      { id: 'park', type: 'fill', source: 'osm', 'source-layer': 'park', paint: { 'fill-color': k.gras } },
       { id: 'bebouwd', type: 'fill', source: 'osm', 'source-layer': 'landuse',
         filter: ['match', ['get', 'class'], ['residential', 'suburb', 'neighbourhood', 'commercial', 'retail', 'school', 'hospital', 'university', 'college', 'kindergarten', 'religious', 'garages'], true, false],
         // functie van de bebouwing: wonen, winkels, voorzieningen (scholen, ziekenhuizen, kerken)
@@ -60,6 +55,12 @@ export function kaartStijl() {
       { id: 'industrie', type: 'fill', source: 'osm', 'source-layer': 'landuse', filter: ['match', ['get', 'class'], ['industrial', 'railway', 'quarry', 'military'], true, false],
         paint: { 'fill-color': k.industrie, 'fill-antialias': false } },
       { id: 'zand-landuse', type: 'fill', source: 'osm', 'source-layer': 'landuse', filter: ['match', ['get', 'class'], ['beach', 'sand'], true, false], paint: { 'fill-color': k.strand } },
+      { id: 'park', type: 'fill', source: 'osm', 'source-layer': 'park', paint: { 'fill-color': k.gras } },
+      lc('gras', ['grass'], k.gras),
+      lc('moeras', ['wetland'], k.moeras),
+      { id: 'zand', type: 'fill', source: 'osm', 'source-layer': 'landcover', filter: ['match', ['get', 'class'], ['sand', 'beach'], true, false],
+        paint: { 'fill-color': ['match', ['get', 'subclass'], 'beach', k.strand, k.zand], 'fill-antialias': false } },
+      lc('bos', ['wood', 'forest'], k.bos),
       { id: 'water', type: 'fill', source: 'osm', 'source-layer': 'water', paint: { 'fill-color': k.water } },
       { id: 'waterloop', type: 'line', source: 'osm', 'source-layer': 'waterway', minzoom: 9,
         paint: { 'line-color': k.waterlijn, 'line-width': ['interpolate', ['exponential', 1.6], ['zoom'], 9, 0.5, 14, 2, 18, 8] } },
