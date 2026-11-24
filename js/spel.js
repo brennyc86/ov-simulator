@@ -98,6 +98,9 @@ export function maakLijn(spel, { nr, naam, modus, typeId, haltes, route, interva
 // Het spoornet (voor de maximumsnelheid per baanvak) wordt door main.js gezet.
 let NET = null;
 export const zetNet = n => { NET = n; };
+// stopplekken langs het perron (main.js kent de perrons); per route eenmalig
+let STOPZOEKER = null;
+export const zetStopZoeker = f => { STOPZOEKER = f; };
 const STANDAARD_V = { 0: 120, 1: 80, 2: 70, 3: 50, 4: 60, 5: 80, 6: 60 };
 // stukken [{van, tot, v}] in meters langs de route, met de toegestane snelheid (km/u) per tak
 function baanProfiel(lijn, factor) {
@@ -159,6 +162,7 @@ export function herbereken(lijn) {
   const type = TYPE[lijn.typeId] || TYPE.citealle;
   const mod = MODI[lijn.modus];
   const pts = lijn.route.pts;
+  if (STOPZOEKER && !lijn.ai && ['trein', 'metro', 'sneltram', 'tram'].includes(lijn.modus) && lijn._stopVan !== pts) { STOPZOEKER(lijn.haltes, pts); lijn._stopVan = pts; }
   // km van elke halte langs de route (oplopend dichtstbijzijnde punt)
   const cum = [0];
   for (let k = 2; k < pts.length; k += 2) cum.push(cum[cum.length - 1] + Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]));
@@ -167,7 +171,7 @@ export function herbereken(lijn) {
   lijn.km = lijn.haltes.map(h => {
     let beste = start, bd = Infinity;
     for (let i = start; i < cum.length; i++) {
-      const d = Math.hypot(pts[i * 2] - h.x, pts[i * 2 + 1] - h.y);
+      const d = Math.hypot(pts[i * 2] - (h.sx ?? h.x), pts[i * 2 + 1] - (h.sy ?? h.y)); // sx/sy: stopplek langs het perron
       if (d < bd) { bd = d; beste = i; }
     }
     start = beste;

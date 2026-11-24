@@ -69,7 +69,7 @@ async function laadData() {
   D.perrons = new Perrons(pr);
   for (const v of (spel?.perronVormen || []).filter(v => !v.weg)) D.perrons.voeg({ vlak: true, pts: v.pts, eigen: true });
   D.vliegvelden = (vl?.vliegvelden || []).filter(v => (v.g || 'NL') === 'NL').map(v => ({ ...v, b: Math.max(v.b || 0, landSinds(v.x, v.y)), landing: LANDING[v.s] ?? 60 }));
-  net = new Net(spoor); S.zetNet(net);
+  net = new Net(spoor); S.zetNet(net); S.zetStopZoeker(stopPlekken);
   // spoor en stations in polders bestonden pas na de drooglegging
   for (const t of net.takken) {
     const m = t.pts.length >> 2 << 1, land = landSinds(t.pts[m], t.pts[m + 1]);
@@ -580,7 +580,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get halteGroepen() { return D.halteGroepen; }, kandidatenTest: m => kandidaten(m), get voorz() { return D.voorz; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get halteGroepen() { return D.halteGroepen; }, kandidatenTest: m => kandidaten(m), routeVoor: (m, p) => routeVoor(m, p), get voorz() { return D.voorz; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -2651,6 +2651,35 @@ function vliegveldKnopen() {
     for (const q of D.halteGroepen || []) if (q.modi & (8 | 32) && !q.vliegveld && (Math.hypot(q.x - v.kx, q.y - v.ky) < 800 || (/airport|luchthaven|vliegveld/i.test(q.naam) && Math.hypot(q.x - v.x, q.y - v.y) < 2000))) q.vliegveld = v.n;
   }
 }
+// Stopplek van een trein, metro of tram: langs het perron, op het spoor (niet bij de stationsstip, die ligt vaak bij het
+// gebouw). Per halte het perron dat tegen het spoor van de route ligt en het dichtst bij het station; anders het
+// punt op het spoor het dichtst bij het station. Zet h.sx/h.sy (de halte zelf blijft waar hij is).
+function stopPlekken(haltes, pts) {
+  const n = pts.length / 2; if (n < 2) return;
+  const proj = (x, y, i0, i1) => { let bd = Infinity, b = null;
+    for (let k = Math.max(1, i0); k < Math.min(n, i1); k++) { const ax = pts[k * 2 - 2], ay = pts[k * 2 - 1], dx = pts[k * 2] - ax, dy = pts[k * 2 + 1] - ay, l2 = dx * dx + dy * dy || 1e-9;
+      const f = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)), px = ax + dx * f, py = ay + dy * f, d = Math.hypot(x - px, y - py); if (d < bd) { bd = d; b = { x: px, y: py, d, k }; } }
+    return b; };
+  let k0 = 1;
+  for (const h of haltes) {
+    const basis = proj(h.x, h.y, k0, n); if (!basis) continue;
+    // perrons in de buurt die tegen dit stuk spoor aan liggen
+    let beste = null, bs = Infinity;
+    const lijst = new Set(); for (let i = Math.floor((basis.x - 350) / 250); i <= Math.floor((basis.x + 350) / 250); i++) for (let j = Math.floor((basis.y - 350) / 250); j <= Math.floor((basis.y + 350) / 250); j++) for (const q of D.perrons.raster.get(i + ',' + j) || []) lijst.add(q);
+    for (const q of lijst) {
+      const [x0, y0, x1, y1] = q.bbox, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      if (Math.hypot(cx - basis.x, cy - basis.y) > 350) continue;
+      const c = proj(cx, cy, Math.max(1, basis.k - 60), basis.k + 60); if (!c) continue;
+      // langs het spoor: een hoek of rand van het perron ligt binnen ~6 m van de route
+      let raak = Infinity; for (let i = 0; i + 1 < q.pts.length; i += 2) { const e = proj(q.pts[i], q.pts[i + 1], Math.max(1, c.k - 8), c.k + 8); if (e) raak = Math.min(raak, e.d); }
+      if (raak > 7) continue;
+      const score = Math.hypot(cx - h.x, cy - h.y);
+      if (score < bs) { bs = score; beste = c; }
+    }
+    const stop = beste || basis;
+    h.sx = Math.round(stop.x * 10) / 10; h.sy = Math.round(stop.y * 10) / 10; k0 = Math.max(1, stop.k - 1);
+  }
+}
 // per halte met meerdere perrons het perron kiezen dat het best op de route ligt (kleinste omweg tussen vorige en volgende)
 function perronsKiezen(p) {
   for (let i = 0; i < p.length; i++) {
@@ -3242,7 +3271,9 @@ async function routeVoor(m, p) {
     for (let i = 1; i < p.length; i++) {
       const r = net.route([p[i - 1].x, p[i - 1].y], [p[i].x, p[i].y], m, spel.jaar);
       if (!r) { waarschuwing = `Geen ${m === 'trein' ? 'spoor' : 'rails'}verbinding tussen ${p[i - 1].naam} en ${p[i].naam}; daar tekent het spel een rechte lijn. Leg dat stuk spoor aan.`; pts.push(p[i - 1].x, p[i - 1].y, p[i].x, p[i].y); lengte += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); continue; }
-      pts.push(...r.pts); lengte += r.lengte; takken.push(...r.takken);
+      // het eerste en laatste punt van net.route zijn de stations zelf (bij het gebouw): niet heen rijden, op het spoor blijven
+      const op = r.pts.length >= 8 ? r.pts.slice(2, -2) : r.pts;
+      pts.push(...op); lengte += r.lengte; takken.push(...r.takken);
     }
     route = { pts, lengte, takken };
   } else if (m === 'vlucht') {
@@ -3600,6 +3631,7 @@ const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.leng
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
     const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _ontwerp, _sam, _eff, _halteTijd, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, _concept, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
+    for (const k of ['_stopVan', '_ritWacht', '_kruis', '_blok', '_blokVan', '_blokJaar', '_blokVersie', '_vf']) delete rest[k]; // afgeleid, wordt opnieuw berekend
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };

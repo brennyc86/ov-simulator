@@ -133,7 +133,7 @@ function baanVan(pts, haltes) {
   for (const h of haltes) {
     let bd = Infinity, bi = start;
     for (let i = start; i < cum.length; i++) {
-      const d = Math.hypot(pts[i * 2] - h.x, pts[i * 2 + 1] - h.y);
+      const d = Math.hypot(pts[i * 2] - (h.sx ?? h.x), pts[i * 2 + 1] - (h.sy ?? h.y));
       if (d < bd) { bd = d; bi = i; }
       if (bd < 20 && d > bd + 300) break;
     }
