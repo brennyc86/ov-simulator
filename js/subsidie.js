@@ -128,13 +128,17 @@ export const subsidieNiveau = spel => Math.min(4, Math.floor((spel.subsidieSucce
 const AFSTAND = { trein: [[10000, 30000], [12000, 45000], [12000, 60000], [30000, 100000], [50000, 160000]], bus: [[4000, 15000], [5000, 20000], [5000, 25000], [8000, 30000], [12000, 40000]] };
 const REDEN = { snel: 'De provincie wil een snelle verbinding.', goedkoop: 'Er is vraag naar goedkoop vervoer (studenten, ouderen).', comfort: 'Reizigers zijn ontevreden over het comfort op deze verbinding.' };
 export const redenTekst = a => a.opheffing ? `${a.opheffing.vervoerder} stopt met lijn ${a.opheffing.nr}; de provincie zoekt een nieuwe vervoerder.` : REDEN[a.eisen?.reden] || '';
+// treinsubsidies alleen waar spoor in de kaartgegevens zit (in landen zonder spoordata is een trein niet reëel)
+let treinGebied = () => true;
+export const zetTreinGebied = f => { treinGebied = f || (() => true); };
+export const treinMogelijk = a => a.modus !== 'trein' || (treinGebied(a.a.x, a.a.y) && treinGebied(a.b.x, a.b.y));
 export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
   const jaar = spel.jaar, binnen = opties.binnen || (() => true), niveau = opties.niveau ?? subsidieNiveau(spel);
   const [dt0, dt1] = AFSTAND.trein[niveau], [db0, db1] = AFSTAND.bus[niveau];
   const trein = opties.modus ? opties.modus === 'trein' : Math.random() < 0.45;
   let a, b, modus;
   if (trein) {
-    const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar)), start = st.filter(s => binnen(s.x, s.y));
+    const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar) && treinGebied(s.x, s.y)), start = st.filter(s => binnen(s.x, s.y));
     for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = st.filter(s => { const d = afst(a, s); return d > dt0 && d < dt1; }); if (ver.length) b = kies(ver); }
     modus = 'trein';
     if (b) { a = { naam: a.n, x: a.x, y: a.y }; b = { naam: b.n, x: b.x, y: b.y }; }

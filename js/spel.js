@@ -3,6 +3,7 @@ import { MODI, TYPE, standaardType } from './vloot.js';
 import { bboxVan } from './net.js';
 import { inzetbaar } from './markt.js';
 import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor, nodigPer, nodigLijn } from './comfort.js';
+import { heeftMix, toegewezen, inzetbaarMix, verdeling } from './mix.js';
 
 export const TARIEF = {
   // instaptarief + per km (OV-chipkaart 2026, benaderd); trein degressief na 40 km
@@ -365,11 +366,16 @@ export function verrekenUur(spel, ctx, uurBegin) {
     let ritten = 0;
     for (const r of lijn.vertrek) for (const v of r) if (v >= uurBegin && v < uurBegin + 60) ritten++;
     // voertuiguren: voertuigen in omloop in dit uur
-    const actief = periode ? Math.min(lijn.nodig, Math.ceil(ritten * (lijn.duur / 60 + mod.keer) / 60)) : 0;
+    const actief = periode ? Math.min(lijn.nodig, Math.ceil(ritten * (lijn.duur / 60 + mod.keer) / 60)) : 0;   // (bij een mix: hetzelfde getal als verdeling().nodig)
     if (!ritten && !actief) continue;
     // te weinig materieel: ritten vallen uit
-    const inBezit = beschikbaarVoor(spel, lijn);
-    const rijdt = Math.min(1, inBezit / Math.max(1, lijn.nodig));
+    // met een materieelmix: wat er dit uur nodig is en welk materieel er rijdt (voorrang, spitsmaterieel alleen in de spits)
+    const mix = heeftMix(lijn) && !lijn.ai ? verdeling(spel, lijn, spel.dag, uurBegin + 30) : null;
+    const inBezit = mix ? mix.rijdt : beschikbaarVoor(spel, lijn);
+    const rijdt = mix ? (mix.nodig ? Math.min(1, mix.rijdt / mix.nodig) : 1) : Math.min(1, inBezit / Math.max(1, lijn.nodig));
+    // aandeel per soort (gewogen naar het aantal voertuigen dat dit uur rijdt)
+    const delen = mix && mix.inzet.length ? mix.inzet.map(x => ({ id: x.id, a: x.n / mix.rijdt })) : [{ id: lijn.typeId, a: 1 }];
+    const gemiddeld = f => delen.reduce((s2, x) => s2 + x.a * f(x.id), 0);
     ritten *= rijdt;
     const voertuigUren = actief * rijdt;
     const km = ritten * lijn.lengteKm;
@@ -377,6 +383,9 @@ export function verrekenUur(spel, ctx, uurBegin) {
     // reizigers
     const conc = ctx.concurrentie(lijn);
     const eff = vraagEffect(lijn, lijn.typeId, conc > 0 ? COMFORT_CONCURRENT[lijn.modus] : null);
+    if (delen.length > 1 || delen[0].id !== lijn.typeId) {        // ander of gemengd materieel: comfort-effect gewogen
+      eff.factor = gemiddeld(id => vraagEffect(lijn, id, conc > 0 ? COMFORT_CONCURRENT[lijn.modus] : null).factor);
+    }
     lijn._eff = eff;
     let { perDag, gemKm } = vraagLijn(lijn, ctx.plaatsen, 0);
     perDag *= eff.factor * (1 - conc * (1 - eff.marktaandeel));
@@ -389,7 +398,8 @@ export function verrekenUur(spel, ctx, uurBegin) {
     // reizigers bij drukte gratis een klasse hoger zitten (minder achterblijvers, wel klachten zonder korting)
     const vraagUur = reizigers, kl = eff.klassen.length ? eff.klassen : [{ zit: capaciteit(lijn), sta: 0, prijs: 1 }];
     const aand = eff.aandeel.length ? eff.aandeel : [1];
-    const vrij = kl.map(k => (k.zit + k.sta) * eh * ritten * 0.8);
+    const capFactor = delen.length > 1 || delen[0].id !== lijn.typeId ? gemiddeld(id => capaciteit({ ...lijn, typeId: id })) / Math.max(1, capaciteit(lijn)) : 1;
+    const vrij = kl.map(k => (k.zit + k.sta) * eh * ritten * 0.8 * capFactor);
     let over = 0, vervoerd = 0;
     for (let i = 0; i < kl.length; i++) { const nodig = vraagUur * aand[i] + over, mee = Math.min(nodig, vrij[i]); vrij[i] -= mee; over = nodig - mee; vervoerd += mee; }
     const laag = kl[kl.length - 1], pl = Math.max(0.1, laag.prijs || 1);
@@ -417,8 +427,8 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const boetes = betrapt * (BOETE + ritprijs) * 0.75; // niet elke boete wordt geïnd
 
     // kosten
-    const personeel = voertuigUren * mod.loon * (type?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * uurKosten(lijn, lijn.typeId);
-    const energie = km * kmKosten(type, spel.jaar) * eh * (spel._ouderdom?.[(type?.samen || [lijn.typeId])[0]] || 1); // oud materieel: duurder per km
+    const personeel = voertuigUren * mod.loon * gemiddeld(id => TYPE[id]?.pers || 1) + (lijn.conducteur ? voertuigUren * LOON.conducteur : 0) + voertuigUren * gemiddeld(id => uurKosten(lijn, id));
+    const energie = km * eh * gemiddeld(id => kmKosten(TYPE[id], spel.jaar) * (spel._ouderdom?.[(TYPE[id]?.samen || [id])[0]] || 1)); // oud materieel: duurder per km
     // spoorhuur: ProRail per treinkilometer en per stop; tram/metro en trolleybus huren baan en bovenleiding
     const gebruik = lijn.modus === 'trein' ? km * gebruiksvergoeding(spel, lijn) + ritten * lijn.haltes.length * 6
       : ['tram', 'metro', 'sneltram'].includes(lijn.modus) ? (lijn.eigenSpoor ? 0 : km * 0.9)
@@ -489,12 +499,12 @@ export function pakkans(spel, lijn) {
 // welk deel van het benodigde materieel heeft deze lijn (vloot wordt eerlijk verdeeld)
 // Een samenstelling (loc + rijtuigen) heeft van elk onderdeel genoeg nodig; onderdelen worden eerlijk verdeeld
 // over alle lijnen die ze gebruiken (ook als los treinstel op een andere lijn).
-function eigenDeel(spel, lijn, typeId) {
+export function eigenDeel(spel, lijn, typeId) {
   const per = nodigPer(typeId), eigen = nodigLijn(lijn, typeId);
   let deel = lijn.nodig, totaal = Infinity, vraag = 0;
   for (const [c, kk] of Object.entries(eigen)) {
-    const t = inzetbaar(spel, c), k = Math.max(1, per[c] || kk / Math.max(1, lijn.nodig)); // in revisie telt niet mee
-    const v = spel.lijnen.filter(l => l.actief).reduce((s, l) => s + (nodigLijn(l, l === lijn ? typeId : l.typeId)[c] || 0), 0) + (lijn.actief ? 0 : kk);
+    const t = Math.max(0, inzetbaar(spel, c) - toegewezen(spel, c, lijn)), k = Math.max(1, per[c] || kk / Math.max(1, lijn.nodig)); // in revisie telt niet mee; vast toegewezen aan lijnen met een mix ook niet
+    const v = spel.lijnen.filter(l => l.actief && !(heeftMix(l) && !l.ai && l !== lijn)).reduce((s, l) => s + (nodigLijn(l, l === lijn ? typeId : l.typeId)[c] || 0), 0) + (lijn.actief ? 0 : kk);
     const d = v <= t ? lijn.nodig : Math.floor(t * lijn.nodig * k / v / k);
     if (d < deel) deel = d;
     totaal = Math.min(totaal, Math.floor(t / k)); vraag = Math.max(vraag, Math.ceil(v / k));
@@ -503,6 +513,7 @@ function eigenDeel(spel, lijn, typeId) {
 }
 // hoeveel voertuigen kan deze lijn inzetten (eigen type + eventueel alternatief type dat over is)
 export function beschikbaarVoor(spel, lijn) {
+  if (heeftMix(lijn) && !lijn.ai) return inzetbaarMix(spel, lijn);
   const e = eigenDeel(spel, lijn, lijn.typeId);
   if (e.deel >= lijn.nodig || !lijn.altTypeId) return e.deel;
   const a = eigenDeel(spel, lijn, lijn.altTypeId);
@@ -513,7 +524,7 @@ export function beschikbaarVoor(spel, lijn) {
 }
 // welk deel van de ritten rijdt met het alternatieve materieel
 export function altDeel(spel, lijn) {
-  if (!lijn.altTypeId) return 0;
+  if (!lijn.altTypeId || heeftMix(lijn)) return 0;
   const e = eigenDeel(spel, lijn, lijn.typeId).deel;
   if (e >= lijn.nodig) return 0;
   return Math.max(0, (beschikbaarVoor(spel, lijn) - e) / lijn.nodig);

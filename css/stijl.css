@@ -196,3 +196,11 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
   .legendaknop { bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); }
   .legenda-kaart { bottom: calc(env(safe-area-inset-bottom, 0px) + 136px); max-height: 55vh; }
 }
+/* materieel per lijn */
+.mixtabel td { vertical-align: middle; }
+.mixaantal { white-space: nowrap; }
+.mixaantal b { display: inline-block; min-width: 2em; text-align: center; font-family: var(--f-cijfer); }
+.mixvolg { white-space: nowrap; }
+.mixblok .rij { flex-wrap: wrap; gap: 6px; }
+.kaartje.concept { border-left: 4px solid var(--sein); }
+.kaartje.concept li.nieuw { font-weight: 600; }

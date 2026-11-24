@@ -77,6 +77,16 @@ for (const p of ['lijnen', 'vloot', 'controle', 'geld', 'kaart', 'verzoeken']) {
   log('paneel', p, h.length, 'tekens');
   document.querySelector(`[data-paneel="${p}"]`).click();
 }
+// subsidies: filter op land en provincie, treinsubsidies alleen waar spoor is
+{ document.querySelector('[data-paneel="subsidies"]').click(); await wacht(30);
+  const tel = () => document.getElementById('paneel-inhoud').textContent.match(/(\d+) van (\d+) aanbiedingen/)?.slice(1).join('/');
+  log('subsidies alle landen:', tel(), '| landen:', [...document.querySelectorAll('[data-wijzig="sub-land"] option')].map(o => o.textContent).join(', '));
+  const sel = document.querySelector('[data-wijzig="sub-land"]'); sel.value = 'BE'; sel.dispatchEvent(new window.Event('change', { bubbles: true })); await wacht(30);
+  log('subsidies België:', tel(), '|', document.getElementById('paneel-inhoud').textContent.match(/Provincies in België[^:]*/)?.[0]);
+  document.querySelector('[data-actie="sub-meer"]')?.click(); await wacht(50);
+  log('na zoeken in België:', tel(), '| treinaanbiedingen in beeld:', (document.getElementById('paneel-inhoud').textContent.match(/Trein: /g) || []).length);
+  const s2 = document.querySelector('[data-wijzig="sub-land"]'); s2.value = ''; s2.dispatchEvent(new window.Event('change', { bubbles: true })); await wacht(30);
+  document.querySelector('[data-paneel="subsidies"]').click(); }
 for (const t of ['lijn', 'halte', 'station', 'perron', 'spoor', 'kijk']) document.querySelector(`[data-tool="${t}"]`).click();
 // inzoomen op Hilversum, AI-lijnen laten laden, tijd naar spits
 globalThis.__map.easeTo({ center: process.env.CENTER ? JSON.parse(process.env.CENTER) : [5.1815, 52.2257], zoom: +(process.env.ZOOM || 12.5) });
@@ -172,18 +182,28 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
         document.querySelector('[data-actie="halte-erbij"]')?.click(); await wacht(30);
         const [la9, lo9] = G.rdNaarWgs(hv.x, hv.y); globalThis.__map.easeTo({ center: [lo9, la9], zoom: 13 }); await wacht(40);
         globalThis.__map.vuur('click', { point: globalThis.__map.project([lo9, la9]) }); await wacht(300);
+        log('concept na klik (lijn zelf nog ongewijzigd):', lijn.haltes.length, 'haltes |', lijn._concept?.haltes.map(h => h.naam).join(' > '));
+        if (lijn.haltes.length !== 2) fouten.push('halte toevoegen veranderde de lijn al vóór "Rit updaten"');
+        document.querySelector('[data-tool="kijk"]')?.click(); document.querySelector(`[data-actie="toon-lijn"][data-id="${lijn.id}"]`)?.click(); await wacht(50);
+        log('conceptblok:', document.querySelector('.kaartje.concept')?.textContent.replace(/\s+/g, ' ').slice(0, 200));
+        document.querySelector('[data-actie="concept-toepassen"]')?.click(); await wacht(100);
         log('na toevoegen Hilversum:', lijn.haltes.map(h => h.naam).join(' > '), Math.round(lijn.duur / 60), 'min');
+        if (lijn.haltes.length !== 3 || lijn._concept) fouten.push('Rit updaten paste het concept niet toe');
         document.querySelector('[data-tool="kijk"]')?.click(); } }
     // nieuwe lijn: interieur aanpassen en kopen, terug naar de lijn met de serie gekozen
     { document.querySelector('[data-tool="lijn"]').click(); [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Trein').click();
       for (const s2 of [a, b]) { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); }
       await [...document.querySelectorAll('#hint button')].find(x => x.textContent === 'Klaar').onclick(); await wacht(300);
       const nr = document.getElementById('nl-nr'); nr.value = 'IC99';
-      document.querySelector('[data-actie="nl-bouwer"]')?.click(); await wacht(50);
+      log('materieel nieuwe lijn:', document.querySelector('.mixblok')?.textContent.replace(/\s+/g, ' ').slice(0, 220));
+      if (!document.querySelector('.mixblok')) fouten.push('nieuwe lijn: geen materieeloverzicht');
+      document.querySelector('[data-actie="mix-tweedehands"][data-doel="nl"]')?.click(); await wacht(30);
+      log('tweedehands in nieuwe lijn:', document.querySelector('.mixblok .kaartje')?.textContent.replace(/\s+/g, ' ').slice(0, 120));
+      document.querySelector('[data-actie="mix-bouwer"][data-doel="nl"]')?.click(); await wacht(50);
       log('interieur vanuit nieuwe lijn:', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').slice(0, 160));
       const e0 = document.querySelector('[data-wijzig="bw-type"][data-i="0"]'); e0.value = [...e0.options].find(o => /SNG|FLIRT|ICNG/.test(o.textContent))?.value || e0.options[1].value; e0.dispatchEvent(new window.Event('change')); await wacht(40);
       document.getElementById('bw-aantal').value = 3; document.querySelector('[data-actie="bw-koop"]')?.click(); await wacht(80);
-      const sel = document.getElementById('nl-type'); log('terug bij lijn: gekozen', sel?.value, '| nr', document.getElementById('nl-nr')?.value, '|', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').match(/Rijtijd.{0,140}/)?.[0]);
+      const sel = { value: (paneelMix => paneelMix)(document.querySelector('.mixtabel')?.textContent.replace(/\s+/g, ' ').slice(0, 120)) }; log('terug bij lijn: mix', sel?.value, '| nr', document.getElementById('nl-nr')?.value, '|', document.getElementById('paneel-inhoud').textContent.replace(/\s+/g, ' ').match(/Rijtijd.{0,140}/)?.[0]);
       document.querySelector('[data-actie="lijn-annuleer"]')?.click(); await wacht(30); }
     // richtingen: eenrichting Amersfoort -> Amsterdam met terugweg via Utrecht, en een rondlijn
     const u = st('Utrecht Centraal'); const klikSt = async s2 => { const [la, lo] = G.rdNaarWgs(s2.x, s2.y); globalThis.__map.vuur('click', { point: globalThis.__map.project([lo, la]) }); await wacht(50); };
