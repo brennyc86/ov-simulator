@@ -361,7 +361,10 @@ if (process.env.BOUW !== '0') { const G = await import('../js/geo.js'); const S0
   document.querySelector('[data-actie="bouwer-open"][data-m="trein"]')?.click(); await wacht(30);
   const zet = async (i, v) => { const e = document.querySelector(`[data-wijzig="bw-type"][data-i="${i}"]`); if (!e) { log('geen kaart', i); return; } e.value = v; e.dispatchEvent(new window.Event('change')); await wacht(30); };
   const los = (await import('../js/vloot.js')).beschikbaarLos(sp.jaar), loc = los.find(x => x.soort === 'loc'), rt = los.find(x => x.soort === 'rijtuig'), st = los.find(x => x.soort === 'stuurstand');
-  if (loc && rt) { await zet(0, loc.id); document.querySelector('[data-actie="bw-erbij"]').click(); await wacht(30); await zet(1, rt.id); await zet(2, st ? st.id : loc.id);
+  if (loc && rt) { document.querySelector('[data-actie="bw-opbouw"][data-w="loc"]')?.click(); await wacht(30);
+    await zet(0, loc.id); document.querySelector('[data-actie="bw-erbij"]').click(); await wacht(30); await zet(1, rt.id);
+    document.querySelector('[data-actie="bw-erbij"]').click(); await wacht(30); document.querySelector(`[data-actie="bw-cat"][data-i="2"][data-w="${st ? 'stuurstand' : 'loc'}"]`)?.click(); await wacht(30);
+    await zet(2, st ? st.id : loc.id); log('aandrijving kaart 0:', document.querySelector('.bouwkaart .aandrijving')?.textContent.replace(/\s+/g, ' '));
     const n = document.querySelector('[data-wijzig="bw-n"][data-i="1"]'); n.value = 3; n.dispatchEvent(new window.Event('change')); await wacht(30);
     log('bouwer:', tekst().slice(tekst().indexOf('Topsnelheid') - 120, tekst().indexOf('Topsnelheid') + 260));
     log('foto/tekening kaart 0:', document.querySelector('.bouwkaart .foto')?.innerHTML.slice(0, 60));

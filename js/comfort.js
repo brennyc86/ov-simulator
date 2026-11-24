@@ -377,6 +377,23 @@ export function samenstelling(ids) {
   return t;
 }
 export const samenstellingVan = id => typeof id === 'string' && id.startsWith('sam:') ? samenstelling(id.slice(4).split('+')) : null;
+// benodigd materieel voor een hele lijn: {typeId: aantal}. Met loc-wissel aan de grens rijdt elke loc alleen in zijn
+// eigen deel van de route (aandeel van de rijtijd), plus één die aan de grens op de terugkerende trein wacht.
+export function nodigLijn(l, typeId = l.typeId, nodig = l.nodig) {
+  const per = nodigPer(typeId), uit = {}, w = l.locWissel, frac = l._landFrac;
+  const metWissel = w && frac?.length && Object.keys(w).length;
+  const locs = Object.entries(per).filter(([c]) => TYPE[c]?.soort === 'loc'), nLoc = locs.reduce((a, [, k]) => a + k, 0);
+  for (const [c, k] of Object.entries(per)) if (!metWissel || TYPE[c]?.soort !== 'loc') uit[c] = (uit[c] || 0) + k * nodig;
+  if (!metWissel || !nLoc) return uit;
+  const deel = {}; // loctype -> aandeel van de route
+  for (const { land, f } of frac) { const lt = w[land] || ''; deel[lt] = (deel[lt] || 0) + f; }
+  const aantal = f => Math.min(nodig, Math.ceil(nodig * f - 1e-9) + 1);
+  for (const [lt, f] of Object.entries(deel)) {
+    if (lt) uit[lt] = (uit[lt] || 0) + nLoc * aantal(f);
+    else for (const [c, k] of locs) uit[c] = (uit[c] || 0) + k * aantal(f);
+  }
+  return uit;
+}
 // hoeveel van elk voertuig zit er in één trein van dit type: {typeId: aantal}
 export function nodigPer(typeId) {
   const uit = {};

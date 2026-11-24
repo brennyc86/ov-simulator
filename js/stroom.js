@@ -87,7 +87,13 @@ export const UITROL_M = 650;
 export function stroomCheck(spel, net, lijn, typeId = lijn.typeId) {
   const tk = lijn.route?.takken; if (!tk?.length || !['trein', 'metro', 'sneltram', 'tram'].includes(lijn.modus)) return { ok: true, probleem: [] };
   const takVan = i => i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i];
-  const fout = i => { const t = takVan(i); if (!t || t.dienst) return null; const sys = spanningVan(spel, t); if (kanOp(typeId, sys) || (lijn.sleeploc && kanOp(lijn.sleeploc, sys))) return null; return sys || 'geen'; };
+  const wissel = lijn.locWissel || {};
+  // bij een loc-wissel gebeurt het omkoppelen op het station waar de spanning wisselt (bv. Roosendaal heeft al 3 kV):
+  // een stuk is dan goed als de loc van dat land of een van de andere locs van de trein erop kan
+  const wl = Object.values(wissel);
+  const fout = i => { const t = takVan(i); if (!t || t.dienst) return null; const sys = spanningVan(spel, t), eigen = wissel[t.land || 0];
+    if (eigen ? kanOp(eigen, sys) : kanOp(typeId, sys)) return null; if (wl.length && (kanOp(typeId, sys) || wl.some(x => kanOp(x, sys)))) return null;
+    if (lijn.sleeploc && kanOp(lijn.sleeploc, sys)) return null; return sys || 'geen'; };
   // stukken achter elkaar langs de route groeperen
   const stukken = []; let cur = null;
   for (const i of tk) { const f = fout(i); if (f) { if (!cur) { cur = { takken: [], lengte: 0, sys: new Set() }; stukken.push(cur); } if (!cur.takken.includes(i)) { cur.takken.push(i); cur.lengte += takVan(i)?.lengte || 0; } cur.sys.add(f); } else cur = null; }
@@ -113,3 +119,21 @@ export function baanvak(spel, net, t0, max = 40000) {
   return { takken: [...uit], lengte, sys };
 }
 export const ombouwKostenStroom = (van, naar, km) => !naar ? 0 : Math.round(km * (van ? SYSTEMEN[naar].km : ELEKTRISCH_KM) / 1e5) * 1e5;
+
+// ---------------------------------------------------------------- loc-wissel aan de grens
+// Een loc-trein kan per land een andere loc krijgen (lijn.locWissel = {land: locId}); aan de grens wordt omgekoppeld.
+export const WISSEL_MIN = 8; // minuten per loc-wissel (afkoppelen, aankoppelen, remproef)
+// welk deel van de route ligt in welk land: [{land, km, f}] in volgorde van het grootste deel
+export function landVerdeling(net, lijn) {
+  const tk = lijn.route?.takken; if (!tk?.length) return [];
+  const per = new Map(); let tot = 0;
+  for (const i of tk) { const t = i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i]; if (!t) continue; const l = t.land || 0; per.set(l, (per.get(l) || 0) + t.lengte); tot += t.lengte; }
+  return [...per].map(([land, m]) => ({ land, km: m / 1000, f: tot ? m / tot : 0 })).sort((a, b) => b.km - a.km);
+}
+// hoe vaak per rit van loc gewisseld wordt (overgangen tussen landen met een andere loc)
+export function wisselsPerRit(net, lijn) {
+  const tk = lijn.route?.takken, w = lijn.locWissel; if (!tk?.length || !w || !Object.keys(w).length) return 0;
+  let n = 0, vorige;
+  for (const i of tk) { const t = i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i]; if (!t || t.dienst) continue; const loc = w[t.land || 0] || ''; if (vorige !== undefined && loc !== vorige) n++; vorige = loc; }
+  return n;
+}

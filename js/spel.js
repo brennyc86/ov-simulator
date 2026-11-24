@@ -1,7 +1,7 @@
 // Spelkern: bedrijf, lijnen, dienstregeling, voertuigposities, geld en reizigers.
 import { MODI, TYPE, standaardType } from './vloot.js';
 import { bboxVan } from './net.js';
-import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor, nodigPer } from './comfort.js';
+import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor, nodigPer, nodigLijn } from './comfort.js';
 
 export const TARIEF = {
   // instaptarief + per km (OV-chipkaart 2026, benaderd); trein degressief na 40 km
@@ -240,7 +240,8 @@ export function materieelNodig(lijn) {
   const piek = Math.max(...perUur);
   const leegTerug = lijn.richting === 'heen' && !lijn.paar ? 2 : 1; // eenrichting zonder terugweg: leeg terugrijden
   const keer = mod.keer + (TYPE[lijn.typeId]?.keerExtra || 0); // loc zonder stuurstandrijtuig: omlopen bij het keren
-  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 * leegTerug + keer) / 60));
+  const wissel = (lijn._wissels || 0) * 8; // loc-wissel aan de grens (WISSEL_MIN in stroom.js)
+  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 * leegTerug + keer + wissel) / 60));
 }
 
 // positie langs de lijn op afstand s (m langs de route-punten)
@@ -488,11 +489,11 @@ export function pakkans(spel, lijn) {
 // Een samenstelling (loc + rijtuigen) heeft van elk onderdeel genoeg nodig; onderdelen worden eerlijk verdeeld
 // over alle lijnen die ze gebruiken (ook als los treinstel op een andere lijn).
 function eigenDeel(spel, lijn, typeId) {
-  const per = nodigPer(typeId);
+  const per = nodigPer(typeId), eigen = nodigLijn(lijn, typeId);
   let deel = lijn.nodig, totaal = Infinity, vraag = 0;
-  for (const [c, k] of Object.entries(per)) {
-    const t = spel.voertuigen[c] || 0;
-    const v = spel.lijnen.filter(l => l.actief).reduce((s, l) => s + (nodigPer(l === lijn ? typeId : l.typeId)[c] || 0) * l.nodig, 0) + (lijn.actief ? 0 : k * lijn.nodig);
+  for (const [c, kk] of Object.entries(eigen)) {
+    const t = spel.voertuigen[c] || 0, k = Math.max(1, per[c] || kk / Math.max(1, lijn.nodig));
+    const v = spel.lijnen.filter(l => l.actief).reduce((s, l) => s + (nodigLijn(l, l === lijn ? typeId : l.typeId)[c] || 0), 0) + (lijn.actief ? 0 : kk);
     const d = v <= t ? lijn.nodig : Math.floor(t * lijn.nodig * k / v / k);
     if (d < deel) deel = d;
     totaal = Math.min(totaal, Math.floor(t / k)); vraag = Math.max(vraag, Math.ceil(v / k));
