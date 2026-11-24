@@ -102,9 +102,12 @@ class Bezetting {
     const seen = new Set();
     for (let h = Math.floor(a / 3600) - 1; h <= Math.floor(b / 3600) + 1; h++) for (const o of this.m.get(tak * 64 + h) || []) if (!seen.has(o)) { seen.add(o); yield o; }
   }
+  // terugdraaien: alles wat na begin() geboekt is weer weghalen
+  begin() { this.log = []; }
+  terug() { for (let i = this.log.length - 1; i >= 0; i--) this.log[i].pop(); this.log = null; }
   zet(tak, o) {
     const a = Math.min(o.in, o.tA, o.tB), b = Math.max(o.uit, o.tA, o.tB); if (!(b - a < 86400)) return;
-    for (let h = Math.floor(a / 3600); h <= Math.floor(b / 3600); h++) { const k = tak * 64 + h; let l = this.m.get(k); if (!l) this.m.set(k, l = []); l.push(o); }
+    for (let h = Math.floor(a / 3600); h <= Math.floor(b / 3600); h++) { const k = tak * 64 + h; let l = this.m.get(k); if (!l) this.m.set(k, l = []); l.push(o); this.log?.push(l); }
   }
 }
 
@@ -240,4 +243,48 @@ export function stationZoeker(stations, r = 450) {
     for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) for (const st of g.get(i + ',' + j) || []) if (Math.hypot(st.x - x, st.y - y) < r) return true;
     return false;
   };
+}
+
+// Vertrektijden van één eigen lijn afstemmen: zoek de verschuiving van de heenrichting (s0) en van de terugrichting
+// ten opzichte daarvan (s1), in hele minuten binnen één interval, met de minste wachttijd en uitval.
+// De andere lijnen blijven zoals ze zijn. Geeft {s0, s1, kosten, basis, wacht, mislukt} of null.
+export async function zoekAfstemming(lijnen, doel, net, jaar, { bijStation, budget = 12, stop = () => false } = {}) {
+  const ok = l => l.modus === 'trein' && l.actief !== false && l.vertrek && l.cum && l.km?.length;
+  if (!ok(doel)) return null;
+  let t0 = performance.now();
+  const adem = async () => { if (performance.now() - t0 > budget) { await new Promise(res => setTimeout(res, 0)); if (stop()) return true; t0 = performance.now(); } return false; };
+  const relevant = new Set();
+  for (const b of blokkenVan(doel, net, jaar, bijStation)) for (const st of b.stukken) relevant.add(st.tak);
+  const vb = doel.bbox, raakt = l => l.bbox && vb && !(l.bbox[0] > vb[2] + 500 || l.bbox[2] < vb[0] - 500 || l.bbox[1] > vb[3] + 500 || l.bbox[3] < vb[1] - 500);
+  // eerst de rest boeken: bestaande vervoerders vast, andere eigen lijnen met hun huidige plan
+  const bez = new Bezetting(), rest = [];
+  for (const { lijn, vast } of lijnen) if (lijn !== doel && ok(lijn) && raakt(lijn)) for (let r = 0; r < 2; r++) for (const v of lijn.vertrek[r] || []) rest.push({ lijn, r, v, vast });
+  rest.sort((a, b) => (b.vast - a.vast) || a.v - b.v);
+  for (const rit of rest) { if (await adem()) return null; planRit(bez, rit.lijn, rit.r, rit.v, blokkenVan(rit.lijn, net, jaar, bijStation), rit, rit.vast, relevant); }
+  const blokken = blokkenVan(doel, net, jaar, bijStation);
+  const proef = async (s0, s1) => {
+    bez.begin();
+    const ritten = [];
+    for (let r = 0; r < 2; r++) for (const v of doel.vertrek[r] || []) ritten.push({ lijn: doel, r, v: v + s0 + (r ? s1 : 0) });
+    ritten.sort((a, b) => a.v - b.v);
+    let wacht = 0, mislukt = 0;
+    for (const rit of ritten) { if (await adem()) { bez.terug(); return null; } const p = planRit(bez, doel, rit.r, rit.v, blokken, rit); wacht += p.totaal; if (p.mislukt) mislukt++; }
+    bez.terug();
+    return { s0, s1, wacht, mislukt, kosten: wacht + mislukt * 3600 };
+  };
+  const I = Math.max(2, Math.min(120, Math.round(doel.interval?.dal || 30)));
+  const basis = await proef(0, 0); if (!basis) return null;
+  let beste = basis;
+  // afwisselend de terugrichting en de hele lijn verschuiven (coördinaatsgewijs), elk over één interval
+  for (let ronde = 0; ronde < 2; ronde++) {
+    for (const wat of ['s1', 's0']) {
+      for (let d = -Math.floor(I / 2); d < Math.ceil(I / 2); d++) {
+        const s0 = wat === 's0' ? d : beste.s0, s1 = wat === 's1' ? d : beste.s1;
+        if (s0 === beste.s0 && s1 === beste.s1) continue;
+        const p = await proef(s0, s1); if (!p) return null;
+        if (p.kosten < beste.kosten - 1 || (Math.abs(p.kosten - beste.kosten) <= 1 && Math.abs(p.s0) + Math.abs(p.s1) < Math.abs(beste.s0) + Math.abs(beste.s1))) beste = p;
+      }
+    }
+  }
+  return { ...beste, basis };
 }

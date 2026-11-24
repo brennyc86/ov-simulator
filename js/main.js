@@ -16,7 +16,7 @@ import { LANDEN } from './schets.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
-import { planAlles, stationZoeker } from './spoorplan.js';
+import { planAlles, stationZoeker, zoekAfstemming } from './spoorplan.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
 import { kortNaam, stoelNaam, SLAAP, nieuwSlaapDeel, interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
@@ -2107,6 +2107,7 @@ function actieUit(a, d) {
       melding(`${p.naam}: versneld bouwen, klaar om ${S.klok((nieuw + 300) % 1440)} (${S.euroKort(kosten)}).`); ververs(); hud(); break;
     }
     case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
+    case 'spoor-afstem': if (l) spoorAfstemmen(l); break;
     case 'ns-kant': paneelData.kant = -(paneelData.kant || 1); ververs(); break;
     case 'perron-bouw': {
       const o = perronOntwerp; if (!o) break;
@@ -2313,7 +2314,7 @@ function wijzig(w, i) {
 }
 function padOpnieuwNodig(l) {
   if (l.modus !== 'trein' || l.eigenSpoor) return;
-  const gevraagd = Math.ceil(60 / Math.min(...Object.values(l.interval)));
+  const gevraagd = Math.ceil(60 / (Math.min(...Object.values(l.interval).filter(x => x > 0)) || 60));
   if (gevraagd > (l.paden || 0)) { l.paden = gevraagd; melding(`ProRail kent ${gevraagd} trein(en) per uur per richting toe. Je betaalt spoorhuur per treinkilometer.`); }
 }
 function padAanvragen(l) {
@@ -3673,7 +3674,8 @@ function spoorplanTekst(l) {
   for (const [sl, w] of l._ritWacht || []) { const r = +sl[0]; for (const q of w) { const h = q.h >= 0 ? l.haltes[r ? n - 1 - q.h : q.h]?.naam || '?' : 'een passeerspoor of sein'; per.set(h, (per.get(h) || 0) + q.w); } }
   const top = [...per].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h, s]) => `${esc(h)} (${Math.round(s / 60)} min/dag)`).join(', ');
   return `<p class="klein">Spoorplan: ${k.ritten ? `${k.ritten} rit(ten) wachten vast op een tegentrein (enkelspoor) of voorganger, samen ${Math.round(k.wacht / 60)} min per dag${top ? `; vooral bij ${top}` : ''}.` : 'geen wachttijden: het spoor is vrij.'}
-    ${k.mislukt ? `<span class="chip fout">${k.mislukt} rit(ten) krijgen geen pad en vallen uit</span> (ze zouden meer dan 25 min moeten wachten). Leg een passeerspoor (kort stuk dubbelspoor) of dubbelspoor aan, of verschuif de vertrektijden.` : ''}</p>`;
+    ${k.mislukt ? `<span class="chip fout">${k.mislukt} rit(ten) krijgen geen pad en vallen uit</span> (ze zouden meer dan 25 min moeten wachten). Leg een passeerspoor (kort stuk dubbelspoor) of dubbelspoor aan, of verschuif de vertrektijden.` : ''}
+    ${!l.ai && (k.ritten || k.mislukt) ? `<br><button class="knop klein" data-actie="spoor-afstem" data-id="${l.id}" title="zoekt de verschuiving van heen- en terugrichting (binnen één interval) met het minste wachten">Vertrektijden afstemmen op het spoor</button>` : ''}</p>`;
 }
 // plekken waar treinen elkaar kunnen kruisen: stations en je eigen (opgeleverde) passeersporen
 function kruisPlek() {
@@ -3683,11 +3685,29 @@ function kruisPlek() {
   f.versie = lussen.length;
   return f;
 }
+const treinenVoorPlan = () => [...AI.lijnen.filter(l => l.modus === 'trein').map(lijn => ({ lijn, vast: 1 })), ...spel.lijnen.filter(l => l.modus === 'trein' && l.actief !== false).map(lijn => ({ lijn, vast: 0 }))];
+// vertrektijden van een eigen lijn afstemmen op het enkelspoor (heen en terug verschuiven binnen één interval)
+let afstemBezig = false;
+async function spoorAfstemmen(l) {
+  if (afstemBezig) return; afstemBezig = true;
+  melding(`Lijn ${l.nr}: vertrektijden afstemmen op het spoor…`, 4000);
+  try {
+    const a = await zoekAfstemming(treinenVoorPlan(), l, net, spel.jaar, { bijStation: kruisPlek() });
+    if (!a) { melding('Afstemmen lukte niet.'); return; }
+    if (a.kosten >= a.basis.kosten - 30) { melding(`Lijn ${l.nr}: de huidige vertrektijden zijn al het best (${Math.round(a.basis.wacht / 60)} min wachten per dag${a.basis.mislukt ? `, ${a.basis.mislukt} ritten zonder pad` : ''}). Een passeerspoor of dubbelspoor helpt dan meer.`, 8000); return; }
+    l.offset = (l.offset || 0) + a.s0; l.offsetTerug = (l.offsetTerug || 0) + a.s1;
+    if (l.echt) l.aangepast = true;
+    S.herbereken(l); padOpnieuwNodig(l);
+    const tekst = [a.s0 ? `hele lijn ${a.s0 > 0 ? '+' : ''}${a.s0} min` : '', a.s1 ? `terugrichting ${a.s1 > 0 ? '+' : ''}${a.s1} min` : ''].filter(Boolean).join(', ');
+    melding(`Lijn ${l.nr} afgestemd (${tekst}): wachten ${Math.round(a.basis.wacht / 60)} → ${Math.round(a.wacht / 60)} min per dag${a.basis.mislukt || a.mislukt ? `, ritten zonder pad ${a.basis.mislukt} → ${a.mislukt}` : ''}.`, 9000);
+    ververs();
+  } finally { afstemBezig = false; }
+}
 // spoorplanner: opnieuw zodra een treinlijn (van jou of een vervoerder) verandert. Rekent op de achtergrond.
 let planSig = '', planLoopt = null, stationBij = null;
 function spoorPlannen() {
   if (!spel || !net) return;
-  const treinen = [...AI.lijnen.filter(l => l.modus === 'trein').map(lijn => ({ lijn, vast: 1 })), ...spel.lijnen.filter(l => l.modus === 'trein' && l.actief !== false).map(lijn => ({ lijn, vast: 0 }))];
+  const treinen = treinenVoorPlan();
   const sig = spel.jaar + '|' + (spel.spoor || []).filter(s => s.passeer && s.klaar).length + '|' + treinen.map(({ lijn: l }) => `${l.id || l.sleutel}:${l.vertrek?.[0]?.length || 0},${l.vertrek?.[1]?.length || 0},${l.vertrek?.[0]?.[0] ?? ''}:${Math.round((l.tr || [l.t])[0]?.at(-1) || 0)}:${l.route?.pts?.length || 0}:${l.actief === false ? 0 : 1}`).join('|');
   if (sig === planSig) return;
   if (planLoopt) planLoopt.stop = true;

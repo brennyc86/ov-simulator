@@ -220,7 +220,7 @@ export function vertrekken(lijn) {
   // beide richtingen; [richting][minuten]
   const uit = [[], []];
   for (let r = 0; r < ritRichtingen(lijn); r++) {
-    let t = lijn.eerste + lijn.offset + (r ? Math.round((lijn.interval.dal || 30) / 2) : 0);
+    let t = lijn.eerste + lijn.offset + (r ? Math.round((lijn.interval.dal || 30) / 2) + (lijn.offsetTerug || 0) : 0); // offsetTerug: terugrichting verschoven (afstemmen op enkelspoor)
     while (t <= lijn.laatste) {
       uit[r].push(t);
       const p = PERIODES.find(p => t >= p.van && t < p.tot) || PERIODES[4];
