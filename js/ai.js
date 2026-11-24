@@ -4,13 +4,14 @@ import { nieuwId, klok, euro, vangst, PERIODES } from './spel.js';
 import { MODI } from './vloot.js';
 import { bboxVan } from './net.js';
 
-export const AI = { vervoerders: [], geladen: new Map(), lijnen: [], haltes: [], dag: '' };
+export const AI = { vervoerders: [], geladen: new Map(), lijnen: [], haltes: [], dag: '', opgeheven: new Set() }; // opgeheven: 'vervoerder:lijn' die de vervoerder (in het spel) heeft opgeheven
 
 export async function laadVervoerderLijnen(v, verschuivingen = {}) {
   if (AI.geladen.has(v.id)) return AI.geladen.get(v.id);
   const p = fetch(`data/lijnen/${v.bestand}`).then(r => r.ok ? r.json() : { lijnen: [] }).then(d => {
     const uit = [];
     for (const l of d.lijnen) {
+      if (AI.opgeheven.has(`${v.id}:${l.id}`)) continue;
       for (const [ri, r] of l.r.entries()) {
         const haltes = r.h.map(i => { const h = AI.haltes[i]; return { naam: h[0], x: h[1], y: h[2], ref: i }; });
         let pts;

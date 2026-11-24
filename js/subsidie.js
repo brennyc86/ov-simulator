@@ -2,7 +2,7 @@
 // Er staan altijd een paar aanbiedingen open. Een eigen lijn die beide eindpunten bedient en aan de eisen
 // voldoet, krijgt de vergoeding (per dienstregelingsuur of per reiziger) zolang hij blijft voldoen.
 import { TYPE, MODI, beschikbaar } from './vloot.js';
-import { klassenVan, inrichtingVan, delenVan, KLASSE_NAAM, basisId } from './comfort.js';
+import { klassenVan, inrichtingVan, delenVan, KLASSE_NAAM, basisId, klassePrijs } from './comfort.js';
 import { nieuwId, vraagLijn, TARIEF, kmKosten, standaardTypeVoor, LOON } from './spel.js';
 
 // De provincie rekent een aanbieding door: verwachte reizigers en kaartjes, exploitatiekosten en de investering
@@ -20,8 +20,9 @@ const afst = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 // eisen passend bij het jaar: elektrisch pas als het kon, comfort en frequentie naar de tijd; soms een stoppatroon,
 // een bepaald type materieel of een minimum aantal zitplaatsen van een bepaald comfort
-function eisenVoor(jaar, modus, tussen) {
+function eisenVoor(jaar, modus, tussen, niveau = 2) {
   const e = {};
+  if (niveau === 0) { e.perUur = jaar < 1940 ? 0.5 : 1; if (modus === 'trein' && tussen.length) e.stops = { soort: 'alle' }; return e; } // eenvoudig: gewoon rijden en overal stoppen
   const elektrischKan = modus === 'trein' ? jaar >= 1930 : modus === 'bus' || modus === 'hov' ? jaar >= 2015 : false;
   if (elektrischKan && Math.random() < (jaar >= 2015 ? 0.5 : 0.2)) e.elektrisch = true;
   if (jaar >= 1950 && Math.random() < 0.35) e.comfort = { klasse: '2', min: modus === 'trein' ? 6 : 4.8 };
@@ -31,6 +32,13 @@ function eisenVoor(jaar, modus, tussen) {
   if (modus === 'trein' && tussen.length >= 2) { const k = Math.random(); if (k < 0.35) e.stops = { soort: 'alle' }; else if (k < 0.6) e.stops = { soort: 'max', n: Math.floor(Math.random() * Math.min(3, tussen.length - 1)) }; }
   // type materieel (een type dat in dit jaar te koop is)
   const typen = beschikbaar(jaar, modus).filter(t => t.energie !== 'bovenleiding' && (!e.elektrisch || ['elektrisch', 'waterstof', 'accu-hybride'].includes(t.energie)));
+  if (niveau === 1) { delete e.klasse; delete e.comfort; return e; }
+  // hogere niveaus: snelle verbinding, juist goedkoop, of beter comfort omdat reizigers ontevreden zijn
+  if (niveau >= 3) { const r = Math.random();
+    if (r < 0.3 && modus === 'trein') { e.stops = { soort: 'max', n: Math.min(1, tussen.length) }; e.reden = 'snel'; }
+    else if (r < 0.55) { e.goedkoop = 0.85; e.reden = 'goedkoop'; }
+    else if (r < 0.85 && jaar >= 1950) { e.comfort = { klasse: '2', min: modus === 'trein' ? 7 : 5.5 }; e.reden = 'comfort'; }
+    if (niveau >= 4 && modus === 'trein' && jaar >= 1960) e.klasse = '1'; }
   if (typen.length > 1 && Math.random() < 0.22) e.typeId = kies(typen).id;
   // minimum aantal zitplaatsen van een bepaald comfort per rit
   else if (jaar >= 1950 && Math.random() < 0.3) {
@@ -47,6 +55,7 @@ export function eisenTekst(e) {
   if (e.typeId) t.push(`materieel: ${TYPE[e.typeId]?.naam || e.typeId}`);
   if (e.comfort) t.push(`comfort ${KLASSE_NAAM[e.comfort.klasse]} minstens ${String(e.comfort.min).replace('.', ',')}`);
   if (e.klasse) t.push(`met een ${KLASSE_NAAM[e.klasse]}`);
+  if (e.goedkoop) t.push(`2e-klastarief hooguit ${Math.round(e.goedkoop * 100)}% van het standaardtarief`);
   if (e.plaatsen) t.push(`minstens ${e.plaatsen.min} zitplaatsen ${KLASSE_NAAM[e.plaatsen.klasse]} met comfort ${String(e.plaatsen.comfort).replace('.', ',')} of meer`);
   return t.join(', ');
 }
@@ -113,28 +122,35 @@ function vergoedingUit(r, perReiziger) {
 
 // een nieuwe aanbieding bedenken: twee plaatsen of stations die beter verbonden moeten worden
 // opties: { modus: 'trein' | 'bus' | 'hov' (vast), binnen: (x, y) => bool (vertrekpunt in deze regio) }
+// niveau 0..4: eerst eenvoudige, korte verbindingen; wie ze goed rijdt, krijgt grotere en lastigere aanbiedingen.
+// Een grote vervoerder (bv. NS) begint hoger, maar krijgt er minder.
+export const subsidieNiveau = spel => Math.min(4, Math.floor((spel.subsidieSucces || 0) / 2) + (spel.groot ? 2 : 0));
+const AFSTAND = { trein: [[10000, 30000], [12000, 45000], [12000, 60000], [30000, 100000], [50000, 160000]], bus: [[4000, 15000], [5000, 20000], [5000, 25000], [8000, 30000], [12000, 40000]] };
+const REDEN = { snel: 'De provincie wil een snelle verbinding.', goedkoop: 'Er is vraag naar goedkoop vervoer (studenten, ouderen).', comfort: 'Reizigers zijn ontevreden over het comfort op deze verbinding.' };
+export const redenTekst = a => a.opheffing ? `${a.opheffing.vervoerder} stopt met lijn ${a.opheffing.nr}; de provincie zoekt een nieuwe vervoerder.` : REDEN[a.eisen?.reden] || '';
 export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
-  const jaar = spel.jaar, binnen = opties.binnen || (() => true);
+  const jaar = spel.jaar, binnen = opties.binnen || (() => true), niveau = opties.niveau ?? subsidieNiveau(spel);
+  const [dt0, dt1] = AFSTAND.trein[niveau], [db0, db1] = AFSTAND.bus[niveau];
   const trein = opties.modus ? opties.modus === 'trein' : Math.random() < 0.45;
   let a, b, modus;
   if (trein) {
     const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar)), start = st.filter(s => binnen(s.x, s.y));
-    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = st.filter(s => { const d = afst(a, s); return d > 12000 && d < 60000; }); if (ver.length) b = kies(ver); }
+    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = st.filter(s => { const d = afst(a, s); return d > dt0 && d < dt1; }); if (ver.length) b = kies(ver); }
     modus = 'trein';
     if (b) { a = { naam: a.n, x: a.x, y: a.y }; b = { naam: b.n, x: b.x, y: b.y }; }
   }
   if (!b && opties.modus === 'trein') return null;
   if (!b) {
     const pl = plaatsen.filter(p => p[3] >= 3000), start = pl.filter(p => binnen(p[1], p[2]));
-    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > 5000 && d < 25000; }); if (ver.length) b = kies(ver); }
+    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > db0 && d < db1; }); if (ver.length) b = kies(ver); }
     if (!b) return null;
     modus = opties.modus || (Math.hypot(b[1] - a[1], b[2] - a[2]) > 15000 && jaar >= 1990 && Math.random() < 0.4 ? 'hov' : 'bus');
     a = { naam: a[0], x: a[1], y: a[2] }; b = { naam: b[0], x: b[1], y: b[2] };
   }
   if ((spel.aanbiedingen || []).some(x => x.status !== 'verlopen' && [x.a.naam, x.b.naam].sort().join() === [a.naam, b.naam].sort().join())) return null;
   const tussen = modus === 'trein' ? tussenStations(stations, a, b, jaar) : [];
-  const e = eisenVoor(jaar, modus, tussen);
-  const ag = { a, b, modus, eisen: e, tussen };
+  const e = eisenVoor(jaar, modus, tussen, niveau);
+  const ag = { a, b, modus, eisen: e, tussen, niveau };
   const r = raming(spel, ag, plaatsen);
   if (r.reizigers < 25) return null; // vrijwel niemand: geen aanbieding
   const vergoeding = vergoedingUit(r, r.reizigers >= 300 && Math.random() < 0.4); // per reiziger alleen bij genoeg reizigers
@@ -192,6 +208,22 @@ export function toetsEisen(lijn, a) {
     const n = kl && kl.comfort + 1e-6 >= e.plaatsen.comfort ? kl.zit : 0;
     if (n < e.plaatsen.min) r.push(`${n} zitplaatsen ${KLASSE_NAAM[e.plaatsen.klasse]} met comfort ${String(e.plaatsen.comfort).replace('.', ',')}+; gevraagd ${e.plaatsen.min}`);
   }
+  if (e.goedkoop && klassePrijs('2') > e.goedkoop + 1e-6) r.push(`2e-klastarief is ${Math.round(klassePrijs('2') * 100)}% van standaard; gevraagd hooguit ${Math.round(e.goedkoop * 100)}%`);
   if (!lijn.actief) r.push('de lijn rijdt niet');
   return { ok: !r.length, redenen: r };
+}
+
+// een andere vervoerder stopt (in het spel) met een korte lijn: de provincie zoekt een opvolger. Eenvoudige eisen
+// (zelfde haltes, ongeveer dezelfde frequentie), dus een goede eerste opdracht.
+export function opheffingAanbieding(spel, ai, plaatsen) {
+  const h = ai.haltes; if (h.length < 2) return null;
+  const a = { naam: h[0].naam, x: h[0].x, y: h[0].y }, b = { naam: h[h.length - 1].naam, x: h[h.length - 1].x, y: h[h.length - 1].y };
+  const tussen = ai.modus === 'trein' ? h.slice(1, -1).map(x => ({ naam: x.naam, x: x.x, y: x.y })) : [];
+  const overdag = (ai.vertrek?.[0] || []).filter(t => t >= 600 && t < 960).length / 6;
+  const e = { perUur: Math.max(0.5, Math.min(2, Math.round(overdag * 2) / 2 || 1)) };
+  if (ai.modus === 'trein' && tussen.length) e.stops = { soort: 'alle' };
+  const modus = ai.modus === 'trein' ? 'trein' : ['bus', 'hov'].includes(ai.modus) ? ai.modus : null; if (!modus) return null;
+  const ag = { a, b, modus, eisen: e, tussen, niveau: 0, opheffing: { vervoerder: ai.vervoerderNaam, nr: ai.nr, sleutel: `${ai.vervoerder}:${ai.lijnId}` } };
+  const r = raming(spel, ag, plaatsen); if (r.reizigers < 15) return null;
+  return { id: nieuwId('sub'), ...ag, raming: r, vergoeding: vergoedingUit(r, false), status: 'open', dag: spel.dag, tot: spel.dag + 60 + Math.floor(Math.random() * 60), lijnId: null };
 }

@@ -41,16 +41,23 @@ export const refLocs = (ton, venster) => Math.max(1, Math.ceil(nodigKw(ton, vens
 export const vergoeding = (ton, venster, km) => Math.round((refLocs(ton, venster) * 5e6 / 2 * 1.3 + km * 40) / 1000) * 1000;
 
 // nieuwe aanvraag; route wordt door de aanroeper gecontroleerd (kanRijden)
-export function bedenkAanvraag(spel, plekRd, kanRijden) {
-  for (let poging = 0; poging < 12; poging++) {
+// niveau 0..4: begint eenvoudig (kort, licht, binnen Nederland) en wordt groter naarmate je ritten goed rijdt
+export const vrachtNiveau = spel => Math.min(4, Math.floor((spel.vrachtRitten || 0) / 3));
+const NIVEAU = [{ km: [20, 90], wagons: [8, 16], buitenland: false }, { km: [25, 150], wagons: [10, 22], buitenland: false }, { km: [30, 250], wagons: [12, 28], buitenland: true },
+  { km: [40, 350], wagons: [15, 35], buitenland: true }, { km: [60, 450], wagons: [20, 40], buitenland: true }];
+const inNL = p => p[1] > 50.75 && p[1] < 53.6 && p[2] > 3.3 && p[2] < 7.25 && !/Antwerpen|Gent|Luik|Zeebrugge|Duisburg|Keulen/.test(p[0]);
+export function bedenkAanvraag(spel, plekRd, kanRijden, niveau = vrachtNiveau(spel)) {
+  const nv = NIVEAU[niveau];
+  for (let poging = 0; poging < 16; poging++) {
     const a = kies(PLEKKEN), b = kies(PLEKKEN); if (a === b) continue;
+    if (!nv.buitenland && (!inNL(a) || !inNL(b))) continue;
     const pa = plekRd(a), pb = plekRd(b), km = Math.hypot(pa.x - pb.x, pa.y - pb.y) / 1000;
-    if (km < 25 || km > 450) continue;
+    if (km < nv.km[0] || km > nv.km[1]) continue;
     const route = kanRijden(pa, pb); if (!route) continue;
-    const soort = Math.random() < 0.5 ? a[3] : b[3], wagons = rnd(10, 40), ton = wagons * WAGON_TON;
-    const freq = kies(['eenmalig', 'dagelijks', 'dagelijks', 'werkdagen', 'werkdagen', 'wekelijks']);
+    const soort = Math.random() < 0.5 ? a[3] : b[3], wagons = rnd(nv.wagons[0], nv.wagons[1]), ton = wagons * WAGON_TON;
+    const freq = niveau === 0 ? kies(['eenmalig', 'eenmalig', 'werkdagen', 'wekelijks']) : kies(['eenmalig', 'dagelijks', 'dagelijks', 'werkdagen', 'werkdagen', 'wekelijks']);
     return { id: 'g' + Math.random().toString(36).slice(2, 9), klant: kies(KLANTEN[soort] || KLANTEN.gemengd), lading: soort, van: { naam: a[0], ...pa }, naar: { naam: b[0], ...pb },
-      wagons, ton, lengte: wagons * WAGON_M, km: Math.round(route.lengte / 1000), freq, dag: spel.dag, tot: spel.dag + rnd(6, 16), route };
+      wagons, ton, lengte: wagons * WAGON_M, km: Math.round(route.lengte / 1000), freq, niveau, dag: spel.dag, tot: spel.dag + rnd(6, 16), route };
   }
   return null;
 }

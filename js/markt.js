@@ -101,3 +101,18 @@ export function renovatiesAfronden(spel, leeftijden) {
   }
   return klaar;
 }
+
+// bij de start: een kleine markt met locs en treinstellen die niet meer nieuw gemaakt worden (met de gevolgen:
+// duurder onderhoud en verbruik), en soms een klassieker
+export function marktStart(spel) {
+  if (spel.marktGestart) return; spel.marktGestart = true;
+  const j = spel.jaar, uit = VLOOT.filter(v => ['trein', 'tram', 'bus'].includes(v.modus) && !v.samen && v.soort !== 'wagon' && v.soort !== 'rijtuig' && v.tot < j && v.tot >= j - 12 && v.van < j - 10);
+  const gekozen = [...uit].sort(() => Math.random() - 0.5).slice(0, 4);
+  spel.markt = spel.markt || [];
+  for (const t of gekozen) {
+    const leven = t.leven || 30, leeftijd = Math.max(10, Math.min(leven + 15, j - t.van - rnd(0, 8)));
+    const staat = leeftijd < leven ? kies(['goed', 'matig']) : kies(['matig', 'matig', 'slecht']);
+    spel.markt.push({ id: id(), typeId: t.id, n: t.soort === 'loc' ? rnd(1, 4) : rnd(2, 6), leeftijd, staat, prijs: marktPrijs(t, leeftijd, staat), van: verkoperVan(t), tot: spel.dag + rnd(25, 50), soort: 'partij' });
+  }
+  const k = klassieker(spel); if (k) spel.markt.push(k);
+}
