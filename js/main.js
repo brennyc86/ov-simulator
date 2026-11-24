@@ -17,6 +17,7 @@ import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeT
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { planAlles, stationZoeker, zoekAfstemming } from './spoorplan.js';
+import { vluchtRoute } from './vlucht.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
 import { kortNaam, stoelNaam, SLAAP, nieuwSlaapDeel, interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
@@ -2689,7 +2690,7 @@ function halteNaam(x, y, modus) {
 // welke bestaande haltes en stations passen bij een modus
 function kandidaten(modus) {
   const uit = [];
-  if (modus === 'vlucht') return D.vliegvelden.filter(v => v.s !== 'militair' && !(v.b && v.b > spel.jaar)).map(v => ({ naam: v.n, x: v.kx ?? v.x, y: v.ky ?? v.y, baan: v.baan, verhard: v.verhard, landing: v.landing, heli: v.s === 'heliport' }));
+  if (modus === 'vlucht') return D.vliegvelden.filter(v => v.s !== 'militair' && !(v.b && v.b > spel.jaar)).map(v => ({ naam: v.n, veld: v.n, x: v.kx ?? v.x, y: v.ky ?? v.y, baan: v.baan, verhard: v.verhard, landing: v.landing, heli: v.s === 'heliport' }));
   const st = { trein: ['trein'], metro: ['metro', 'sneltram'], sneltram: ['sneltram', 'tram', 'metro'], tram: ['tram', 'sneltram'], bus: ['busstation'], hov: ['busstation'], belbus: ['busstation'], veer: ['veer'], watertaxi: ['veer'] }[modus];
   for (const s of D.stations) if (st.includes(s.s) && stationZichtbaar(s, spel.jaar)) uit.push({ naam: s.n, x: s.x, y: s.y, p: s.p, ...(s.perrons ? { perrons: s.perrons } : {}) });
   const bit = { trein: 1, metro: 2, sneltram: 6, tram: 4, bus: 8 | 32, hov: 8, belbus: 8 | 32, veer: 16, watertaxi: 16 }[modus];
@@ -3244,7 +3245,10 @@ async function routeVoor(m, p) {
       pts.push(...r.pts); lengte += r.lengte; takken.push(...r.takken);
     }
     route = { pts, lengte, takken };
-  } else if (m === 'veer' || m === 'watertaxi' || m === 'vlucht') {
+  } else if (m === 'vlucht') {
+    // over de echte banen: taxiën, opstijgen, vliegen, nadering, landen, taxiën (zie vlucht.js)
+    route = vluchtRoute(p.map(h => ({ x: h.x, y: h.y, veld: D.vliegvelden.find(v => v.n === (h.veld || h.naam)) })));
+  } else if (m === 'veer' || m === 'watertaxi') {
     const pts = p.flatMap(h => [h.x, h.y]); let lengte = 0;
     for (let i = 1; i < p.length; i++) lengte += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
     route = { pts, lengte };
@@ -3294,7 +3298,7 @@ async function lijnKlaar() {
   const { route, waarschuwing } = await routeVoor(m, p);
   bouw.route = route;
   hint(null);
-  const geklikt = p.map(h => ({ naam: h.naam, x: h.x, y: h.y, ...(m === 'vlucht' ? { baan: h.baan, verhard: h.verhard, landing: h.landing, heli: h.heli } : {}) }));
+  const geklikt = p.map(h => ({ naam: h.naam, x: h.x, y: h.y, ...(m === 'vlucht' ? { baan: h.baan, verhard: h.verhard, landing: h.landing, heli: h.heli, veld: h.veld } : {}) }));
   // rondlijn: de laatste halte is de eerste; tussenstops zoeken zonder die dubbele halte
   const rond = !!bouw.rond, basis = rond ? geklikt.slice(0, -1) : geklikt;
   let overal = !['vlucht', 'veer', 'watertaxi'].includes(m) && route.pts?.length >= 4 ? haltesLangs(m, route.pts, basis) : basis;
@@ -3600,7 +3604,7 @@ function opslagVorm() {
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };
-      if (rest.route) rest.route = { d: pakPts(rest.route.pts), lengte: Math.round(rest.route.lengte), minSporen: l.route.takken ? net.minSporen(l.route.takken) : undefined, weg: rest.route.weg, rechtLijnig: rest.route.rechtLijnig };
+      if (rest.route) rest.route = { d: pakPts(rest.route.pts), lengte: Math.round(rest.route.lengte), minSporen: l.route.takken ? net.minSporen(l.route.takken) : undefined, weg: rest.route.weg, rechtLijnig: rest.route.rechtLijnig, fasen: rest.route.fasen };
     }
     rest.haltes = rest.haltes.map(h => ({ ...h, x: Math.round(h.x), y: Math.round(h.y) }));
     return rest;
@@ -3636,7 +3640,7 @@ async function laadSpel(data, nieuwSlot) {
       l.catering = Object.fromEntries(l.inrichting.map(k => [k.klasse, k.extra === 'massage' ? 3 : k.extra === 'catering' ? 2 : 0]));
       delete l.inrichting;
     }
-    if (l.route?.d) l.route = { pts: pakUit(l.route.d), lengte: l.route.lengte, minSporen: l.route.minSporen, weg: l.route.weg, rechtLijnig: l.route.rechtLijnig };
+    if (l.route?.d) l.route = { pts: pakUit(l.route.d), lengte: l.route.lengte, minSporen: l.route.minSporen, weg: l.route.weg, rechtLijnig: l.route.rechtLijnig, fasen: l.route.fasen };
     if (l.bron && !l.route) {
       const v = D.vervoerders.find(x => x.id === l.bron.vervoerder);
       if (v) { const ai = await laadVervoerderLijnen(v); const a = ai.find(x => x.lijnId === l.bron.lijnId && x.sleutel.endsWith(':0')); if (a) vulVanAI(l, a, ai); }

@@ -555,7 +555,8 @@ def overig_ophalen(bbox):
 node{g}["place"~"^(city|town{'|village' if land in DETAIL else ''})$"];out body;
 way{g}["route"="ferry"];out tags geom;
 nwr{g}["aeroway"~"^({'aerodrome|airstrip|heliport' if land in DETAIL else 'aerodrome'})$"]{'' if land in DETAIL else '["iata"]'};out center tags;
-way{g}["aeroway"="runway"]{'' if land in DETAIL else '["length"]'};out tags geom;""")
+way{g}["aeroway"="runway"]{'' if land in DETAIL else '["length"]'};out tags geom;
+{'way' + g + '["aeroway"="taxiway"];out tags geom;' if land in DETAIL else ''}""")
 
 
 def plaatsen(bbox, uit, res=None):
@@ -598,6 +599,43 @@ def veren(bbox, uit, res=None):
     schrijf(uit, "veren.json", {"veren": lijst})
 
 
+def banen_koppelen(velden, elementen):
+    """Ligging van start- en landingsbanen (eindpunten + breedte) en taxibanen (lijnen) per vliegveld, in RD.
+    Daarmee stijgt een vliegtuig op en landt het over de echte baan en taxiet het over de taxibanen."""
+    rw, tw = [], []
+    for e in elementen:
+        t, geo = e.get("tags", {}), e.get("geometry")
+        if not geo or t.get("aeroway") not in ("runway", "taxiway"):
+            continue
+        pts = [rd_int(p["lat"], p["lon"]) for p in geo]
+        if not in_nl(*pts[0]):
+            continue
+        if t["aeroway"] == "runway":
+            try:
+                w = float(re.sub(r"[^\d.]", "", t.get("width", "")) or 0)
+            except ValueError:
+                w = 0
+            rw.append([*pts[0], *pts[-1], int(w or 30)])
+        else:
+            tw.append([c for p in pts for c in p])  # niet vereenvoudigen: de knopen zijn de kruisingen met andere taxibanen
+    # elke baan en taxibaan hoort bij het dichtstbijzijnde vliegveld (binnen 4 km); burgerluchtvaart gaat voor
+    nl = [v for v in velden if v.get("x")]
+    for v in nl:
+        v["rw"], v["tw"] = [], []
+    def naast(x, y):
+        kand = [(math.hypot(x - v["x"], y - v["y"]) + (1500 if v["s"] == "militair" else 0), i) for i, v in enumerate(nl)]
+        d, i = min(kand) if kand else (1e9, -1)
+        return nl[i] if d < 4000 + 1500 else None
+    for b in rw:
+        v = naast((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+        if v:
+            v["rw"].append(b)
+    for l in tw:
+        v = naast(l[0], l[1])
+        if v and v["rw"]:
+            v["tw"].append(l)
+
+
 def vliegvelden(bbox, uit, res=None):
     """Alle vliegvelden, ook kleine (grasbanen, zweefvliegvelden) en helihavens, met de langste baan."""
     res = res or overig_ophalen(bbox)
@@ -638,6 +676,7 @@ def vliegvelden(bbox, uit, res=None):
         velden.append({"n": naam, "x": x, "y": y, "g": deel, "la": round(c["lat"], 5), "lo": round(c["lon"], 5), "icao": t.get("icao", ""), "iata": t.get("iata", ""),
                        "s": soort or ("airstrip" if t.get("aeroway") == "airstrip" else "veld"),
                        "b": jaar(t.get("start_date") or t.get("opening_date")), "baan": 0, "verhard": 0})
+    banen_koppelen(velden, res["elements"])
     for v in velden:
         for bla, blo, lengte, verhard in banen:
             d = math.hypot((bla - v["la"]) * 111320, (blo - v["lo"]) * 111320 * math.cos(math.radians(v["la"])))

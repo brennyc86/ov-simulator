@@ -1,4 +1,5 @@
 // Spelkern: bedrijf, lijnen, dienstregeling, voertuigposities, geld en reizigers.
+import { vluchtProfiel, profielF } from './vlucht.js';
 import { MODI, TYPE, standaardType } from './vloot.js';
 import { bboxVan } from './net.js';
 import { inzetbaar } from './markt.js';
@@ -215,6 +216,14 @@ export function herbereken(lijn) {
   lijn.bbox = bboxVan(pts);
   lijn.vertrek = lijn.echt?.v && !lijn.aangepast ? lijn.echt.v : vertrekken(lijn);
   lijn.nodig = materieelNodig(lijn);
+  // vlucht: per segment en richting het tijd-afstandprofiel (langzaam taxiën, snel vliegen)
+  lijn._vf = null;
+  if (lijn.modus === 'vlucht' && lijn.route.fasen?.length === n - 1) {
+    lijn._vf = [0, 1].map(r => Array.from({ length: n - 1 }, (_, i) => {
+      const seg = r ? n - 2 - i : i, duur = (lijn.tr[r][i + 1] - lijn.tr[r][i]) - (i + 1 < n - 1 ? h : 0);
+      return vluchtProfiel(lijn.route.fasen[seg], Math.max(60, duur), !!r);
+    }));
+  }
 }
 
 // hoeveel richtingen rijden er: heen en terug, of alleen heen (eenrichting of rondlijn)
@@ -320,6 +329,7 @@ export function ritPlek(lijn, r, i, f, v) {
     const [x, y, hoek] = puntOp(baan, ka + (kb - ka) * f);
     return { x, y, hoek, lijn, r, vertrek: v, f, staat: f >= 1, s: ka + (kb - ka) * f, baan };
   }
+  if (lijn._vf?.[r]?.[i]) f = profielF(lijn._vf[r][i], f); // vlucht: taxiën, opstijgen, vliegen, landen
   const ri = r === 0 ? i : n - 1 - i, rj = r === 0 ? i + 1 : n - 2 - i;
   const ka = lijn.km[ri], kb = lijn.km[rj];
   const [x, y, hoek] = puntOp(lijn, ka + (kb - ka) * f);
