@@ -1655,7 +1655,8 @@ const PANELEN = {
       <table class="tabel">${freq}</table>
       ${eigen ? `<h3>Aanpassen</h3>
         <div class="raster2"><label class="veld">Hele lijn verschuiven (min)<input type="number" min="-30" max="30" value="${l.offset}" data-wijzig="offset" data-id="${l.id}"></label>
-        <label class="veld">Eerste rit<input type="time" value="${S.klok(l.eerste)}" data-wijzig="eerste" data-id="${l.id}"></label>
+        ${twee ? `<button class="knop klein" data-actie="terug-direct" data-id="${l.id}" title="de terugrit vertrekt zodra het voertuig is aangekomen en gekeerd: zo min mogelijk voertuigen">Terugrit direct na aankomst</button>` : ''}
+      <label class="veld">Eerste rit<input type="time" value="${S.klok(l.eerste)}" data-wijzig="eerste" data-id="${l.id}"></label>
         <label class="veld">Laatste rit<input type="time" value="${S.klok(l.laatste)}" data-wijzig="laatste" data-id="${l.id}"></label></div>
         <p class="klein">Frequentie per periode stel je in bij de <button class="knop klein" data-actie="toon-lijn" data-id="${l.id}">hele lijn</button>.</p>
         <h3>Materieel</h3>
@@ -2329,6 +2330,10 @@ function actieUit(a, d) {
     }
     case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
     case 'spoor-afstem': if (l) spoorAfstemmen(l); break;
+    case 'terug-direct': { if (!l) break; // terug vertrekken zodra het voertuig heeft gekeerd (uitgaande van de heenrit)
+      const voor = l.nodig, aankomst = S.cyclusAnker(l, 0) + Math.ceil((l.tr?.[0]?.at(-1) || 0) / 60) + (MODI[l.modus].keer || 5) + (TYPE[l.typeId]?.keerExtra || 0);
+      l.offsetTerug = (l.offsetTerug || 0) + aankomst - S.cyclusAnker(l, 1); l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l);
+      melding(`Lijn ${l.nr}: terug vertrekt nu om :${String(S.cyclusMinuut(l, 1)).padStart(2, '0')}, direct na aankomst. Benodigd: ${voor} → ${l.nodig} voertuig(en).`, 7000); ververs(); break; }
     case 'laag-dag': { const x = l?.ritten?.[+d.k]; if (!x) break; const dg = new Set(x.dagen || [0, 1, 2, 3, 4, 5, 6]); const i2 = +d.d; dg.has(i2) ? dg.delete(i2) : dg.add(i2);
       x.dagen = dg.size === 7 ? null : [...dg].sort(); l.aangepast = true; S.herbereken(l); ververs(); break; }
     case 'ns-kant': paneelData.kant = -(paneelData.kant || 1); ververs(); break;
@@ -2527,7 +2532,7 @@ function wijzig(w, i) {
     case 'nle-terug': if (i.value) { const [h, m] = i.value.split(':').map(Number); paneelData.een.terug = h * 60 + m; } else paneelData.een.terug = null; return;
     case 'freq': { for (const p of i.dataset.p.split(',')) l.interval[p] = +i.value || 999; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break; }
     case 'minuut': { const m = Math.max(0, Math.min(59, Math.round(+i.value || 0)));
-      if (+i.dataset.r) l.offsetTerug = (l.offsetTerug || 0) + m - S.cyclusMinuut(l, 1); else { const terug = S.ritRichtingen(l) > 1 ? S.cyclusMinuut(l, 1) : null; l.offset = m; if (terug != null) l.offsetTerug = (l.offsetTerug || 0) + terug - S.cyclusMinuut(l, 1); }
+      if (+i.dataset.r) l.offsetTerug = (l.offsetTerug || 0) + m - S.cyclusMinuut(l, 1); else { const terug = S.ritRichtingen(l) > 1 ? S.cyclusAnker(l, 1) : null; l.offset = m; if (terug != null) l.offsetTerug = (l.offsetTerug || 0) + terug - S.cyclusAnker(l, 1); }
       l.aangepast = true; S.herbereken(l); break; }
     case 'dienst': {
       if (i.value === 'laag' && l.dienst !== 'laag') { // beginnen met de ritten die er nu zijn (hooguit 6 per richting)
@@ -4111,7 +4116,7 @@ function init() {
   setInterval(spoorPlannen, 2500);
   setInterval(kandidatenTonen, 400);
   // bouwprojecten: de voortgangsbalken lopen zichtbaar vol zolang je het paneel open hebt
-  setInterval(() => { if (spel && paneelSoort === 'bouw' && tijdLoopt && !document.querySelector('#paneel :focus')) ververs(); }, 1000);
+  setInterval(() => { if (spel && paneelSoort === 'bouw' && tijdLoopt && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) ververs(); }, 1000);
   setInterval(() => { const z = kaart.zicht().map(v => Math.round(v / 2000)).join(',') + kaart.res.toFixed(0); if (z !== vorigeZicht) { vorigeZicht = z; laadAIinBeeld(); } }, 700);
   $('bron').textContent = '';
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));

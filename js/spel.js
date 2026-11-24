@@ -235,10 +235,13 @@ export const ritRichtingen = l => l.richting === 'heen' || l.richting === 'rond'
 // Frequenties die in een uurpatroon passen (minuten). 0 = geen ritten in die periode.
 export const FREQS = [5, 7.5, 10, 15, 20, 30, 60, 90, 120];
 // begin van de cyclus (minuut over het uur) per richting; terug standaard een half interval later
-export const cyclusMinuut = (lijn, r) => {
+// begin van de cyclus per richting (minuten na middernacht, het raster herhaalt zich met het interval). Heen: de
+// minuut over het uur; terug standaard een half interval later (bij elke 2 uur dus een uur later). Weergave: % 60.
+export const cyclusAnker = (lijn, r) => {
   const m0 = ((lijn.offset || 0) % 60 + 60) % 60;
-  return r ? ((m0 + Math.round((lijn.interval?.dal || 30) / 2) + (lijn.offsetTerug || 0)) % 60 + 60) % 60 : m0;
+  return r ? m0 + Math.round((lijn.interval?.dal || 30) / 2) + (lijn.offsetTerug || 0) : m0;
 };
+export const cyclusMinuut = (lijn, r) => ((cyclusAnker(lijn, r) % 60) + 60) % 60;
 export function vertrekken(lijn) {
   // beide richtingen; [richting][minuten]
   const uit = [[], []];
@@ -256,7 +259,7 @@ export function vertrekken(lijn) {
   // hoogfrequent: vast patroon per uur. Elke periode heeft een interval; de ritten liggen op de klok
   // (minuut m over het uur + een veelvoud van het interval), zodat het patroon elk uur terugkomt.
   for (let r = 0; r < ritRichtingen(lijn); r++) {
-    const m = cyclusMinuut(lijn, r);
+    const m = cyclusAnker(lijn, r);
     let t = lijn.eerste;
     // eerste rit op of na 'eerste' die in het patroon past
     const iv = tt => { const p = PERIODES.find(p => tt >= p.van && tt < p.tot) || PERIODES[4];
@@ -282,15 +285,27 @@ export const isSpits = (dag, minuten) => !isWeekend(dag) && ((minuten >= 7 * 60 
 export const eenhedenNu = (lijn, dep) => eenheden(lijn, dagNu, dep);
 export const eenheden = (lijn, dag, dep) => lijn.modus === 'trein' && (lijn.spitsDubbel ?? !!lijn.ai) && isSpits(dag, dep) ? 2 : 1;
 export function materieelNodig(lijn) {
-  // drukste uur: ritten (beide richtingen) × (rijtijd + keertijd) / 60
+  // precies uitgerekend: alle ritten van een werkdag op volgorde; een voertuig dat aankomt kan na de keertijd de
+  // volgende rit vanaf dat eindpunt rijden. Zo telt een lijn die elke 2 uur 55 minuten rijdt maar één voertuig.
   const mod = MODI[lijn.modus];
-  const perUur = new Array(30).fill(0);
-  for (const r of lijn.vertrek) for (const v of r) perUur[Math.min(29, Math.floor(v / 60))] += eenheden(lijn, 0, v); // dag 0 = werkdag
-  const piek = Math.max(...perUur);
-  const leegTerug = lijn.richting === 'heen' && !lijn.paar ? 2 : 1; // eenrichting zonder terugweg: leeg terugrijden
-  const keer = mod.keer + (TYPE[lijn.typeId]?.keerExtra || 0); // loc zonder stuurstandrijtuig: omlopen bij het keren
-  const wissel = (lijn._wissels || 0) * 8; // loc-wissel aan de grens (WISSEL_MIN in stroom.js)
-  return Math.max(1, Math.ceil(piek * (lijn.duur / 60 * leegTerug + keer + wissel) / 60));
+  const keer = mod.keer + (TYPE[lijn.typeId]?.keerExtra || 0) + (lijn._wissels || 0) * 8; // loc omlopen, loc-wissel aan de grens
+  const leegTerug = lijn.richting === 'heen' && !lijn.paar; // eenrichting zonder terugweg: leeg terugrijden
+  const ritten = [];
+  for (let r = 0; r < 2; r++) {
+    const t = lijn.tr?.[r] || lijn.t; if (!t?.length) continue; const duur = t[t.length - 1] / 60;
+    for (const v of lijn.vertrek[r] || []) for (let e = 0; e < eenheden(lijn, 0, v); e++)
+      ritten.push({ dep: v, arr: v + duur * (leegTerug ? 2 : 1), van: lijn.richting === 'rond' || leegTerug ? 0 : r, naar: lijn.richting === 'rond' || leegTerug ? 0 : 1 - r });
+  }
+  if (!ritten.length) return 1;
+  ritten.sort((a, b) => a.dep - b.dep);
+  const wacht = [[], []]; let n = 0;
+  for (const rit of ritten) {
+    const rij = wacht[rit.van]; let bi = -1;
+    for (let k = 0; k < rij.length; k++) if (rij[k] + keer <= rit.dep && (bi < 0 || rij[k] < rij[bi])) bi = k;
+    if (bi >= 0) rij.splice(bi, 1); else n++;
+    wacht[rit.naar].push(rit.arr);
+  }
+  return Math.max(1, n);
 }
 
 // positie langs de lijn op afstand s (m langs de route-punten)
