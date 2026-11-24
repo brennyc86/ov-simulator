@@ -3,13 +3,15 @@
 // pauze en 's nachts gaat een trein, metro of tram naar een opstelspoor in de buurt en komt op tijd terug.
 // Bussen blijven bij hun eindhalte staan. Omlopen worden per pool berekend: alle lijnen van één vervoerder
 // met hetzelfde soort vervoer en materieel, zodat een trein na aankomst ook op een andere lijn verder kan.
-import { ritPositie, ritPlek, puntOp } from './spel.js';
+import { ritPositie, ritPlek, puntOp, eenhedenNu } from './spel.js';
 import { MODI, TYPE } from './vloot.js';
 
 const SPOOR = ['trein', 'metro', 'sneltram', 'tram'];
 const LANG = { trein: 40, metro: 30, sneltram: 30, tram: 35, bus: 30, hov: 30, belbus: 30 }; // langer: naar opstelspoor/stalling
-const RANGEER_V = 25 / 3.6;                                       // m/s bij rangeren
-const ZOEK = { trein: 8000, metro: 5000, sneltram: 4000, tram: 4000 };
+const RANGEER_V = 25 / 3.6;                                       // m/s bij rangeren (kort stuk)
+const LEEG_V = 60 / 3.6;                                          // m/s leeg naar een verder opstelterrein
+const rangeerV = lengte => lengte > 2000 ? LEEG_V : RANGEER_V;
+const ZOEK = { trein: 20000, metro: 6000, sneltram: 5000, tram: 5000 };
 
 const tijden = (l, r) => l.tr?.[r] || l.t;
 // vaste wachttijden uit de spoorplanner (s, opgeteld over de rit)
@@ -26,7 +28,13 @@ export function maakOmloop(lijnen) {
       const t = tijden(l, r);
       if (!t?.length) continue;
       const duur = t[t.length - 1] / 60;
-      for (const v of l.vertrek[r]) if (!l._kruis?.mislukte?.includes(`${r}:${v}`)) ritten.push({ l, r, dep: v, arr: v + duur + extraVan(l, r, v) / 60, van: beginVan(l, r), naar: eindVan(l, r) });
+      for (const v of l.vertrek[r]) {
+        if (l._kruis?.mislukte?.includes(`${r}:${v}`)) continue;
+        const rit = { l, r, dep: v, arr: v + duur + extraVan(l, r, v) / 60, van: beginVan(l, r), naar: eindVan(l, r) };
+        ritten.push(rit);
+        // in de spits gekoppeld: een tweede eenheid rijdt dezelfde rit mee (komt van het opstelspoor en gaat erheen terug)
+        for (let e = 1; e < eenhedenNu(l, v); e++) ritten.push({ ...rit, koppel: e });
+      }
     }
   }
   ritten.sort((a, b) => a.dep - b.dep);
@@ -141,7 +149,14 @@ export function voertuigenOmloop(omloop, tm, uit, opstel, lengteVan, inZicht = n
     if (nu && tm <= nu.arr) {
       // lege rit: zonder te stoppen over de lijn, iets sneller dan de dienstregeling
       const p = nu.leeg ? ritPositie(nu.l, nu.r, nu.dep, nu.dep + (tm - nu.dep) / nu.snel, true) : ritPositie(nu.l, nu.r, nu.dep, tm);
-      if (p) { p.omloop = v; if (nu.leeg) Object.assign(p, { wacht: 'leeg', staat: false, volgende: R[i + 1] || null }); uit.push(p); continue; }
+      if (p) {
+        p.omloop = v; if (nu.leeg) Object.assign(p, { wacht: 'leeg', staat: false, volgende: R[i + 1] || null });
+        if (nu.koppel) { // gekoppelde eenheid: direct achter de voorste, zelfde rit
+          const L = (lengteVan(nu.l) + 1) * nu.koppel, baanR = p.baan || nu.l, achter = p.baan || !nu.r ? p.s - L : p.s + L;
+          const [x, y] = puntOp(baanR, Math.max(0, Math.min(baanR.cum.at(-1), achter))); Object.assign(p, { x, y, koppel: nu.koppel });
+        }
+        uit.push(p); continue;
+      }
     }
     const vorige = nu, volgende = R[i + 1] || null;
     const l = (vorige || volgende).l, modus = l.modus;
@@ -160,13 +175,16 @@ export function voertuigenOmloop(omloop, tm, uit, opstel, lengteVan, inZicht = n
       } else uit.push(Object.assign(anker, { staat: true, wacht: 'remise', verborgen: true, omloop: v, volgende }));
       continue;
     }
-    const duurH = plek.heen.lengte / RANGEER_V / 60, duurT = plek.terug.lengte / RANGEER_V / 60;
+    const vH = rangeerV(plek.heen.lengte), vT = rangeerV(plek.terug.lengte);
+    const duurH = plek.heen.lengte / vH / 60, duurT = plek.terug.lengte / vT / 60;
+    // past heen en terug niet in de pauze: dan blijft het voertuig bij het perron wachten
+    if (vorige && volgende && duurH + duurT + 8 > wacht) { uit.push(Object.assign(eindPunt(vorige), { staat: true, wacht: 'wacht', omloop: v, volgende })); continue; }
     let baanNu, s;
     if (vorige && tm < vorige.arr + 3) { uit.push(Object.assign(eindPunt(vorige), { staat: true, wacht: 'wacht', omloop: v, volgende })); continue; }
-    if (vorige && tm < vorige.arr + 3 + duurH) { baanNu = plek.heen; s = (tm - vorige.arr - 3) * 60 * RANGEER_V; }
+    if (vorige && tm < vorige.arr + 3 + duurH) { baanNu = plek.heen; s = (tm - vorige.arr - 3) * 60 * vH; }
     else if (volgende && tm > volgende.dep - 5 - duurT) {
       if (tm > volgende.dep - 5) { uit.push(Object.assign(beginPunt(volgende), { staat: true, wacht: 'instappen', omloop: v, volgende })); continue; }
-      baanNu = plek.terug; s = (tm - (volgende.dep - 5 - duurT)) * 60 * RANGEER_V;
+      baanNu = plek.terug; s = (tm - (volgende.dep - 5 - duurT)) * 60 * vT;
     } else { baanNu = plek.heen; s = plek.heen.lengte; }
     s = Math.max(0, Math.min(baanNu.lengte, s));
     const [x, y, hoek] = puntOp(baanNu, s);

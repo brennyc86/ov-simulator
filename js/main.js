@@ -730,7 +730,7 @@ function tekenBoven(ctx, k) {
     }
     let u = uiterlijk(tid, m);
     const dep = v.wacht && v.volgende ? v.volgende.dep : v.vertrek, eh = S.eenheden(v.lijn, spel.dag, dep);
-    if (eh > 1) u = { ...u, bakken: [...u.bakken, ...u.bakken], _l: u._l * 2 + (u._tussen || 1) }; // gekoppeld in de spits
+    void eh; // gekoppeld in de spits: de tweede eenheid is een eigen voertuig in de omloop (rijdt van en naar het opstelspoor)
     const kleur = eigen ? spel.kleur : huiskleur(v.lijn, u);
     const lang = schemaLengte(u._l) * Math.min(maat, 1.25);
     // vliegtuig ver genoeg ingezoomd: het toestel zelf op ware grootte (bovenaanzicht)
@@ -1146,7 +1146,7 @@ function voertuigTabel(l) {
   const tekst = e => e.wacht ? ({ keren: 'keert', wacht: 'wacht', opgesteld: 'opgesteld', rangeert: 'rangeert', leeg: 'rijdt leeg', remise: 'in remise/stalling', instappen: 'instappen', klaar: 'klaar' }[e.wacht] + (e.volgende ? `, volgende ${S.klok(e.volgende.dep)}` : ', klaar voor vandaag'))
     : `rijdt naar ${esc((e.r ? e.lijn.haltes[0] : e.lijn.haltes[e.lijn.haltes.length - 1]).naam)}`;
   const groep = lijnGroep(l);
-  return `<table class="tabel">${voertuigLijst.map((e, i) => `<tr data-actie="toon-voertuig" data-i="${i}" style="cursor:pointer"><td>#${e.omloop.nr}</td><td>${tekst(e)}${groep.includes(e.wacht && e.volgende ? e.volgende.l : e.lijn) ? '' : ` <span class="klein">· nu op lijn ${esc((e.wacht && e.volgende ? e.volgende.l : e.lijn).nr || '')}</span>`}</td><td class="getal klein">${e.omloop.ritten.filter(x => !x.leeg).length} ritten</td></tr>`).join('')}</table>`;
+  return `<table class="tabel">${voertuigLijst.map((e, i) => `<tr data-actie="toon-voertuig" data-i="${i}" data-nr="${e.omloop.nr}" data-id="${l.id}" style="cursor:pointer"><td>#${e.omloop.nr}</td><td>${tekst(e)}${groep.includes(e.wacht && e.volgende ? e.volgende.l : e.lijn) ? '' : ` <span class="klein">· nu op lijn ${esc((e.wacht && e.volgende ? e.volgende.l : e.lijn).nr || '')}</span>`}</td><td class="getal klein">${e.omloop.ritten.filter(x => !x.leeg).length} ritten</td></tr>`).join('')}</table>`;
 }
 
 // bezetting nu (per klasse, zit/sta), kaartjes, en de hele rit
@@ -1456,7 +1456,7 @@ const PANELEN = {
   rit(v) {
     const l = v.lijn, r = v.r || 0, eigen = !l.ai;
     const n = l.haltes.length;
-    const volg = r ? [...l.haltes].reverse() : l.haltes;
+    const volgorde = r ? [...l.haltes].reverse() : l.haltes;
     const t = l.tr?.[r] || l.t;
     const typeId = typeVoor(l, spel.jaar, standaardType), type = TYPE[typeId];
     const eigenaar = eigen ? spel.naam : l.vervoerderNaam;
@@ -1475,7 +1475,7 @@ const PANELEN = {
     const nuAan = !v.wacht && seg >= 0 && !klaar ? rr.segmenten[seg] : null;
     const hT = MODI[l.modus].halteTijd;
     const oud = l._vorigeTr?.[r];
-    const rijen = volg.map((h, i) => {
+    const rijen = volgorde.map((h, i) => {
       const verblijf = i > 0 && i < n - 1 ? hT : 0;
       const aan = v.vertrek + (t[i] - verblijf) / 60 + vóór(t[i] - verblijf), weg = v.vertrek + t[i] / 60 + extra(i) + vóór(t[i] + extra(i) * 60 + 1);
       const voorbij = weg < nu, hier = aan <= nu && nu <= weg + 0.5;
@@ -1501,7 +1501,7 @@ const PANELEN = {
       ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', leeg: 'Rijdt leeg (zonder reizigers) naar het begin van de volgende rit', remise: 'Staat in de remise/stalling tot de volgende rit', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
       ${v.omloop ? `<p class="klein">Voertuig #${v.omloop.nr} (${l._omloopN || '?'} in de pool van ${esc(eigenaar)} met dit materieel) · vandaag ${v.omloop.ritten.filter(x => !x.leeg).length} ritten${v.omloop.ritten.some(x => x.leeg) ? ` (+ ${v.omloop.ritten.filter(x => x.leeg).length} leeg)` : ''}${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size > 1 ? ` op ${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size} lijnen` : ''}: ${v.omloop.ritten.slice(0, 8).map(x => `${x.leeg ? '<i>leeg</i> ' : ''}${S.klok(x.dep)}${x.l.nr && x.l.nr !== l.nr ? ` (${esc(x.l.nr)})` : ''}`).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
       <div class="rij"><button class="knop" data-actie="sel-lijn">☰ Toon lijn</button>${v.omloop ? `<button class="knop ${volg === v.omloop ? 'hoofd' : ''}" data-actie="volg">${volg === v.omloop ? '◉ Stop volgen' : '◎ Volg'}</button>` : ''}</div>
-      <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volg[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volg[n - 1].naam)}.</p>
+      <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volgorde[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volgorde[n - 1].naam)}.</p>
       <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th class="getal" title="instappers + / uitstappers −">in/uit</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
       ${reizigersBlok(rr, nuAan, v)}
       <h3>Hoe vaak</h3>
@@ -1517,7 +1517,7 @@ const PANELEN = {
       : `<h3>Verzoek aan ${esc(l.vervoerderNaam)}</h3>
         <p class="klein">Deze lijn is niet van jou. Je kunt vragen om iets aan te passen; ${esc(l.vervoerderNaam)} beslist (goodwill nu ${spel.goodwill[l.vervoerder] ?? 0}). Een vergoeding helpt.</p>
         <div class="raster2"><label class="veld">Wat<select id="rv-soort"><option value="schuif">Hele lijn eerder/later</option><option value="wacht">Langer wachten bij een halte</option></select></label>
-        <label class="veld">Halte<select id="rv-halte">${volg.slice(0, -1).map((h, i) => `<option value="${i}">${esc(h.naam)}</option>`).join('')}</select></label>
+        <label class="veld">Halte<select id="rv-halte">${volgorde.slice(0, -1).map((h, i) => `<option value="${i}">${esc(h.naam)}</option>`).join('')}</select></label>
         <label class="veld">Minuten (− = eerder)<input id="rv-min" type="number" min="-15" max="15" value="2"></label>
         <label class="veld">Vergoeding €/jaar<input id="rv-geld" type="number" min="0" step="5000" value="0"></label></div>
         <button class="knop hoofd" data-actie="rit-verzoek">Verzoek sturen</button>`}`;
@@ -2142,7 +2142,8 @@ function actieUit(a, d) {
     case 'sel-lijn': { const sl = paneelData?.lijn; if (!sl) break; const sel = { lijn: sl };
       if (sl.ai) openPaneel('aiLijn', sl); else openPaneel('lijn', sl); selectie = sel; selectieKaart(); break; }
     case 'volg': { const om = paneelData?.omloop; volg = volg === om ? null : om; if (volg) zoomVolg = true; ververs(); break; }
-    case 'toon-voertuig': { const e = voertuigLijst[+d.i]; if (!e) break; openRit(e); kaart.vliegNaar(e.x, e.y, Math.min(kaart.res, 4)); break; }
+    case 'toon-voertuig': { // op voertuignummer opzoeken (de lijst kan intussen ververst zijn), met de positie van nu
+      const lijst = l ? voertuigenVanLijn(l) : voertuigLijst, e = lijst.find(x => x.omloop.nr === +d.nr) || voertuigLijst[+d.i]; if (!e) break; openRit(e); kaart.vliegNaar(e.x, e.y, Math.min(kaart.res, 4)); break; }
     case 'rit-wacht': { const sel = $('rv-soort'); if (sel) { sel.value = 'wacht'; $('rv-halte').value = d.i; $('rv-min').value = 2; $('rv-min').focus(); } break; }
     case 'rit-verzoek': {
       const v = paneelData, a = v?.lijn; if (!a?.ai) break;

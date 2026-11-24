@@ -275,6 +275,7 @@ export function vertrekken(lijn) {
 
 // eenheden per rit: in de spits (werkdagen) rijden treinen met 'spitsDubbel' gekoppeld (2 eenheden)
 export const isSpits = (dag, minuten) => !isWeekend(dag) && ((minuten >= 7 * 60 && minuten < 9 * 60) || (minuten >= 16 * 60 && minuten < 18.5 * 60));
+export const eenhedenNu = (lijn, dep) => eenheden(lijn, dagNu, dep);
 export const eenheden = (lijn, dag, dep) => lijn.modus === 'trein' && (lijn.spitsDubbel ?? !!lijn.ai) && isSpits(dag, dep) ? 2 : 1;
 export function materieelNodig(lijn) {
   // drukste uur: ritten (beide richtingen) × (rijtijd + keertijd) / 60
