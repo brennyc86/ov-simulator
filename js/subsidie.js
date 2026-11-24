@@ -15,6 +15,8 @@ const HALTE_PRIJS = { bus: 15000, hov: 60000, belbus: 5000, tram: 400000 };
 const TUSSEN_BUS = 900;                  // m tussen haltes van een gewone bus (HOV: 2,5 km)
 
 const NAAR = 600; // halte binnen 600 m van het eindpunt telt als bediend
+// bezoekers per dag die (extra) met het OV naar een bestemming willen
+const BEZOEK = { museum: 250, zwembad: 200, winkelcentrum: 600, dierentuin: 900, pretpark: 1500, stadion: 1200, ziekenhuis: 700, hogeschool: 1500, attractie: 400, theater: 250 };
 const kies = a => a[Math.floor(Math.random() * a.length)];
 const afst = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -127,7 +129,7 @@ function vergoedingUit(r, perReiziger) {
 export const subsidieNiveau = spel => Math.min(4, Math.floor((spel.subsidieSucces || 0) / 2) + (spel.groot ? 2 : 0));
 const AFSTAND = { trein: [[10000, 30000], [12000, 45000], [12000, 60000], [30000, 100000], [50000, 160000]], bus: [[4000, 15000], [5000, 20000], [5000, 25000], [8000, 30000], [12000, 40000]] };
 const REDEN = { snel: 'De provincie wil een snelle verbinding.', goedkoop: 'Er is vraag naar goedkoop vervoer (studenten, ouderen).', comfort: 'Reizigers zijn ontevreden over het comfort op deze verbinding.' };
-export const redenTekst = a => a.opheffing ? `${a.opheffing.vervoerder} stopt met lijn ${a.opheffing.nr}; de provincie zoekt een nieuwe vervoerder.` : REDEN[a.eisen?.reden] || '';
+export const redenTekst = a => a.doel ? `Bezoekers willen met het OV naar ${a.doel.naam} (${a.doel.soort}) vanaf ${a.a.naam}. De halte mag op hooguit 600 m liggen.` : a.opheffing ? `${a.opheffing.vervoerder} stopt met lijn ${a.opheffing.nr}; de provincie zoekt een nieuwe vervoerder.` : REDEN[a.eisen?.reden] || '';
 // treinsubsidies alleen waar spoor in de kaartgegevens zit (in landen zonder spoordata is een trein niet reëel)
 let treinGebied = () => true;
 export const zetTreinGebied = f => { treinGebied = f || (() => true); };
@@ -144,6 +146,20 @@ export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
     if (b) { a = { naam: a.n, x: a.x, y: a.y }; b = { naam: b.n, x: b.x, y: b.y }; }
   }
   if (!b && opties.modus === 'trein') return null;
+  // bestemming: een museum, zwembad, winkelcentrum ... bereikbaar maken vanaf het dichtstbijzijnde station of de plaats
+  let doel = null;
+  if (!b && opties.voorz?.length && !opties.modus && Math.random() < 0.4) {
+    const soorten = ['museum', 'museum', 'zwembad', 'zwembad', 'winkelcentrum', 'winkelcentrum', 'dierentuin', 'pretpark', 'stadion', 'ziekenhuis', 'hogeschool', 'attractie', 'theater'];
+    for (let k = 0; k < 30 && !b; k++) {
+      const soort = kies(soorten), kand = opties.voorz.filter(v => v.s === soort && binnen(v.x, v.y) && /[A-Z0-9]/.test(v.n) && v.n.length > 4); if (!kand.length) continue; // geen naamloze 'kinderboerderij'
+      const v = kies(kand), maxA = ['pretpark', 'dierentuin', 'stadion'].includes(soort) ? 25000 : 12000;
+      const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar)).map(s => [s, afst(s, v)]).filter(([, d]) => d > 1200 && d < maxA).sort((p, q) => p[1] - q[1])[0];
+      if (!st) continue;
+      a = { naam: st[0].n, x: st[0].x, y: st[0].y }; b = { naam: v.n, x: v.x, y: v.y };
+      doel = { naam: v.n, s: soort, soort: { winkelcentrum: 'winkelcentrum', attractie: 'bezienswaardigheid', hogeschool: 'hogeschool/universiteit' }[soort] || soort };
+      modus = st[1] > 15000 && jaar >= 1990 ? 'hov' : 'bus';
+    }
+  }
   if (!b) {
     const pl = plaatsen.filter(p => p[3] >= 3000), start = pl.filter(p => binnen(p[1], p[2]));
     for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > db0 && d < db1; }); if (ver.length) b = kies(ver); }
@@ -154,8 +170,10 @@ export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
   if ((spel.aanbiedingen || []).some(x => x.status !== 'verlopen' && [x.a.naam, x.b.naam].sort().join() === [a.naam, b.naam].sort().join())) return null;
   const tussen = modus === 'trein' ? tussenStations(stations, a, b, jaar) : [];
   const e = eisenVoor(jaar, modus, tussen, niveau);
-  const ag = { a, b, modus, eisen: e, tussen, niveau };
+  const ag = { a, b, modus, eisen: e, tussen, niveau, ...(doel ? { doel } : {}) };
   const r = raming(spel, ag, plaatsen);
+  // een bestemming trekt bezoekers, ook als er weinig mensen wonen
+  if (doel) { r.reizigers += Math.round((BEZOEK[doel.s] || 200) * (0.6 + Math.random() * 0.8)); r.kaartjes = Math.round(r.reizigers * r.ritprijs * 0.96); }
   if (r.reizigers < 25) return null; // vrijwel niemand: geen aanbieding
   const vergoeding = vergoedingUit(r, r.reizigers >= 300 && Math.random() < 0.4); // per reiziger alleen bij genoeg reizigers
   return { id: nieuwId('sub'), ...ag, raming: r, vergoeding, status: 'open', dag: spel.dag, tot: spel.dag + 90 + Math.floor(Math.random() * 90), lijnId: null };

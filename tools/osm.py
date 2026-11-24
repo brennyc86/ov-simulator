@@ -237,8 +237,9 @@ def stationsgebouwen(bbox, uit):
 
 POI_SOORT = [  # (soort, overpass-filter)
     ("school", '["amenity"="school"]'), ("hogeschool", '["amenity"~"^(university|college)$"]'), ("ziekenhuis", '["amenity"="hospital"]'),
-    ("museum", '["tourism"="museum"]'), ("dierentuin", '["tourism"~"^(zoo|theme_park)$"]'), ("zwembad", '["leisure"~"^(sports_centre|water_park)$"]["sport"~"swimming"]'),
-    ("zwembad", '["leisure"="water_park"]'), ("stadion", '["leisure"="stadium"]'), ("theater", '["amenity"~"^(theatre|cinema)$"]'), ("winkelcentrum", '["shop"="mall"]'),
+    ("museum", '["tourism"="museum"]'), ("dierentuin", '["tourism"="zoo"]'), ("zwembad", '["leisure"~"^(sports_centre|water_park)$"]["sport"~"swimming"]'),
+    ("zwembad", '["leisure"="water_park"]'), ("stadion", '["leisure"="stadium"]'), ("theater", '["amenity"~"^(theatre|cinema)$"]'), ("winkelcentrum", '["shop"~"^(mall|department_store)$"]'),
+    ("winkelcentrum", '["landuse"="retail"]'), ("pretpark", '["tourism"="theme_park"]'), ("attractie", '["tourism"="attraction"]["wikidata"]'),
     ("bedrijventerrein", '["landuse"="industrial"]'), ("gemeentehuis", '["amenity"="townhall"]'),
 ]
 

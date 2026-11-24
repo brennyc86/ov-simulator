@@ -53,7 +53,9 @@ fetch('versie.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).ca
 async function laadData() {
   const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all(['data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(json));
-  const [po, hs, tr, sg, bb] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json', 'data/bebouwing.json'].map(json));
+  const [po, hs, tr, sg, bb, vz] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json', 'data/bebouwing.json', 'data/voorzieningen.json'].map(json));
+  // bestemmingen (musea, zwembaden, winkelcentra ...) voor de kaart en voor opdrachten
+  D.voorz = (vz?.v || []).map(([n, x, y, k]) => ({ n, x, y, s: vz.soorten[k] })).filter(v => v.s !== 'bedrijventerrein');
   D.bebouwing = bb; // bebouwing door de tijd (BAG): per cel van 100 m sinds wanneer bebouwd, met functie
   D.stationsgebouwen = (sg?.g || []).map(ontpakDelta); // bestaande stationsgebouwen en perrongebouwtjes (OSM)
   // bovenleiding voor trolleybussen: lijnen + raster (50 m) om bussen op die wegen te herkennen
@@ -91,7 +93,7 @@ async function laadData() {
   }
   // verdwenen lijnen (OpenHistoricalMap) berijdbaar maken in hun eigen jaren
   net.voegHistorischToe((D.historisch.l || []).map(r => ({ soort: r[0], van: r[1] || 1800, tot: r[2], pts: ontpak(r.slice(4)) })));
-  D.stations = st?.stations || [];
+  D.stations = perronsSamen(st?.stations || []);
   for (const st of D.stations) {
     let b = landSinds(st.x, st.y);
     // stations aan een lijn die pas later kwam (alleen als er geen ouder spoor langs het station ligt)
@@ -118,6 +120,7 @@ async function laadData() {
   D.veren = ve?.veren || [];
   D.haltes = ha?.haltes || [];
   AI.haltes = D.haltes;
+  D.halteGroepen = groepeerHaltes(D.haltes);
   D.vervoerders = vv?.vervoerders || [];
   D.dag = vv?.dag || '';
   AI.vervoerders = D.vervoerders;
@@ -182,6 +185,10 @@ function jaarFilter(jaar) { return ['all', ['<=', ['get', 'van'], jaar], ['>', [
 
 let lagenGemaakt = false, wisselCache = null;
 const PASSAGIER = '#2f9e44', VRACHT = '#f2c200';
+// bestemmingen op de kaart: kleur en naam per soort (scholen pas ver ingezoomd)
+const VOORZ_SOORT = { museum: ['#8e44ad', 'Museum'], zwembad: ['#1e88e5', 'Zwembad'], winkelcentrum: ['#ef6c00', 'Winkelcentrum of winkelgebied'], dierentuin: ['#2e7d32', 'Dierentuin'],
+  pretpark: ['#00a884', 'Pretpark'], attractie: ['#00897b', 'Bezienswaardigheid'], stadion: ['#c62828', 'Stadion'], theater: ['#d81b60', 'Theater of bioscoop'], ziekenhuis: ['#e53935', 'Ziekenhuis'],
+  hogeschool: ['#5e35b1', 'Hogeschool of universiteit'], gemeentehuis: ['#6d4c41', 'Gemeentehuis'], school: ['#8d8d8d', 'School'] };
 // ---------------------------------------------------------------- legenda (zelfde kleuren en patronen als op de kaart)
 function legendaHTML() {
   const S = NK.spoor, w = '#ffffff';
@@ -218,6 +225,8 @@ function legendaHTML() {
     ${rij(stip(PASSAGIER, 6), 'Treinstation (groen = reizigers; groter = groter station)')}
     ${rij(stip(PASSAGIER, 3.2), 'Metro-, tram- en bushalte (kleiner)')}
     ${rij(stip(VRACHT, 5, '#5a4300'), 'Overslagpunt voor goederen (haven, terminal)')}
+    <tr><th colspan="2">Bestemmingen (opdrachten om ze bereikbaar te maken)</th></tr>
+    ${Object.values(VOORZ_SOORT).map(([kl, n]) => rij(stip(kl, 4.5, '#fff'), n)).join('')}
     ${rij(`<svg width="46" height="12" aria-hidden="true"><rect x="20" y="3" width="6" height="6" fill="#e0a516"/></svg>`, 'Wissel (ver ingezoomd)')}
   </table>`;
 }
@@ -343,7 +352,8 @@ function netwerkLagen() {
   kaart.bron('stations', { type: 'FeatureCollection', features: stf });
   // polders die nog niet drooggelegd waren: water
   kaart.bron('polders', { type: 'FeatureCollection', features: (D.polders || []).map(p => ({ type: 'Feature', properties: { j: p.j, n: p.n }, geometry: { type: 'Polygon', coordinates: p.ringen.map(lijnGeo) } })) });
-  kaart.bron('haltes', { type: 'FeatureCollection', features: D.haltes.filter(h => h[3] & (8 | 16 | 32)).map(h => ({ type: 'Feature', properties: { n: h[0], veer: h[3] & 16 ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(h[1], h[2]) } })) });
+  // één stip per halte (alle perrons samen); een halte met een tramperron is een tramhalte (iets groter)
+  kaart.bron('haltes', { type: 'FeatureCollection', features: (D.halteGroepen || []).filter(g => g.modi & (8 | 16 | 32)).map(g => ({ type: 'Feature', properties: { n: g.naam, veer: g.modi & 16 ? 1 : 0, tram: g.modi & 4 ? 1 : 0, p: g.perrons.length }, geometry: { type: 'Point', coordinates: lonlat(g.x, g.y) } })) });
   kaart.bron('vliegvelden', { type: 'FeatureCollection', features: D.vliegvelden.map(v => ({ type: 'Feature', properties: { n: v.n, l: `${v.n}${v.baan ? ` · ${v.baan} m${v.verhard ? '' : ' gras'}` : ''}`, groot: v.baan >= 1800 ? 1 : 0, van: v.b || 0, tot: 9999, mil: v.s === 'militair' ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(v.x, v.y) } })) });
   eigenNetBijwerken();
   if (!lagenGemaakt) {
@@ -418,9 +428,15 @@ function netwerkLagen() {
     lijn('net-lijnen-halo', 'eigen-lijnen', null, '#ffffff', zoomB(4, 6, 9), { 'line-opacity': 0.75 });
     lijn('net-lijnen', 'eigen-lijnen', null, ['get', 'kl'], zoomB(2, 3.5, 6));
     kaart.laag({ id: 'net-wissels', type: 'circle', source: 'wissels', minzoom: 15, paint: { 'circle-radius': 2.4, 'circle-color': '#e0a516' } });
-    kaart.laag({ id: 'net-haltes', type: 'circle', source: 'haltes', minzoom: 13.5, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, ['case', ['==', ['get', 'veer'], 1], 3.2, 2.2], 18, ['case', ['==', ['get', 'veer'], 1], 6, 4.5]], 'circle-color': PASSAGIER, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
+    kaart.laag({ id: 'net-haltes', type: 'circle', source: 'haltes', minzoom: 13.5, paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, ['case', ['any', ['==', ['get', 'veer'], 1], ['==', ['get', 'tram'], 1]], 3.2, 2.2], 18, ['case', ['any', ['==', ['get', 'veer'], 1], ['==', ['get', 'tram'], 1]], 6, 4.5]], 'circle-color': PASSAGIER, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
     // overslagpunten voor goederen (havens, terminals, rangeerterreinen): geel
     kaart.bron('overslag', { type: 'FeatureCollection', features: PLEKKEN.map(p => ({ type: 'Feature', properties: { n: p[0], l: p[3] }, geometry: { type: 'Point', coordinates: [p[2], p[1]] } })) });
+    // bestemmingen: musea, zwembaden, winkelcentra ... (scholen pas ver ingezoomd)
+    kaart.bron('voorz', { type: 'FeatureCollection', features: (D.voorz || []).map(v => ({ type: 'Feature', properties: { n: v.n, s: v.s, k: VOORZ_SOORT[v.s]?.[0] || '#777', z: v.s === 'school' ? 15 : ['museum', 'zwembad', 'winkelcentrum', 'stadion', 'dierentuin', 'pretpark', 'ziekenhuis', 'hogeschool'].includes(v.s) ? 11 : 13 }, geometry: { type: 'Point', coordinates: lonlat(v.x, v.y) } })) });
+    for (const z of [11, 13, 15]) {
+      kaart.laag({ id: 'net-voorz' + z, type: 'circle', source: 'voorz', minzoom: z, filter: ['==', ['get', 'z'], z], paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 3, 15, 6], 'circle-color': ['get', 'k'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.2 } });
+      kaart.laag({ id: 'net-voorz-naam' + z, type: 'symbol', source: 'voorz', minzoom: z + 1.5, filter: ['==', ['get', 'z'], z], layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Italic'], 'text-size': 10.5, 'text-offset': [0.7, 0], 'text-anchor': 'left', 'text-optional': true, 'text-max-width': 9 }, paint: { 'text-color': ['get', 'k'], 'text-halo-color': NK.halo, 'text-halo-width': 1.4 } });
+    }
     kaart.laag({ id: 'net-overslag', type: 'circle', source: 'overslag', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3.5, 12, 7, 16, 10], 'circle-color': VRACHT, 'circle-stroke-color': '#5a4300', 'circle-stroke-width': 1.5 } });
     kaart.laag({ id: 'net-overslag-naam', type: 'symbol', source: 'overslag', minzoom: 8, layout: { 'text-field': ['concat', ['get', 'n'], '\n', ['get', 'l']], 'text-font': ['Noto Sans Bold'], 'text-size': 11, 'text-offset': [0.9, 0], 'text-anchor': 'left', 'text-optional': true }, paint: { 'text-color': '#6b5200', 'text-halo-color': NK.halo, 'text-halo-width': 1.5 } });
     kaart.laag({ id: 'net-haltes-naam', type: 'symbol', source: 'haltes', minzoom: 16, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0.8, 0], 'text-anchor': 'left', 'text-optional': true }, paint: { 'text-color': KD ? '#c9d3cf' : '#2a3431', 'text-halo-color': NK.halo, 'text-halo-width': 1.2 } });
@@ -554,7 +570,7 @@ function stationZichtbaar(s, jaar) {
 
 // bewegende laag: voertuigen en bouwgereedschap
 const zichtLijnen = [];
-globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
+globalThis.__ovTest = { zichtLijnen, get bouwData() { return bouw; }, get territorium() { return territorium; }, wegBij: (...a) => wegBij(...a), halteOpWeg: (...a) => halteOpWeg(...a), get spel() { return spel; }, get net() { return net; }, get omlopen() { return omlopen; }, get plaatsen() { return D.plaatsen; }, get stations() { return D.stations; }, get halteGroepen() { return D.halteGroepen; }, kandidatenTest: m => kandidaten(m), get voorz() { return D.voorz; }, get ai() { return AI; }, get paneel() { return paneelData; }, open: (a, b) => openPaneel(a, b), get bouw() { return bouw; }, get tool() { return tool; }, get kaart() { return kaart; }, dagVoorbij: () => dagVoorbij(), bouwOpleveren: () => bouwOpleveren(), hud: () => hud() }; // voor tests/rook.mjs
 // ---------------------------------------------------------------- tunnels
 // per route (lijn of rijbaan) eenmalig: waar ligt hij ondergronds? [s0, s1, ...] = stukken in meters langs de route
 let tunnelBudget = 0;
@@ -866,7 +882,7 @@ async function conceptToevoegen(l, st) {
       const kk = dd(a, st) + dd(st, b) - dd(a, b) + (!a || !b ? dd(a || b, st) * 0.6 : 0);
       if (kk < bk) { bk = kk; bi = i; }
     }
-    c.haltes.splice(bi, 0, { naam: st.naam, x: st.x, y: st.y });
+    c.haltes.splice(bi, 0, { naam: st.naam, x: st.x, y: st.y, ...(st.perrons ? { perrons: st.perrons } : {}) });
     hint('Route zoeken…'); const r = await routeVoor(l.modus, c.haltes); hint(null); c.route = r.route; if (r.waarschuwing) melding(r.waarschuwing, 6000);
   }
   if (c.weg.includes(st.naam)) c.weg = c.weg.filter(n => n !== st.naam); else c.nieuw.push(st.naam);
@@ -2520,6 +2536,48 @@ function toegangNaarWeg(x, y, max = 200, breed = 6) {
   return [x + nx, y + ny, w.x + nx, w.y + ny, w.x - nx, w.y - ny, x - nx, y - ny, x + nx, y + ny].map(q => Math.round(q * 10) / 10);
 }
 const BUSMODI = ['bus', 'hov', 'belbus', 'trolley'];
+// Haltes met meerdere perrons (per richting, of apart voor bus en tram) zijn één halte: zelfde naam (zonder
+// plaatsnaam ervoor) binnen 300 m. Zit er een tramperron bij, dan is het een tramhalte (bussen stoppen er ook).
+const halteSleutel = n => String(n).replace(/^[^,]+,\s*/, '').toLowerCase().replace(/\s+/g, ' ').trim();
+function groepeerHaltes(haltes) {
+  const sleutel = halteSleutel;
+  const raster = new Map(), groepen = [];
+  for (const h of haltes) {
+    const k = sleutel(h[0]), cx = Math.floor(h[1] / 500), cy = Math.floor(h[2] / 500);
+    let g = null;
+    for (let i = cx - 1; i <= cx + 1 && !g; i++) for (let j = cy - 1; j <= cy + 1 && !g; j++) g = (raster.get(i + ',' + j) || []).find(q => q.k === k && Math.hypot(q.perrons[0].x - h[1], q.perrons[0].y - h[2]) < 300) || null;
+    if (!g) { g = { k, naam: h[0], perrons: [], modi: 0 }; groepen.push(g); const key = cx + ',' + cy; if (!raster.has(key)) raster.set(key, []); raster.get(key).push(g); }
+    g.perrons.push({ x: h[1], y: h[2], modi: h[3] }); g.modi |= h[3];
+    if (h[0].length > g.naam.length) g.naam = h[0]; // de naam met plaats ervoor
+  }
+  for (const g of groepen) { g.x = g.perrons.reduce((a, p) => a + p.x, 0) / g.perrons.length; g.y = g.perrons.reduce((a, p) => a + p.y, 0) / g.perrons.length; }
+  return groepen;
+}
+// tram- en bushaltes uit de kaart: perrons per richting met dezelfde naam (binnen 300 m) worden één halte
+function perronsSamen(stations) {
+  const uit = [], raster = new Map();
+  for (const st of stations) {
+    if (!['tram', 'sneltram', 'busstation'].includes(st.s)) { uit.push(st); continue; }
+    const cx = Math.floor(st.x / 500), cy = Math.floor(st.y / 500);
+    let g = null;
+    for (let i = cx - 1; i <= cx + 1 && !g; i++) for (let j = cy - 1; j <= cy + 1 && !g; j++) g = (raster.get(i + ',' + j) || []).find(q => q.s === st.s && q.n === st.n && Math.hypot(q.perrons[0].x - st.x, q.perrons[0].y - st.y) < 300) || null;
+    if (g) { g.perrons.push({ x: st.x, y: st.y }); g.x = g.perrons.reduce((a, q) => a + q.x, 0) / g.perrons.length; g.y = g.perrons.reduce((a, q) => a + q.y, 0) / g.perrons.length; continue; }
+    const n = { ...st, perrons: [{ x: st.x, y: st.y }] }; uit.push(n);
+    const key = cx + ',' + cy; if (!raster.has(key)) raster.set(key, []); raster.get(key).push(n);
+  }
+  for (const st of uit) if (st.perrons?.length === 1) delete st.perrons;
+  return uit;
+}
+// per halte met meerdere perrons het perron kiezen dat het best op de route ligt (kleinste omweg tussen vorige en volgende)
+function perronsKiezen(p) {
+  for (let i = 0; i < p.length; i++) {
+    const h = p[i]; if (!h.perrons || h.perrons.length < 2) continue;
+    const a = p[i - 1], b = p[i + 1];
+    const kost = q => (a ? Math.hypot(q.x - a.x, q.y - a.y) : 0) + (b ? Math.hypot(q.x - b.x, q.y - b.y) : 0);
+    const beste = h.perrons.reduce((x, q) => kost(q) < kost(x) ? q : x);
+    h.x = beste.x; h.y = beste.y;
+  }
+}
 
 // naam voor een nieuwe halte: de echte halte op die plek (dienstregeling of kaart), anders de straat, anders een nummer
 function halteNaam(x, y, modus) {
@@ -2551,9 +2609,18 @@ function kandidaten(modus) {
   const uit = [];
   if (modus === 'vlucht') return D.vliegvelden.filter(v => v.s !== 'militair' && !(v.b && v.b > spel.jaar)).map(v => ({ naam: v.n, x: v.x, y: v.y, baan: v.baan, verhard: v.verhard, landing: v.landing, heli: v.s === 'heliport' }));
   const st = { trein: ['trein'], metro: ['metro', 'sneltram'], sneltram: ['sneltram', 'tram', 'metro'], tram: ['tram', 'sneltram'], bus: ['busstation'], hov: ['busstation'], belbus: ['busstation'], veer: ['veer'], watertaxi: ['veer'] }[modus];
-  for (const s of D.stations) if (st.includes(s.s) && stationZichtbaar(s, spel.jaar)) uit.push({ naam: s.n, x: s.x, y: s.y, p: s.p });
+  for (const s of D.stations) if (st.includes(s.s) && stationZichtbaar(s, spel.jaar)) uit.push({ naam: s.n, x: s.x, y: s.y, p: s.p, ...(s.perrons ? { perrons: s.perrons } : {}) });
   const bit = { trein: 1, metro: 2, sneltram: 6, tram: 4, bus: 8 | 32, hov: 8, belbus: 8 | 32, veer: 16, watertaxi: 16 }[modus];
-  if (spel.jaar >= 2015) for (const h of D.haltes) if (h[3] & bit) uit.push({ naam: h[0], x: h[1], y: h[2] });
+  const opNaam = new Map(); for (const c of uit) { const k = halteSleutel(c.naam); if (!opNaam.has(k)) opNaam.set(k, []); opNaam.get(k).push(c); }
+  if (spel.jaar >= 2015) for (const g of D.halteGroepen || []) {
+    if (!(g.modi & bit)) continue;
+    // bus: alle bus-perrons; tram: alleen perrons met tramspoor
+    const pr = g.perrons.filter(q => q.modi & bit), x = pr.reduce((a, q) => a + q.x, 0) / pr.length, y = pr.reduce((a, q) => a + q.y, 0) / pr.length;
+    // dezelfde halte staat soms ook als tramhalte op de kaart (OpenStreetMap): dan samen één halte
+    const al = (opNaam.get(g.k) || []).find(c => Math.hypot(c.x - x, c.y - y) < 300);
+    if (al) { al.perrons = [...(al.perrons || [{ x: al.x, y: al.y }]), ...pr.map(q => ({ x: q.x, y: q.y }))]; continue; }
+    uit.push({ naam: g.naam, x, y, ...(pr.length > 1 ? { perrons: pr.map(q => ({ x: q.x, y: q.y })) } : {}), ...(g.modi & 4 ? { tramhalte: true } : {}) });
+  }
   for (const h of spel.haltes) if (isKlaar(h) && (h.modus === modus || (['bus', 'hov', 'belbus'].includes(modus) && (['bus', 'hov', 'belbus'].includes(h.modus) || h.bus)) || (modus === 'watertaxi' && h.modus === 'veer'))) uit.push({ naam: h.naam, x: h.x, y: h.y, eigen: h.id });
   return uit;
 }
@@ -2591,7 +2658,7 @@ function aanbiedingenAanvullen() {
   spel.aanbiedingen = spel.aanbiedingen.filter(a => a.status !== 'verlopen' || spel.dag - a.tot < 30);
   const max = spel.groot ? 3 : 8;
   treinGebiedBijwerken();
-  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < max; k++) { const a = bedenkAanbieding(spel, D.stations, D.plaatsen); if (a) spel.aanbiedingen.push(a); }
+  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < max; k++) { const a = bedenkAanbieding(spel, D.stations, D.plaatsen, { voorz: D.voorz }); if (a) spel.aanbiedingen.push(a); }
   opheffingenZoeken();
 }
 // een andere vervoerder stopt met een korte lijn (alleen echte dienstregeling, nooit je eigen bedrijf)
@@ -3082,6 +3149,7 @@ function haltesLangs(modus, pts, geklikt) {
 // route langs haltes p voor soort m: over het spoornet, over water/lucht recht, anders over de weg
 async function routeVoor(m, p) {
   let route, waarschuwing = '';
+  perronsKiezen(p);
   if (['trein', 'metro', 'sneltram', 'tram'].includes(m)) {
     const pts = [], takken = []; let lengte = 0;
     for (let i = 1; i < p.length; i++) {
