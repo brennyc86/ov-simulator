@@ -68,6 +68,11 @@ export function blokkenVan(lijn, net, jaar, bijStation = () => false) {
   return blok;
 }
 
+// per halte (in rijvolgorde) het station met zijn aantal perronsporen, of null
+function stationsVan(lijn, r, stationVan) {
+  if (lijn._stVan !== lijn.haltes) { lijn._stVan = lijn.haltes; lijn._st = lijn.haltes.map(h => stationVan(h.sx ?? h.x, h.sy ?? h.y)); }
+  return r ? [...lijn._st].reverse() : lijn._st;
+}
 // tijden van één rit (s vanaf middernacht van de vertrekdag) per halte in rijvolgorde, met planwachttijden w
 function ritTijden(lijn, r, v, stops = []) {
   const t = lijn.tr?.[r] || lijn.t, n = t.length, halte = lijn._halteTijd ?? MODI[lijn.modus]?.halteTijd ?? 30;
@@ -97,14 +102,14 @@ function tijdOp(D, T, d) { let t = basisTijd(D, T, d); for (const s of T.stops) 
 
 // bezetting per tak per uur: key `${tak}:${uur}` -> [{in, uit, dir, enkel}]
 class Bezetting {
-  constructor() { this.m = new Map(); }
+  constructor() { this.m = new Map(); this.st = new Map(); }
   *rond(tak, a, b) {
     const seen = new Set();
     for (let h = Math.floor(a / 3600) - 1; h <= Math.floor(b / 3600) + 1; h++) for (const o of this.m.get(tak * 64 + h) || []) if (!seen.has(o)) { seen.add(o); yield o; }
   }
   // terugdraaien: alles wat na begin() geboekt is weer weghalen
-  begin() { this.log = []; }
-  terug() { for (let i = this.log.length - 1; i >= 0; i--) this.log[i].pop(); this.log = null; }
+  begin() { this.log = []; this.stLog = [...this.st.values()].map(l => [l, l.length]); }
+  terug() { for (let i = this.log.length - 1; i >= 0; i--) this.log[i].pop(); this.log = null; for (const [l, n] of this.stLog || []) l.length = n; this.stLog = null; }
   zet(tak, o) {
     const a = Math.min(o.in, o.tA, o.tB), b = Math.max(o.uit, o.tA, o.tB); if (!(b - a < 86400)) return;
     for (let h = Math.floor(a / 3600); h <= Math.floor(b / 3600); h++) { const k = tak * 64 + h; let l = this.m.get(k); if (!l) this.m.set(k, l = []); l.push(o); this.log?.push(l); }
@@ -184,6 +189,33 @@ function planRit(bez, lijn, r, v, blokken, wie, vast = false, relevant = null) {
     }
     if (mislukt) break;
   }
+  // perronsporen: een station heeft plaats voor 'cap' treinen tegelijk; is het vol, dan wacht de trein op het
+  // vorige station tot er een perron vrij is
+  const sts = vast || !bez.stationVan ? null : stationsVan(lijn, r, bez.stationVan);
+  const tijdBijHalte = (i, vertrek) => { let t = vertrek ? T.dep[i] : T.aan[i]; for (const q of stops) if (q.d < D[i] - 1 || (vertrek && Math.abs(q.d - D[i]) < 1)) t += q.w; return t; };
+  for (let ronde = 0; sts && !mislukt && ronde < 10; ronde++) {
+    let veranderd = false;
+    for (let i = 1; i < n && !mislukt; i++) {
+      const st = sts[i]; if (!st) continue;
+      const a = tijdBijHalte(i, false), b = i < n - 1 ? tijdBijHalte(i, true) : a + 180;
+      const bezet = (bez.st.get(st.k) || []).filter(o => o.wie !== wie && o.a < b + 60 && o.b > a - 60);
+      if (bezet.length < st.cap) continue;
+      const d = Math.min(...bezet.map(o => o.b + 60 - a));
+      if (d <= 0.5) continue;
+      const stap = Math.ceil(d / 30) * 30;
+      if (totaal + stap > MAX_WACHT) { mislukt = true; break; }
+      const plek = D[i - 1], q = stops.find(x => Math.abs(x.d - plek) < 1);
+      if (q) q.w += stap; else { stops.push({ d: plek, w: stap, h: i - 1 }); stops.sort((x, y) => x.d - y.d); }
+      totaal += stap; veranderd = true; break;
+    }
+    if (!veranderd) break;
+  }
+  if (!mislukt && bez.stationVan) {
+    const alle = stationsVan(lijn, r, bez.stationVan);
+    for (let i = 0; i < n; i++) { const st = alle[i]; if (!st || (vast && !bez.stRelevant?.has(st.k))) continue;
+      const a = i ? tijdBijHalte(i, false) : T.dep[0] - 120, b = i < n - 1 ? tijdBijHalte(i, true) : a + 180;
+      let l = bez.st.get(st.k); if (!l) bez.st.set(st.k, l = []); l.push({ a, b, wie }); }
+  }
   // past de rit niet, dan rijdt hij niet (geen pad) en bezet hij ook geen spoor
   for (const x of mislukt ? [] : bl) {
     // vaste ritten alleen boeken waar ze ertoe doen: op spoor dat jouw treinen ook gebruiken
@@ -197,7 +229,7 @@ function planRit(bez, lijn, r, v, blokken, wie, vast = false, relevant = null) {
 }
 
 // alle treinlijnen plannen. lijnen: [{lijn, vast}] (vast = bestaande vervoerder: eerst). Asynchroon in plakjes.
-export async function planAlles(lijnen, net, jaar, { budget = 12, stop = () => false, bijStation } = {}) {
+export async function planAlles(lijnen, net, jaar, { budget = 12, stop = () => false, bijStation, stationVan } = {}) {
   const ok = l => l.modus === 'trein' && l.actief !== false && l.vertrek && l.cum && l.km?.length;
   const eigen = lijnen.filter(x => !x.vast && ok(x.lijn));
   const uit = new Map();
@@ -213,7 +245,8 @@ export async function planAlles(lijnen, net, jaar, { budget = 12, stop = () => f
     for (let r = 0; r < 2; r++) for (const v of lijn.vertrek[r] || []) ritten.push({ lijn, r, v, vast });
   }
   ritten.sort((a, b) => (b.vast - a.vast) || a.v - b.v);
-  const bez = new Bezetting();
+  const bez = new Bezetting(); bez.stationVan = stationVan;
+  if (stationVan) bez.stRelevant = new Set(eigen.flatMap(({ lijn }) => stationsVan(lijn, 0, stationVan).filter(Boolean).map(x => x.k)));
   for (const rit of ritten) {
     if (await adem()) return null;
     const blokken = blokkenVan(rit.lijn, net, jaar, bijStation);
@@ -248,7 +281,7 @@ export function stationZoeker(stations, r = 450) {
 // Vertrektijden van één eigen lijn afstemmen: zoek de verschuiving van de heenrichting (s0) en van de terugrichting
 // ten opzichte daarvan (s1), in hele minuten binnen één interval, met de minste wachttijd en uitval.
 // De andere lijnen blijven zoals ze zijn. Geeft {s0, s1, kosten, basis, wacht, mislukt} of null.
-export async function zoekAfstemming(lijnen, doel, net, jaar, { bijStation, budget = 12, stop = () => false } = {}) {
+export async function zoekAfstemming(lijnen, doel, net, jaar, { bijStation, stationVan, budget = 12, stop = () => false } = {}) {
   const ok = l => l.modus === 'trein' && l.actief !== false && l.vertrek && l.cum && l.km?.length;
   if (!ok(doel)) return null;
   let t0 = performance.now();
@@ -257,7 +290,8 @@ export async function zoekAfstemming(lijnen, doel, net, jaar, { bijStation, budg
   for (const b of blokkenVan(doel, net, jaar, bijStation)) for (const st of b.stukken) relevant.add(st.tak);
   const vb = doel.bbox, raakt = l => l.bbox && vb && !(l.bbox[0] > vb[2] + 500 || l.bbox[2] < vb[0] - 500 || l.bbox[1] > vb[3] + 500 || l.bbox[3] < vb[1] - 500);
   // eerst de rest boeken: bestaande vervoerders vast, andere eigen lijnen met hun huidige plan
-  const bez = new Bezetting(), rest = [];
+  const bez = new Bezetting(), rest = []; bez.stationVan = stationVan;
+  if (stationVan) bez.stRelevant = new Set(stationsVan(doel, 0, stationVan).filter(Boolean).map(x => x.k));
   for (const { lijn, vast } of lijnen) if (lijn !== doel && ok(lijn) && raakt(lijn)) for (let r = 0; r < 2; r++) for (const v of lijn.vertrek[r] || []) rest.push({ lijn, r, v, vast });
   rest.sort((a, b) => (b.vast - a.vast) || a.v - b.v);
   for (const rit of rest) { if (await adem()) return null; planRit(bez, rit.lijn, rit.r, rit.v, blokkenVan(rit.lijn, net, jaar, bijStation), rit, rit.vast, relevant); }
@@ -287,4 +321,15 @@ export async function zoekAfstemming(lijnen, doel, net, jaar, { bijStation, budg
     }
   }
   return { ...beste, basis };
+}
+
+// het treinstation bij een punt (binnen 300 m) met het aantal perronsporen (geschat uit OSM), of null
+export function stationVinder(stations) {
+  const g = new Map();
+  for (const st of stations) if (st.s === 'trein') { const k = Math.floor(st.x / 1000) + ',' + Math.floor(st.y / 1000); if (!g.has(k)) g.set(k, []); g.get(k).push(st); }
+  return (x, y) => {
+    let b = null, bd = 300; const ci = Math.floor(x / 1000), cj = Math.floor(y / 1000);
+    for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++) for (const st of g.get(i + ',' + j) || []) { const d = Math.hypot(st.x - x, st.y - y); if (d < bd) { bd = d; b = st; } }
+    return b ? { k: b.n + '@' + Math.round(b.x / 100), cap: Math.max(2, Math.min(20, Math.round((b.p || 2) * 0.6))) } : null;
+  };
 }

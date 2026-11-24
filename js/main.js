@@ -16,7 +16,7 @@ import { LANDEN } from './schets.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
-import { planAlles, stationZoeker, zoekAfstemming } from './spoorplan.js';
+import { planAlles, stationZoeker, stationVinder, zoekAfstemming } from './spoorplan.js';
 import { vluchtRoute } from './vlucht.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
@@ -29,7 +29,7 @@ import { heeftMix, vrijVoor, verdeling, nodigOp, hoofdType, typeBijRit, mixUitOu
 import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordeelAanpassing, beoordeelPad, beoordeelBouw, beoordeelConcessie, beoordeelSubsidie,
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
-import { muziekAan, muziekUit, muziekSpeelt } from './muziek.js';
+import { muziekAan, muziekUit, muziekSpeelt, zetLiedje, LIEDJES } from './muziek.js';
 import { Territorium } from './territorium.js';
 import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN, LIJNJAREN_DEEL } from './historie.js';
 import { genereerVervoerder } from './genereer.js';
@@ -668,6 +668,10 @@ function omloopVan(g, lijnen) {
   return om;
 }
 // pool: vervoerder + soort vervoer + materieel
+// instellingen per apparaat (niet in het spel): muziek en hoeveel voertuigen er op de kaart getekend worden
+const INST = (() => { try { return { max: 100, liedje: 0, ...JSON.parse(localStorage.getItem('ov_instellingen') || '{}') }; } catch { return { max: 100, liedje: 0 }; } })();
+const instBewaar = () => { try { localStorage.setItem('ov_instellingen', JSON.stringify(INST)); } catch {} };
+const lijnKm = l => l._lk ?? (l._lk = (l.route?.lengte || l.cum?.at(-1) || 0) / 1000);
 const groepSleutel = l => `${l.ai ? l.vervoerder : 'eigen'}:${l.modus}:${l.ai ? typeVoor(l, spel.jaar, standaardType) : l.typeId}`;
 const lengteVan = l => uiterlijk(typeVoor(l, spel.jaar, standaardType), l.modus)._l || 20;
 function tekenBoven(ctx, k) {
@@ -691,15 +695,17 @@ function tekenBoven(ctx, k) {
     const g = groepSleutel(l);
     if (gedaan.has(g)) return; gedaan.add(g);
     const om = omloopVan(g, idx.get(g) || [l]);
-    if (om) voertuigenOmloop(om, tm, vt, opstel, lengteVan, inZicht);
+    // uitgezoomd: van andere vervoerders alleen de lange lijnen (internationaal en intercity eerst, lokaal pas ingezoomd)
+    if (om) voertuigenOmloop(om, tm, vt, opstel, lengteVan, eigen ? inZicht : (l2 => inZicht(l2) && lijnKm(l2) >= minKm));
   };
+  const minKm = r > 400 ? 80 : r > 150 ? 25 : r > 60 ? 8 : r > 25 ? 3 : 0;
   for (const l of spel.lijnen) {
     if (!l.actief || !inZicht(l)) continue;
     if (snapBudget > 0 && opSpoorNodig(l)) { snapBudget--; lijnOpSpoor(net, l, spel.jaar); if (l._spoor && l.echt) delete l.echt.km; }
     if (snapBudget > 0 && banenNodig(l)) { snapBudget--; rijBanen(net, l, spel.jaar); }
     doeGroep(l, true);
   }
-  const eigenN = vt.length;
+  let eigenN = vt.length;
   for (const l of AI.lijnen) {
     if (!inZicht(l)) continue;
     // routes uit de dienstregeling op het echte spoor leggen (eenmalig per lijn, een paar per beeld)
@@ -707,7 +713,18 @@ function tekenBoven(ctx, k) {
     if (snapBudget > 0 && banenNodig(l)) { snapBudget--; rijBanen(net, l, spel.jaar); }
     if (r > 120 && l.modus !== 'trein') continue;
     if (r > 40 && (l.modus === 'bus' || l.modus === 'belbus')) continue;
+    if (lijnKm(l) < minKm) continue;
     doeGroep(l, false);
+  }
+  // hooguit INST.max voertuigen tekenen: 25% voor de langste routes (van wie ook), de rest eerst je eigen en dan die
+  // van anderen, steeds de langste routes eerst; het gevolgde voertuig altijd
+  if (vt.length > INST.max) {
+    const alle = vt.map((v, i) => ({ v, eigen: i < eigenN, km: lijnKm(v.lijn) + (v.omloop === volg ? 1e9 : 0) })).sort((a, b) => b.km - a.km);
+    const vrij = Math.ceil(INST.max * 0.25), kies = new Set(alle.slice(0, vrij));
+    for (const x of alle) { if (kies.size >= INST.max) break; if (x.eigen) kies.add(x); }
+    for (const x of alle) { if (kies.size >= INST.max) break; kies.add(x); }
+    const eigen = alle.filter(x => x.eigen && kies.has(x)).map(x => x.v), ander = alle.filter(x => !x.eigen && kies.has(x)).map(x => x.v);
+    vt.length = 0; vt.push(...eigen, ...ander); eigenN = eigen.length;
   }
   // volgen: de kaart schuift mee met het gevolgde voertuig
   if (volg) { const e = vt.find(v => v.omloop === volg); if (e) { const [la, lo] = rdNaarWgs(e.x, e.y); if (zoomVolg) { zoomVolg = false; kaart.vliegNaar(e.x, e.y, Math.min(r, 3)); } else kaart.map.jumpTo({ center: [lo, la] }); } }
@@ -1651,6 +1668,15 @@ const PANELEN = {
       ${lopend.length ? `<h3>Lopende revisies</h3><table class="tabel">${lopend.map(r => `<tr><td>${r.n} × ${esc(TYPE[r.typeId].naam)}</td><td>${r.soort === 'wacht' ? '<b style="color:var(--rood)">wacht op revisie (niet rijvaardig)</b>' : `klaar over ${Math.max(0, r.klaar - spel.dag)} dag(en)`}</td></tr>`).join('')}</table>` : ''}
       <h3>Revisie van je eigen materieel</h3>${eigen.length ? `<table class="tabel">${eigen.map(revRij).join('')}</table>` : '<p>Je hebt nog geen voertuigen.</p>'}`;
   },
+  instellingen() {
+    const aan = muziekSpeelt();
+    return `<h2>Instellingen</h2><p class="klein">Deze instellingen gelden voor dit apparaat (ook voor je andere spellen).</p>
+      <h3>Muziek</h3><label class="rij"><input type="checkbox" data-wijzig="inst-muziek" ${aan ? 'checked' : ''}> Muziek aan</label>
+      ${LIEDJES.map((l, i) => `<label class="rij"><input type="radio" name="inst-lied" data-wijzig="inst-lied" value="${i}" ${(INST.liedje || 0) === i ? 'checked' : ''}> ${esc(l.naam)} <span class="klein">(${l.bpm} slagen per minuut${l.wielen ? ', met wielgeluid' : ''}${l.fluit ? ' en stoomfluit' : ''})</span></label>`).join('')}
+      <h3>Voertuigen op de kaart</h3>
+      <label class="veld">Hooguit zoveel voertuigen tekenen<select data-wijzig="inst-max">${[50, 100, 200, 400, 800, 2000, 100000].map(n => `<option value="${n}" ${INST.max === n ? 'selected' : ''}>${n >= 100000 ? 'alle (kan traag worden)' : n}</option>`).join('')}</select></label>
+      <p class="klein">Minder voertuigen = vloeiender. Een kwart gaat naar de voertuigen met de langste routes (van iedereen), de rest eerst naar je eigen voertuigen en dan naar die van anderen, langste routes eerst. Uitgezoomd zie je daardoor vooral internationale treinen en intercity's; hoe verder je inzoomt, hoe meer lokaal verkeer.</p>`;
+  },
   vloot() {
     const eigen = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && TYPE[id] && !TYPE[id].samen).sort((x, y) => MODI_VOLG.indexOf(TYPE[x].modus) - MODI_VOLG.indexOf(TYPE[y].modus) || (TYPE[x].soort || '').localeCompare(TYPE[y].soort || '') || TYPE[x].naam.localeCompare(TYPE[y].naam));
     const sams = [...new Set([...(spel.samenstellingen || []), ...spel.lijnen.map(l => l.typeId).filter(id => TYPE[id]?.samen && !spel.lijnen.find(l => l.typeId === id)?.vracht)])].filter(id => TYPE[id]);
@@ -2358,6 +2384,9 @@ function wijzig(w, i) {
     }
     case 'halte-wacht': {
       l._vorigeTr = l.tr.map(x => [...x]); l.halteWacht = l.halteWacht || {}; const m = Math.max(0, Math.min(15, Math.round(+i.value || 0))); if (m) l.halteWacht[i.dataset.k] = m; else delete l.halteWacht[i.dataset.k]; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); setTimeout(() => ververs(), 0); break; }
+    case 'inst-max': INST.max = +i.value || 100; instBewaar(); return;
+    case 'inst-lied': INST.liedje = +i.value || 0; instBewaar(); zetLiedje(INST.liedje); return;
+    case 'inst-muziek': { if (i.checked) muziekAan(); else muziekUit(); const b = $('b-muziek'); b.setAttribute('aria-pressed', String(muziekSpeelt())); return; }
     case 'freq': { for (const p of i.dataset.p.split(',')) l.interval[p] = +i.value || 999; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break; }
     case 'minuut': { const m = Math.max(0, Math.min(59, Math.round(+i.value || 0)));
       if (+i.dataset.r) l.offsetTerug = (l.offsetTerug || 0) + m - S.cyclusMinuut(l, 1); else { const terug = S.ritRichtingen(l) > 1 ? S.cyclusMinuut(l, 1) : null; l.offset = m; if (terug != null) l.offsetTerug = (l.offsetTerug || 0) + terug - S.cyclusMinuut(l, 1); }
@@ -3632,7 +3661,7 @@ const pakUit = d => { const u = []; let x = 0, y = 0; for (let i = 0; i < d.leng
 function opslagVorm() {
   const kopie = { ...spel, lijnen: spel.lijnen.map(l => {
     const { cum, km, t, tr, vertrek, _vangst, _spoor, _altD, _typ, _banen, _banenVan, _tunnel, _tunnelVan, _trolley, _ontwerp, _sam, _eff, _halteTijd, _vorigeTr, trMin, _vraag, _vraagDag, _omloopN, _concept, bbox, nodig, duur, lengteKm, stat, bezetting, ...rest } = l;
-    for (const k of ['_stopVan', '_ritWacht', '_kruis', '_blok', '_blokVan', '_blokJaar', '_blokVersie', '_vf']) delete rest[k]; // afgeleid, wordt opnieuw berekend
+    for (const k of ['_lk', '_st', '_stVan', '_stopVan', '_ritWacht', '_kruis', '_blok', '_blokVan', '_blokJaar', '_blokVersie', '_vf']) delete rest[k]; // afgeleid, wordt opnieuw berekend
     if (l.bron && !l.aangepast) { delete rest.route; delete rest.echt; }
     else {
       if (rest.echt) rest.echt = { ...rest.echt, v: undefined };
@@ -3673,6 +3702,8 @@ async function laadSpel(data, nieuwSlot) {
       delete l.inrichting;
     }
     if (l.route?.d) l.route = { pts: pakUit(l.route.d), lengte: l.route.lengte, minSporen: l.route.minSporen, weg: l.route.weg, rechtLijnig: l.route.rechtLijnig, fasen: l.route.fasen };
+    // vluchten van vóór de banen: opnieuw over de echte banen (taxiën, opstijgen, landen)
+    if (l.modus === 'vlucht' && l.route && !l.route.fasen) l.route = vluchtRoute(l.haltes.map(h => ({ x: h.x, y: h.y, veld: D.vliegvelden.find(v => v.n === (h.veld || h.naam)) })));
     if (l.bron && !l.route) {
       const v = D.vervoerders.find(x => x.id === l.bron.vervoerder);
       if (v) { const ai = await laadVervoerderLijnen(v); const a = ai.find(x => x.lijnId === l.bron.lijnId && x.sleutel.endsWith(':0')); if (a) vulVanAI(l, a, ai); }
@@ -3701,7 +3732,9 @@ async function nieuwSpelStarten() {
   if (soort === 'bestaand') {
     const keuze = document.querySelector('input[name="vervoerder"]:checked')?.value || '';
     const i = keuze.indexOf(':'), bron = keuze.slice(0, i), id = keuze.slice(i + 1); // id kan zelf ':' bevatten (IFF:NS)
-    if (bron === 'gtfs') { const b = bedrijven().find(x => x.id === id); if (b) vervoerder = { ...b, id: b.leden.length === 1 ? b.leden[0].id : b.id }; }
+    if (bron === 'gtfs') { const b = bedrijven().find(x => x.id === id); const leden = b?.leden.filter(m => !startUit.has(m.id)) || [];
+      if (b && !leden.length) { melding('Kies minstens één onderdeel van het bedrijf.'); return; }
+      if (b) vervoerder = { ...b, leden, id: leden.length === 1 ? leden[0].id : b.id, naam: leden.length === 1 && b.leden.length > 1 ? leden[0].naam : b.naam }; }
     if (bron === 'hist') hist = vervoerdersIn(jaar).find(v => v.id === id);
     if (!vervoerder && !hist) { melding('Kies eerst een vervoerder.'); return; }
   }
@@ -3791,12 +3824,12 @@ function bedrijven() {
 }
 // is deze vervoerder (uit de dienstregeling) van het bedrijf van de speler?
 const vanSpeler = id => !!spel?.vervoerder && (spel.vervoerder.id === id || (spel.vervoerder.leden || []).includes(id));
-let startModi = new Set();
+let startModi = new Set(), startUit = new Set(); // startUit: onderdelen van een bedrijf die je niet overneemt
 function vulVervoerders(jaar) {
   const modern = jaar >= 2020 && D.vervoerders.length;
   const MODNAAM = { trein: 'trein', bus: 'bus', tram: 'tram', metro: 'metro', veer: 'veer', belbus: 'belbus', vlucht: 'vliegtuig', sneltram: 'sneltram', hov: 'snelbus' };
   const lijst = modern
-    ? bedrijven().map(b => ({ waarde: 'gtfs:' + b.id, naam: b.naam, modi: Object.keys(b.modi), kleur: vervoerderKleur(b.naam), info: `${b.lijnen} lijnen · ${Object.entries(b.modi).map(([m, n]) => `${n} ${MODNAAM[m] || m}`).join(', ')}${b.leden.length > 1 ? ` · ${b.leden.map(v => v.naam).join(', ')}` : ''}` }))
+    ? bedrijven().map(b => ({ waarde: 'gtfs:' + b.id, naam: b.naam, modi: Object.keys(b.modi), kleur: vervoerderKleur(b.naam), leden: b.leden, info: `${b.lijnen} lijnen · ${Object.entries(b.modi).map(([m, n]) => `${n} ${MODNAAM[m] || m}`).join(', ')}` }))
     : vervoerdersIn(jaar).map(v => ({ waarde: 'hist:' + v.id, naam: v.naam, modi: v.modi, kleur: v.kleur || vervoerderKleur(v.naam), info: `${v.van}–${v.tot > 2050 ? 'nu' : v.tot} · ${v.modi.map(m => MODNAAM[m] || m).join(', ')}` }));
   // filterknoppen per vervoerwijze en zoeken op naam
   const alleModi = [...new Set(lijst.flatMap(v => v.modi))].filter(m => MODNAAM[m]);
@@ -3806,9 +3839,10 @@ function vulVervoerders(jaar) {
   let gekozen = document.querySelector('input[name="vervoerder"]:checked')?.value;
   const zicht = lijst.filter(v => (!zoek || (v.naam + ' ' + v.info).toLowerCase().includes(zoek)) && [...startModi].every(m => v.modi.includes(m)));
   if (!zicht.some(v => v.waarde === gekozen)) gekozen = null; // gekozen bedrijf valt buiten het filter: het eerste zichtbare
-  $('s-vervoerders').innerHTML = zicht.length ? zicht.map((v, i) => `<label><input type="radio" name="vervoerder" value="${esc(v.waarde)}" ${(gekozen ? v.waarde === gekozen : !i) ? 'checked' : ''}> <span class="kleurstip" style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${v.kleur};margin-right:4px;vertical-align:-1px"></span>${esc(v.naam)}<span>${esc(v.info)}</span></label>`).join('')
+  $('s-vervoerders').innerHTML = zicht.length ? zicht.map((v, i) => `<label><input type="radio" name="vervoerder" value="${esc(v.waarde)}" ${(gekozen ? v.waarde === gekozen : !i) ? 'checked' : ''}> <span class="kleurstip" style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${v.kleur};margin-right:4px;vertical-align:-1px"></span>${esc(v.naam)}<span>${esc(v.info)}</span>${v.leden?.length > 1 ? `<span class="leden">${v.leden.map(m => `<label class="klein" style="display:inline-flex;gap:3px;margin-right:10px"><input type="checkbox" data-lid="${esc(m.id)}" ${startUit.has(m.id) ? '' : 'checked'}> ${esc(m.naam)} <small>(${Object.entries(m.modi || {}).map(([mm, n]) => `${n} ${MODNAAM[mm] || mm}`).join(', ')})</small></label>`).join('')}</span>` : ''}</label>`).join('')
     + (modern ? '' : '<p class="klein" style="padding:6px 10px">Van dit jaar is geen echte dienstregeling bewaard. Het spel bouwt een lijnennet dat past bij het spoor, de plaatsen en het materieel van toen.</p>')
     : lijst.length ? '<p class="klein" style="padding:8px 10px">Geen bedrijf gevonden met deze zoekterm of vervoerwijzen.</p>' : '<p class="klein" style="padding:8px 10px">De dienstregeling wordt nog verwerkt. Probeer het later of begin met een eigen bedrijf.</p>';
+  $('s-vervoerders').querySelectorAll('[data-lid]').forEach(c => c.onchange = () => { c.checked ? startUit.delete(c.dataset.lid) : startUit.add(c.dataset.lid); });
 }
 function jaarUitleg(j) {
   if (j >= 2020) return 'Huidige situatie: echte dienstregeling van alle vervoerders rijdt mee.';
@@ -3874,6 +3908,8 @@ function init() {
     if (e.key === 'Escape') { zetTool('kijk'); sluitPaneel(); }
   });
   $('b-account').onclick = () => toonStart();
+  $('b-instellingen').onclick = () => paneelSoort === 'instellingen' ? sluitPaneel() : openPaneel('instellingen');
+  zetLiedje(INST.liedje || 0);
   $('b-muziek').onclick = e => { const b = e.currentTarget; if (muziekSpeelt()) muziekUit(); else muziekAan();
     const aan = muziekSpeelt(); b.setAttribute('aria-pressed', aan); b.title = aan ? 'Muziek uitzetten' : 'Muziek aanzetten'; };
   $('start').addEventListener('cancel', e => { if (!spel) e.preventDefault(); });
@@ -3931,6 +3967,8 @@ function spoorplanTekst(l) {
     ${k.mislukt ? `<span class="chip fout">${k.mislukt} rit(ten) krijgen geen pad en vallen uit</span> (ze zouden meer dan 25 min moeten wachten). Leg een passeerspoor (kort stuk dubbelspoor) of dubbelspoor aan, of verschuif de vertrektijden.` : ''}
     ${!l.ai && (k.ritten || k.mislukt) ? `<br><button class="knop klein" data-actie="spoor-afstem" data-id="${l.id}" title="zoekt de verschuiving van heen- en terugrichting (binnen één interval) met het minste wachten">Vertrektijden afstemmen op het spoor</button>` : ''}</p>`;
 }
+let perronVind = null;
+const perronVinder = () => perronVind || (perronVind = stationVinder(D.stations));
 // plekken waar treinen elkaar kunnen kruisen: stations en je eigen (opgeleverde) passeersporen
 function kruisPlek() {
   stationBij = stationBij || stationZoeker(D.stations);
@@ -3946,7 +3984,7 @@ async function spoorAfstemmen(l) {
   if (afstemBezig) return; afstemBezig = true;
   melding(`Lijn ${l.nr}: vertrektijden afstemmen op het spoor…`, 4000);
   try {
-    const a = await zoekAfstemming(treinenVoorPlan(), l, net, spel.jaar, { bijStation: kruisPlek() });
+    const a = await zoekAfstemming(treinenVoorPlan(), l, net, spel.jaar, { bijStation: kruisPlek(), stationVan: perronVinder() });
     if (!a) { melding('Afstemmen lukte niet.'); return; }
     if (a.kosten >= a.basis.kosten - 30) { melding(`Lijn ${l.nr}: de huidige vertrektijden zijn al het best (${Math.round(a.basis.wacht / 60)} min wachten per dag${a.basis.mislukt ? `, ${a.basis.mislukt} ritten zonder pad` : ''}). Een passeerspoor of dubbelspoor helpt dan meer.`, 8000); return; }
     l.offset = (l.offset || 0) + a.s0; l.offsetTerug = (l.offsetTerug || 0) + a.s1;
@@ -3980,7 +4018,7 @@ function spoorPlannen() {
   if (sig === planSig) return;
   if (planLoopt) planLoopt.stop = true;
   const taak = { stop: false }; planLoopt = taak;
-  planAlles(treinen, net, spel.jaar, { stop: () => taak.stop, bijStation: kruisPlek() }).then(r => { if (taak.stop || !r) return; planSig = sig; planLoopt = null; if (paneelSoort === 'lijn') ververs(); }).catch(e => { console.error(e); planLoopt = null; planSig = sig; });
+  planAlles(treinen, net, spel.jaar, { stop: () => taak.stop, bijStation: kruisPlek(), stationVan: perronVinder() }).then(r => { if (taak.stop || !r) return; planSig = sig; planLoopt = null; if (paneelSoort === 'lijn') ververs(); }).catch(e => { console.error(e); planLoopt = null; planSig = sig; });
 }
 function zetTijd(aan) { tijdLoopt = aan; $('b-tijdknop').setAttribute('aria-pressed', String(aan)); $('b-tijdstand').textContent = aan ? '▶' : '❚❚'; }
 function zetSnelheid(s) { if (!s) return zetTijd(false); snelheid = s; zetTijd(true); document.querySelectorAll('.snelheid button').forEach(b => b.classList.toggle('aan', +b.dataset.s === s)); }

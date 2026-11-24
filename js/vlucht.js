@@ -4,7 +4,7 @@
 // route.fasen[i] = stukken van segment i (tussen halte i en i+1): [{s0, s1, v}] in meters langs route.pts en de
 // snelheid (m/s) op dat stuk; v = 0 betekent 'de rest van de tijd' (kruisvlucht).
 
-const TAXI = 9, START = 45, KLIM = 90, NADER = 75, UITROL = 30;
+const TAXI = 9, SPRONG = 5000, START = 45, KLIM = 90, NADER = 75, UITROL = 30;
 const NADERING = 6000, UITKLIM = 3000;
 
 // taxibanen als graaf (knopen = punten, afgerond op 2 m), eenmalig per vliegveld
@@ -43,6 +43,8 @@ function taxi(v, x0, y0, x1, y1) {
 // baan en richting die het best passen bij koers (kx, ky): [x0, y0, x1, y1] (in die richting) of null
 function kiesBaan(v, kx, ky) {
   const l = Math.hypot(kx, ky) || 1; let beste = null, bs = -Infinity;
+  // geen baan in de data (klein veld): een baan van de bekende lengte door het midden van het veld, in de vliegrichting
+  if (!v.rw?.length) { if (!v.baan || v.s === 'heliport') return null; const ux = kx / l, uy = ky / l, h = v.baan / 2; return [v.x - ux * h, v.y - uy * h, v.x + ux * h, v.y + uy * h]; }
   for (const [x1, y1, x2, y2] of v.rw || []) {
     const lx = x2 - x1, ly = y2 - y1, ll = Math.hypot(lx, ly) || 1, c = (lx * kx + ly * ky) / ll / l;
     const score = Math.abs(c) * 2 + Math.log(ll) * 0.3; // goed in de richting, en liever een lange baan
@@ -67,12 +69,14 @@ export function vluchtRoute(haltes) {
   };
   for (let i = 0; i + 1 < haltes.length; i++) {
     const A = haltes[i], B = haltes[i + 1], kx = B.x - A.x, ky = B.y - A.y, st = [];
-    const ga = A.veld?.rw?.length ? gate(A.veld, A) : [A.x, A.y], gb = B.veld?.rw?.length ? gate(B.veld, B) : [B.x, B.y];
+    const ga = A.veld?.tw?.length ? gate(A.veld, A) : [A.x, A.y], gb = B.veld?.tw?.length ? gate(B.veld, B) : [B.x, B.y];
+    // zonder taxibanen in de data: meteen naar de baan (geen rit over gras of door gebouwen)
+    const taxiA = A.veld?.tw?.length ? TAXI : SPRONG, taxiB = B.veld?.tw?.length ? TAXI : SPRONG;
     if (!pts.length) erbij(ga);
     const op = A.veld && kiesBaan(A.veld, kx, ky), neer = B.veld && kiesBaan(B.veld, kx, ky);
     let lucht = [];
     if (op) {
-      st.push(erbij(taxi(A.veld, ga[0], ga[1], op[0], op[1]), TAXI));
+      st.push(erbij(taxi(A.veld, ga[0], ga[1], op[0], op[1]), taxiA));
       st.push(erbij([op[0], op[1], op[2], op[3]], START));
       const lx = op[2] - op[0], ly = op[3] - op[1], ll = Math.hypot(lx, ly) || 1;
       st.push(erbij([op[2] + lx / ll * UITKLIM, op[3] + ly / ll * UITKLIM], KLIM));
@@ -85,7 +89,7 @@ export function vluchtRoute(haltes) {
       const rol = Math.min(ll, 1400); // uitrollen tot ongeveer 1,4 km na de drempel
       st.push(erbij([neer[0] + lx / ll * rol, neer[1] + ly / ll * rol], UITROL));
       const [ux, uy] = [pts[pts.length - 2], pts[pts.length - 1]];
-      st.push(erbij(taxi(B.veld, ux, uy, gb[0], gb[1]).slice(2), TAXI));
+      st.push(erbij(taxi(B.veld, ux, uy, gb[0], gb[1]).slice(2), taxiB));
     } else st.push(erbij(gb, 0));
     fasen.push(st.filter(x => x.s1 - x.s0 > 0.5));
   }

@@ -249,12 +249,34 @@ def voorzieningen(bbox, uit):
     voor, g = gebied(bbox)
     soorten = sorted(set(s for s, _ in POI_SOORT))
     lijst, gezien = [], set()
-    for soort, f in POI_SOORT:
+    # elke soort apart bewaren zodra hij binnen is (Overpass faalt soms na uren); bij opnieuw draaien overslaan
+    tussen = os.path.join(uit, "voorz_tussen")
+    os.makedirs(tussen, exist_ok=True)
+    # wat mislukt: de vorige versie van die soort houden
+    vorig = {}
+    try:
+        with open(os.path.join(uit, "voorzieningen.json")) as fh:
+            oud = json.load(fh)
+        for v in oud.get("v", []):
+            vorig.setdefault(oud["soorten"][v[3]], []).append(v[:3])
+    except (OSError, ValueError, KeyError, IndexError):
+        pass
+    for nr, (soort, f) in enumerate(POI_SOORT):
         q = f'[out:json][timeout:600];{voor}(nwr{f}["name"]{g};);out center tags;'
+        bestand = os.path.join(tussen, f"{nr}_{soort}.json")
         try:
-            res = overpass(q, alleen={"NL"})  # 12 soorten x 3 landen duurde uren
-        except Exception as e:  # noqa: BLE001
-            print(f"  {soort} mislukt: {e}", flush=True)
+            if os.path.exists(bestand):
+                with open(bestand) as fh:
+                    res = json.load(fh)
+            else:
+                res = overpass(q, alleen={"NL"})  # 12 soorten x 3 landen duurde uren
+                with open(bestand, "w") as fh:
+                    json.dump(res, fh)
+        except (Exception, SystemExit) as e:  # noqa: BLE001
+            print(f"  {soort} mislukt: {e}; vorige versie blijft ({len(vorig.get(soort, []))})", flush=True)
+            for naam, x, y in vorig.get(soort, []):
+                if (naam, x // 200, y // 200) not in gezien:
+                    gezien.add((naam, x // 200, y // 200)); lijst.append([naam, x, y, soorten.index(soort)])
             continue
         n = 0
         for el in res.get("elements", []):
@@ -268,6 +290,10 @@ def voorzieningen(bbox, uit):
             gezien.add((naam, x // 200, y // 200))
             lijst.append([naam, x, y, soorten.index(soort)])
             n += 1
+        if n == 0 and vorig.get(soort):  # niets gekregen (Overpass half antwoord): de vorige versie houden
+            for naam, x, y in vorig[soort]:
+                if (naam, x // 200, y // 200) not in gezien:
+                    gezien.add((naam, x // 200, y // 200)); lijst.append([naam, x, y, soorten.index(soort)]); n += 1
         print(f"  {soort}: {n}", flush=True)
         time.sleep(5)
     if len(lijst) < 1000:  # Overpass gaf (bijna) niets: vorige versie laten staan
