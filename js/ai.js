@@ -37,8 +37,10 @@ export async function laadVervoerderLijnen(v, verschuivingen = {}) {
         });
       }
     }
-    AI.lijnen.push(...uit);
-    return uit;
+    // lege regio: lijnen die in het gekozen gebied stoppen (en niet van een behouden soort zijn) zijn opgeheven
+    const houd = AI.filter ? uit.filter(AI.filter) : uit;
+    AI.lijnen.push(...houd);
+    return houd;
   }).catch(() => []);
   AI.geladen.set(v.id, p);
   return p;

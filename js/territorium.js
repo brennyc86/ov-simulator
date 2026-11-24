@@ -10,7 +10,7 @@ import { rdNaarWgs } from './geo.js';
 
 const merc = (x, y) => { const [la, lo] = rdNaarWgs(x, y), f = la * Math.PI / 180; return [(lo + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + f / 2)) / Math.PI) / 2]; };
 
-function gebied(code, naam, rruwe) {
+export function gebied(code, naam, rruwe) {
   const rd = [], mc = []; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const r of rruwe) {
     const p = new Float64Array(r.length), m = new Float64Array(r.length);
@@ -24,7 +24,7 @@ function gebied(code, naam, rruwe) {
   }
   return { code, naam, rd, mc, bbox: [x0, y0, x1, y1] };
 }
-function binnen(g, x, y) {
+export function binnen(g, x, y) {
   const [x0, y0, x1, y1] = g.bbox; if (x < x0 || x > x1 || y < y0 || y > y1) return false;
   let n = 0;
   for (const p of g.rd) for (let i = 2; i < p.length; i += 2) {
@@ -46,10 +46,10 @@ export class Territorium {
     this.ctx = this.cv.getContext('2d');
     m.on('render', () => this.teken());
   }
-  async laad(url = 'data/grenzen.json') {
+  async laad(url = 'data/grenzen.json', data = null) {
     try {
-      const r = await fetch(url); if (!r.ok) return false;
-      const d = await r.json();
+      let d = data;
+      if (!d) { const r = await fetch(url); if (!r.ok) return false; d = await r.json(); }
       this.landen = d.landen || { NL: 'Nederland' };
       this.prov = d.p.map(([c, n, ...rr]) => ({ ...gebied(c, n, rr), land: d.land?.[c] || 'NL' }));
       this.gem = d.g.map(([c, n, p, ...rr]) => ({ ...gebied(c, n, rr), p }));

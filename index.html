@@ -91,6 +91,15 @@
       <div class="keuze2" id="s-soort">
         <button type="button" data-v="blanco" aria-pressed="true"><b>Eigen bedrijf starten</b><span>Je eigen naam en huiskleur, nog geen lijnen</span></button>
         <button type="button" data-v="bestaand" aria-pressed="false"><b>Spelen met een bestaand bedrijf</b><span>Neem de lijnen en de vloot over van een echt bedrijf</span></button>
+        <button type="button" data-v="leeg" aria-pressed="false"><b>Lege regio</b><span>Een gebied zonder openbaar vervoer: jij legt het aan (omliggend OV rijdt gewoon)</span></button>
+      </div>
+      <div id="s-leeg" hidden>
+        <p class="klein">Kies het gebied: een land, provincie, regio of gemeente (je hoeft niet tot het kleinste niveau). Stations, haltes, havens, sporen en wegen blijven liggen; de lijnen die er stoppen zijn opgeheven.</p>
+        <div class="raster2"><label class="veld">Land<select id="s-leeg-land"></select></label><label class="veld">Provincie<select id="s-leeg-prov"></select></label>
+        <label class="veld">Regio<select id="s-leeg-regio"></select></label><label class="veld">Gemeente<select id="s-leeg-gem"></select></label></div>
+        <p class="klein">Blijft wel rijden in dit gebied:</p>
+        <div class="rij" id="s-leeg-behoud"></div>
+        <p class="klein" id="s-leeg-uitleg"></p>
       </div>
       <div id="s-eigen">
         <label for="s-naam">Naam van je bedrijf</label>

@@ -141,7 +141,9 @@ export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
   let a, b, modus;
   if (trein) {
     const st = stations.filter(s => s.s === 'trein' && !(s.b && s.b > jaar) && !(s.e && s.e <= jaar) && treinGebied(s.x, s.y)), start = st.filter(s => binnen(s.x, s.y));
-    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = st.filter(s => { const d = afst(a, s); return d > dt0 && d < dt1; }); if (ver.length) b = kies(ver); }
+    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = st.filter(s => { const d = afst(a, s); return d > dt0 && d < dt1 && (!opties.doelBinnen || opties.doelBinnen(s.x, s.y)); }); if (ver.length) b = kies(ver);
+      // naar een belangrijk punt buiten de regio: liefst een groot station
+      if (!opties.doelBinnen && opties.binnen && b) { const groot = st.filter(s => (s.p || 0) >= 6 && !opties.binnen(s.x, s.y) && afst(a, s) < dt1 * 1.5); if (groot.length) b = kies(groot); } }
     modus = 'trein';
     if (b) { a = { naam: a.n, x: a.x, y: a.y }; b = { naam: b.n, x: b.x, y: b.y }; }
   }
@@ -162,7 +164,7 @@ export function bedenkAanbieding(spel, stations, plaatsen, opties = {}) {
   }
   if (!b) {
     const pl = plaatsen.filter(p => p[3] >= 3000), start = pl.filter(p => binnen(p[1], p[2]));
-    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > db0 && d < db1; }); if (ver.length) b = kies(ver); }
+    for (let k = 0; k < 40 && !b && start.length; k++) { a = kies(start); const ver = pl.filter(p => { const d = Math.hypot(p[1] - a[1], p[2] - a[2]); return d > db0 && d < db1 && (!opties.doelBinnen || opties.doelBinnen(p[1], p[2])); }); if (ver.length) b = kies(ver); }
     if (!b) return null;
     modus = opties.modus || (Math.hypot(b[1] - a[1], b[2] - a[2]) > 15000 && jaar >= 1990 && Math.random() < 0.4 ? 'hov' : 'bus');
     a = { naam: a[0], x: a[1], y: a[2] }; b = { naam: b[0], x: b[1], y: b[2] };

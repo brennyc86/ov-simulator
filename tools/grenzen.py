@@ -148,6 +148,49 @@ def buitenland(P, G, land):
         print(f"  {code}: {len(prov)} provincies/kantons, {n} gemeenten", flush=True)
 
 
+def regios(jaar, prov_nl, P, G, land):
+    """R = [[code, naam, provincie-index, ring, ...]], GR = regio-index per gemeente (of -1)."""
+    R = []
+    try:
+        cor = haal("coropgebied_gegeneraliseerd", jaar)
+        for f in sorted(cor, key=lambda f: f["properties"]["statnaam"]):
+            g = f["geometry"]; c = g["coordinates"][0][0][0] if g["type"] == "MultiPolygon" else g["coordinates"][0][0]
+            x, y = binnenpunt(g if g["type"] == "MultiPolygon" else {"type": "MultiPolygon", "coordinates": [g["coordinates"]]})
+            pi = next((i for i, p in enumerate(prov_nl) if binnen(x, y, p["geometry"])), -1)
+            R.append([f["properties"]["statcode"], f["properties"]["statnaam"], pi, *ringen(g, 25)])
+        print(f"  NL: {len(cor)} COROP-gebieden", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print("  COROP mislukt:", e, file=sys.stderr)
+    try:
+        arr = [f for f in haal_gb("BEL/ADM3")]
+        for i, f in enumerate(sorted(arr, key=lambda f: f["properties"]["shapeName"])):
+            g = naar_rd_geom(f["geometry"]); x, y = binnenpunt(g)
+            pi = next((k for k, p in enumerate(P) if land.get(p[0]) == "BE" and binnen(x, y, {"type": "MultiPolygon", "coordinates": [[ring_abs(r)] for r in p[2:]]})), -1)
+            R.append([f"BE-R{i}", f["properties"]["shapeName"], pi, *ringen(g, 25)])
+        print(f"  BE: {len(arr)} arrondissementen", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print("  BE-arrondissementen mislukt:", e, file=sys.stderr)
+    # gemeente -> regio: het binnenpunt van de gemeente
+    RG = [{"type": "MultiPolygon", "coordinates": [[ring_abs(r)] for r in reg[3:]]} for reg in R]
+    GR = []
+    for gm in G:
+        try:
+            x, y = binnenpunt({"type": "MultiPolygon", "coordinates": [[ring_abs(r)] for r in gm[3:]]})
+        except (ValueError, IndexError, ZeroDivisionError):
+            GR.append(-1); continue
+        GR.append(next((i for i, rg in enumerate(RG) if binnen(x, y, rg)), -1))
+    return R, GR
+
+
+def ring_abs(r):
+    """ring uit [x0, y0, dx, dy, ...] terug naar [[x, y], ...]"""
+    out, x, y = [], 0, 0
+    for i in range(0, len(r), 2):
+        x = r[0] if i == 0 else x + r[i]; y = r[1] if i == 0 else y + r[i + 1]
+        out.append([x, y])
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--jaar", type=int, default=2025)
@@ -173,11 +216,13 @@ def main():
         G.append([pr["statcode"], pr["statnaam"], pi, *ringen(f["geometry"], 15)])
     land = {}
     buitenland(P, G, land)
+    # regio's tussen provincie en gemeente (voor 'lege regio' kiezen): NL COROP-gebieden, BE arrondissementen
+    R, GR = regios(a.jaar, prov, P, G, land)
     os.makedirs(a.uit, exist_ok=True)
     pad = os.path.join(a.uit, "grenzen.json")
     with open(pad, "w") as fh:
         json.dump({"jaar": a.jaar, "bron": "CBS gebiedsindelingen (PDOK); België, Luxemburg, Duitsland en Frankrijk: geoBoundaries (gbOpen)", "landen": {"NL": "Nederland", "BE": "België", "LU": "Luxemburg", "DE": "Duitsland", "FR": "Frankrijk"},
-                   "land": land, "p": P, "g": G}, fh, separators=(",", ":"), ensure_ascii=False)
+                   "land": land, "p": P, "g": G, "r": R, "gr": GR}, fh, separators=(",", ":"), ensure_ascii=False)
     print(f"→ {pad} ({os.path.getsize(pad) / 1e3:.0f} kB)", flush=True)
     return 0
 

@@ -31,7 +31,7 @@ import { AI, laadVervoerderLijnen, nieuwVerzoek, beoordeelVerschuiving, beoordee
   bedenkAIVerzoek, beoordeelTegenOpAI, gedeeldeHaltes, overstappen } from './ai.js';
 import * as Cloud from './cloud.js';
 import { muziekAan, muziekUit, muziekSpeelt, zetLiedje, LIEDJES } from './muziek.js';
-import { Territorium } from './territorium.js';
+import { Territorium, gebied as gebiedVlak, binnen as gebiedBinnen } from './territorium.js';
 import { vervoerdersIn, gebiedVan, stationsnaam, LIJNJAREN, LIJNJAREN_DEEL } from './historie.js';
 import { genereerVervoerder } from './genereer.js';
 
@@ -42,7 +42,7 @@ let net = new Net(null), kaart, spel = null, snelheid = 5, tijdLoopt = true, too
 let bouw = null, selectie = null;
 
 // ---------------------------------------------------------------- data laden
-const laadTel = { klaar: 0, totaal: 17 };
+const laadTel = { klaar: 0, totaal: 18 };
 async function json(pad) {
   try { const r = await fetch(pad, { cache: 'no-cache' }); if (!r.ok) throw 0; D.ok[pad] = true; return await r.json(); }
   catch { D.ok[pad] = false; return null; }
@@ -106,7 +106,8 @@ async function laadData() {
   D.spoorIndex = (await json('data/spoor/index.json'))?.delen || null;
   const [spoor, st, w, pl, ve, ha, vv, hi, vl, pr] = await Promise.all([D.spoorIndex ? null : 'data/spoor.json', 'data/stations.json', 'data/wissels.json',
     'data/plaatsen.json', 'data/veren.json', 'data/haltes.json', 'data/vervoerders.json', 'data/historie.json', 'data/vliegvelden.json', 'data/perrons.json'].map(p => p ? json(p) : Promise.resolve(null)));
-  const [po, hs, tr, sg, bb, vz] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json', 'data/bebouwing.json', 'data/voorzieningen.json'].map(json));
+  const [po, hs, tr, sg, bb, vz, gz] = await Promise.all(['data/polders.json', 'data/historisch.json', 'data/trolley.json', 'data/stationsgebouwen.json', 'data/bebouwing.json', 'data/voorzieningen.json', 'data/grenzen.json'].map(json));
+  D.grenzen = gz; // land, provincie, regio en gemeente (voor het territorium en het kiezen van een lege regio)
   // bestemmingen (musea, zwembaden, winkelcentra ...) voor de kaart en voor opdrachten
   D.voorz = (vz?.v || []).map(([n, x, y, k]) => ({ n, x, y, s: vz.soorten[k] })).filter(v => v.s !== 'bedrijventerrein');
   D.bebouwing = bb; // bebouwing door de tijd (BAG): per cel van 100 m sinds wanneer bebouwd, met functie
@@ -498,7 +499,7 @@ function netwerkLagen() {
   }
   jaarBijwerken();
   if (!wegen) { wegen = new Wegen(kaart); wegen.start('grens'); }
-  if (!territorium) { territorium = new Territorium(kaart); territorium.laad().then(territoriumBijwerken); }
+  if (!territorium) { territorium = new Territorium(kaart); territorium.laad('data/grenzen.json', D.grenzen).then(territoriumBijwerken); }
 }
 // territorium: waar je haltes hebt (eigen haltes en de haltes van je lijnen)
 let territorium = null;
@@ -2067,7 +2068,7 @@ const PANELEN = {
       <h3>Dienstregeling</h3>
       <div class="segment">${[['hoog', 'Hoogfrequent'], ['laag', 'Laagfrequent'], ['eenmalig', 'Eenmalig']].map(([k, n]) => `<button class="knop klein ${(d.freqSoort || 'hoog') === k ? 'hoofd' : ''}" data-actie="nl-freq" data-w="${k}">${n}</button>`).join('')}</div>
       <p class="klein">${{ hoog: 'Een vast patroon dat elk uur terugkomt: kies per deel van de dag hoe vaak.', laag: 'Een paar ritten per dag op vaste tijden; per tijd kun je de dagen kiezen (bv. alleen in het weekend, of één keer per week).', eenmalig: 'Eén rit op een gekozen dag en tijd (eventueel met een terugrit). Daarna vervalt de lijn.' }[d.freqSoort || 'hoog']}</p>
-      <div class="raster2" ${(d.freqSoort || 'hoog') === 'hoog' ? '' : 'hidden'}>${[['nl-spits', 'Spits', d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)], ['nl-dal', 'Overdag', d.dalIn ?? 30], ['nl-avond', '\'s Avonds', d.avondIn ?? 60]].map(([id, n, w]) => `<label class="veld">${n}<select id="${id}">${S.FREQS.map(f => `<option value="${f}" ${+w === f ? 'selected' : ''}>${freqNaam(f)}</option>`).join('')}</select></label>`).join('')}</div>
+      <div class="raster2" ${(d.freqSoort || 'hoog') === 'hoog' ? '' : 'style="display:none"'}>${[['nl-spits', 'Spits', d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)], ['nl-dal', 'Overdag', d.dalIn ?? 30], ['nl-avond', '\'s Avonds', d.avondIn ?? 60]].map(([id, n, w]) => `<label class="veld">${n}<select id="${id}">${S.FREQS.map(f => `<option value="${f}" ${+w === f ? 'selected' : ''}>${freqNaam(f)}</option>`).join('')}</select></label>`).join('')}</div>
       ${d.freqSoort === 'laag' ? nieuwLaagBlok(d) : d.freqSoort === 'eenmalig' ? nieuwEenmaligBlok(d) : ''}
       <div>
       ${d.richting === 'heen' && !d.terugVan && !d.rond ? '<label class="rij"><input type="checkbox" id="nl-terug" checked> Daarna meteen de terugweg bouwen (andere route of andere haltes)</label>' : ''}
@@ -2947,13 +2948,16 @@ function aanbiedingenAanvullen() {
   spel.aanbiedingen = spel.aanbiedingen.filter(a => a.status !== 'verlopen' || spel.dag - a.tot < 30);
   const max = spel.groot ? 3 : 8;
   treinGebiedBijwerken();
-  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < max; k++) { const a = bedenkAanbieding(spel, D.stations, D.plaatsen, { voorz: D.voorz }); if (a) spel.aanbiedingen.push(a); }
+  // lege regio: opdrachten in jouw regio, en soms van jouw regio naar een belangrijk punt erbuiten
+  const regio = spel.leeg ? leegGebiedTest(spel.leeg) : null;
+  for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < max; k++) {
+    const a = bedenkAanbieding(spel, D.stations, D.plaatsen, { voorz: D.voorz, ...(regio ? { binnen: regio, doelBinnen: Math.random() < 0.7 ? regio : null } : {}) }); if (a) spel.aanbiedingen.push(a); }
   opheffingenZoeken();
 }
 // een andere vervoerder stopt met een korte lijn (alleen echte dienstregeling, nooit je eigen bedrijf)
 let opheffingBezig = false;
 async function opheffingenZoeken() {
-  if (opheffingBezig || !spel || spel.jaar < 2020) return;
+  if (opheffingBezig || !spel || spel.jaar < 2020 || spel.leeg) return; // lege regio: daar is al alles opgeheven
   const open = (spel.aanbiedingen || []).filter(a => a.opheffing && a.status === 'open').length;
   if (open >= (subsidieNiveau(spel) <= 1 ? 2 : 1) || (open && Math.random() > 0.15)) return;
   opheffingBezig = true;
@@ -3918,6 +3922,7 @@ async function laadSpel(data, nieuwSlot) {
   }
   for (const s of spel.spoor) if (s.klaar) { net.voegEigenSpoorToe(s.punten, s.eigenaar, s.sporen + (s.extraSporen || 0), spel.jaar, s.soort || 0, s.dienst || 0); const vt = s.verdubbeltSleutel ? net.takMetSleutel(s.verdubbeltSleutel) : net.takken[s.verdubbelt]; if (s.verdubbelt != null && vt) { vt.sporen = s.nieuwSporen || 2; s.verdubbelt = vt.i; } }
   for (const b of spel.bovenleiding || []) if (b.klaar) bovenleidingToevoegen(b.punten);
+  leegToepassen();
   begin();
   // het gebied van je eigen lijnen (of wat je nu ziet)
   const bb = spel.lijnen.reduce((a, l) => l.bbox ? (a ? [Math.min(a[0], l.bbox[0]), Math.min(a[1], l.bbox[1]), Math.max(a[2], l.bbox[2]), Math.max(a[3], l.bbox[3])] : [...l.bbox]) : a, null);
@@ -3949,10 +3954,13 @@ async function nieuwSpelStarten() {
   // spoornet van het beginland (en de grensprovincies) laden, met laadscherm
   if (D.spoorIndex) {
     $('start').close(); laad.toon('Spoornet laden'); laad.nieuweFase();
-    await laadDelen(startDelen($('s-land')?.value || 'NL', !!$('s-grens')?.checked, vervoerder?.bbox || null), { groot: true });
+    await laadDelen(startDelen(soort === 'leeg' ? leegKeuze().land : $('s-land')?.value || 'NL', !!$('s-grens')?.checked, vervoerder?.bbox || null), { groot: true });
   }
   zetJaar(jaar); registreerSeries([]); zetKlassePrijzen(null);
   spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: vervoerder ? vervoerderKleur(vervoerder.naam) : hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam, leden: vervoerder.leden.map(v => v.id) } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 200e6) });
+  // lege regio: de lijnen die in het gekozen gebied stoppen zijn opgeheven (behalve de soorten die blijven rijden)
+  if (soort === 'leeg') { spel.leeg = leegKeuze(); leegToepassen(); melding(`${spel.leeg.naam}: het openbaar vervoer is opgeheven${spel.leeg.behoud.length ? ' (behalve ' + spel.leeg.behoud.join(', ') + ')' : ''}. Aan jou om het aan te leggen.`, 9000); }
+  else leegToepassen();
   if (hist) {
     zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });
@@ -3985,7 +3993,7 @@ async function nieuwSpelStarten() {
     melding(`Je neemt ${spel.lijnen.length} lijnen van ${vervoerder.naam} over, met ${Object.values(spel.voertuigen).reduce((s, n) => s + n, 0)} voertuigen.`, 7000);
   }
   begin();
-  const bb = vervoerder?.bbox || (hist && gebiedVan(hist));
+  const bb = vervoerder?.bbox || (hist && gebiedVan(hist)) || (spel.leeg && leegBbox(spel.leeg));
   if (bb) { const b = bb; kaart.vliegNaar((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.max(b[2] - b[0], b[3] - b[1]) / Math.min(kaart.W, kaart.H) * 1.1); }
   else kaart.vliegNaar(140700, 470500, 18); // 't Gooi
   $('s-start').disabled = false; $('s-start').textContent = 'Spel starten';
@@ -4044,6 +4052,58 @@ function bedrijven() {
   }
   return [...uit.values()].sort((a, b) => b.lijnen - a.lijnen);
 }
+// ---------------------------------------------------------------- lege regio
+// Een gebied (land, provincie, regio of gemeente) zonder openbaar vervoer: lijnen die er stoppen zijn opgeheven,
+// behalve de soorten die je laat rijden. De rest van de wereld rijdt gewoon.
+const LEEG_SOORTEN = [['trein', 'Trein'], ['metro', 'Metro'], ['tram', 'Tram en sneltram'], ['bus', 'Bus'], ['veer', 'Veer'], ['vlucht', 'Vliegtuig']];
+const leegGroep = m => m === 'sneltram' ? 'tram' : ['hov', 'belbus'].includes(m) ? 'bus' : m === 'watertaxi' ? 'veer' : m;
+let leegBehoud = new Set();
+function leegKeuzeVullen(wat = null) {
+  const G = D.grenzen; if (!G) return;
+  const land = $('s-leeg-land'), pr = $('s-leeg-prov'), rg = $('s-leeg-regio'), gm = $('s-leeg-gem');
+  const landen = Object.entries(G.landen || { NL: 'Nederland' }).filter(([c]) => (G.p || []).some(p => (G.land?.[p[0]] || 'NL') === c));
+  if (!wat) { land.innerHTML = landen.map(([c, n]) => `<option value="${c}">${esc(n)}</option>`).join(''); land.value = $('s-land')?.value || 'NL'; }
+  const L = land.value;
+  if (!wat || wat === 'land') pr.innerHTML = `<option value="">— heel ${esc(G.landen?.[L] || L)} —</option>` + G.p.map((p, i) => [p, i]).filter(([p]) => (G.land?.[p[0]] || 'NL') === L).sort((a, b) => a[0][1].localeCompare(b[0][1])).map(([p, i]) => `<option value="${i}">${esc(p[1])}</option>`).join('');
+  const pi = pr.value === '' ? -1 : +pr.value;
+  if (!wat || wat === 'land' || wat === 'prov') { const rs = (G.r || []).map((r, i) => [r, i]).filter(([r]) => pi >= 0 && r[2] === pi);
+    rg.innerHTML = `<option value="">— ${pi >= 0 ? 'hele provincie' : 'kies eerst een provincie'} —</option>` + rs.map(([r, i]) => `<option value="${i}">${esc(r[1])}</option>`).join(''); rg.disabled = !rs.length; }
+  const ri = rg.value === '' ? -1 : +rg.value;
+  if (wat !== 'gem') { const gs = (G.g || []).map((g, i) => [g, i]).filter(([g, i]) => pi >= 0 && g[2] === pi && (ri < 0 || G.gr?.[i] === ri)).sort((a, b) => a[0][1].localeCompare(b[0][1]));
+    gm.innerHTML = `<option value="">— ${ri >= 0 ? 'hele regio' : pi >= 0 ? 'hele provincie' : 'kies eerst een provincie'} —</option>` + gs.map(([g, i]) => `<option value="${i}">${esc(g[1])}</option>`).join(''); gm.disabled = !gs.length; }
+  land.onchange = () => leegKeuzeVullen('land'); pr.onchange = () => leegKeuzeVullen('prov'); rg.onchange = () => leegKeuzeVullen('regio'); gm.onchange = () => leegKeuzeVullen('gem');
+  if (!wat) $('s-leeg-behoud').innerHTML = LEEG_SOORTEN.map(([k, n]) => `<label class="rij klein" style="margin-right:12px"><input type="checkbox" data-behoud="${k}" ${leegBehoud.has(k) ? 'checked' : ''}> ${n}</label>`).join('');
+  $('s-leeg-behoud').querySelectorAll('[data-behoud]').forEach(c => c.onchange = () => { c.checked ? leegBehoud.add(c.dataset.behoud) : leegBehoud.delete(c.dataset.behoud); leegUitleg(); });
+  leegUitleg();
+}
+function leegKeuze() {
+  const G = D.grenzen, L = $('s-leeg-land').value, pi = $('s-leeg-prov').value, ri = $('s-leeg-regio').value, gi = $('s-leeg-gem').value;
+  if (gi !== '') return { niveau: 'g', i: +gi, naam: G.g[+gi][1], land: L, behoud: [...leegBehoud] };
+  if (ri !== '') return { niveau: 'r', i: +ri, naam: G.r[+ri][1], land: L, behoud: [...leegBehoud] };
+  if (pi !== '') return { niveau: 'p', i: +pi, naam: G.p[+pi][1], land: L, behoud: [...leegBehoud] };
+  return { niveau: 'land', land: L, naam: G.landen?.[L] || L, behoud: [...leegBehoud] };
+}
+function leegUitleg() { const k = leegKeuze(); $('s-leeg-uitleg').textContent = `${k.naam}: ${k.behoud.length ? `alleen ${k.behoud.map(b => LEEG_SOORTEN.find(x => x[0] === b)[1].toLowerCase()).join(', ')} blijft rijden` : 'al het openbaar vervoer is weg'}; de rest van de wereld rijdt gewoon.`; }
+// test of een punt in het gekozen gebied ligt (polygonen uit grenzen.json)
+function leegGebiedTest(k) {
+  const G = D.grenzen; if (!G || !k) return () => false;
+  const rij = k.niveau === 'g' ? [G.g[k.i].slice(3)] : k.niveau === 'r' ? [G.r[k.i].slice(3)] : k.niveau === 'p' ? [G.p[k.i].slice(2)] : G.p.filter(p => (G.land?.[p[0]] || 'NL') === k.land).map(p => p.slice(2));
+  const vlakken = rij.map(rr => gebiedVlak('x', 'x', rr));
+  return (x, y) => vlakken.some(v => gebiedBinnen(v, x, y));
+}
+function leegBbox(k) {
+  const G = D.grenzen; if (!G) return null;
+  const rij = k.niveau === 'g' ? [G.g[k.i].slice(3)] : k.niveau === 'r' ? [G.r[k.i].slice(3)] : k.niveau === 'p' ? [G.p[k.i].slice(2)] : G.p.filter(p => (G.land?.[p[0]] || 'NL') === k.land).map(p => p.slice(2));
+  const b = rij.map(rr => gebiedVlak('x', 'x', rr).bbox);
+  return b.length ? [Math.min(...b.map(x => x[0])), Math.min(...b.map(x => x[1])), Math.max(...b.map(x => x[2])), Math.max(...b.map(x => x[3]))] : null;
+}
+// AI-filter aanzetten voor een lege regio (bij de start en na het laden van een spel)
+function leegToepassen() {
+  if (!spel?.leeg) { if (AI.filter) { AI.filter = null; AI.lijnen = []; AI.geladen.clear(); } return; } // vorige lege regio: alles opnieuw laden
+  const binnen = leegGebiedTest(spel.leeg), behoud = new Set(spel.leeg.behoud || []);
+  AI.filter = l => behoud.has(leegGroep(l.modus)) || !l.haltes.some(h => binnen(h.x, h.y));
+  AI.lijnen = AI.lijnen.filter(AI.filter);
+}
 // is deze vervoerder (uit de dienstregeling) van het bedrijf van de speler?
 const vanSpeler = id => !!spel?.vervoerder && (spel.vervoerder.id === id || (spel.vervoerder.leden || []).includes(id));
 let startModi = new Set(), startUit = new Set(); // startUit: onderdelen van een bedrijf die je niet overneemt
@@ -4076,7 +4136,7 @@ async function toonStart() {
   if (!dlg.open) dlg.showModal();
   const jaar = $('s-jaar');
   jaar.oninput = () => { $('s-jaar-uit').textContent = jaar.value; $('s-jaar-uitleg').textContent = jaarUitleg(+jaar.value); vulVervoerders(+jaar.value); };
-  const kiesSoort = v => { document.querySelectorAll('#s-soort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); $('s-bestaand').hidden = v !== 'bestaand'; $('s-eigen').hidden = v === 'bestaand'; };
+  const kiesSoort = v => { document.querySelectorAll('#s-soort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); $('s-bestaand').hidden = v !== 'bestaand'; $('s-eigen').hidden = v === 'bestaand'; $('s-leeg').hidden = v !== 'leeg'; if (v === 'leeg') leegKeuzeVullen(); };
   $('s-zoek').oninput = () => vulVervoerders(+jaar.value);
   document.querySelectorAll('#s-soort button').forEach(b => b.onclick = () => kiesSoort(b.dataset.v));
   vulVervoerders(+jaar.value);
