@@ -121,6 +121,7 @@ async function laadData() {
   D.haltes = ha?.haltes || [];
   AI.haltes = D.haltes;
   D.halteGroepen = groepeerHaltes(D.haltes);
+  vliegveldKnopen();
   D.vervoerders = vv?.vervoerders || [];
   D.dag = vv?.dag || '';
   AI.vervoerders = D.vervoerders;
@@ -353,8 +354,8 @@ function netwerkLagen() {
   // polders die nog niet drooggelegd waren: water
   kaart.bron('polders', { type: 'FeatureCollection', features: (D.polders || []).map(p => ({ type: 'Feature', properties: { j: p.j, n: p.n }, geometry: { type: 'Polygon', coordinates: p.ringen.map(lijnGeo) } })) });
   // één stip per halte (alle perrons samen); een halte met een tramperron is een tramhalte (iets groter)
-  kaart.bron('haltes', { type: 'FeatureCollection', features: (D.halteGroepen || []).filter(g => g.modi & (8 | 16 | 32)).map(g => ({ type: 'Feature', properties: { n: g.naam, veer: g.modi & 16 ? 1 : 0, tram: g.modi & 4 ? 1 : 0, p: g.perrons.length }, geometry: { type: 'Point', coordinates: lonlat(g.x, g.y) } })) });
-  kaart.bron('vliegvelden', { type: 'FeatureCollection', features: D.vliegvelden.map(v => ({ type: 'Feature', properties: { n: v.n, l: `${v.n}${v.baan ? ` · ${v.baan} m${v.verhard ? '' : ' gras'}` : ''}`, groot: v.baan >= 1800 ? 1 : 0, van: v.b || 0, tot: 9999, mil: v.s === 'militair' ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(v.x, v.y) } })) });
+  kaart.bron('haltes', { type: 'FeatureCollection', features: (D.halteGroepen || []).filter(g => g.modi & (8 | 16 | 32) && !g.vliegveld).map(g => ({ type: 'Feature', properties: { n: g.naam, veer: g.modi & 16 ? 1 : 0, tram: g.modi & 4 ? 1 : 0, p: g.perrons.length }, geometry: { type: 'Point', coordinates: lonlat(g.x, g.y) } })) });
+  kaart.bron('vliegvelden', { type: 'FeatureCollection', features: D.vliegvelden.map(v => ({ type: 'Feature', properties: { n: v.n, l: `${v.n}${v.baan ? ` · ${v.baan} m${v.verhard ? '' : ' gras'}` : ''}`, groot: v.baan >= 1800 ? 1 : 0, van: v.b || 0, tot: 9999, mil: v.s === 'militair' ? 1 : 0 }, geometry: { type: 'Point', coordinates: lonlat(v.kx ?? v.x, v.ky ?? v.y) } })) });
   eigenNetBijwerken();
   if (!lagenGemaakt) {
     lagenGemaakt = true;
@@ -450,9 +451,17 @@ function netwerkLagen() {
       layout: { 'text-field': ['get', 'n'], 'text-font': ['case', ['==', ['get', 's'], 'trein'], ['literal', ['Noto Sans Bold']], ['literal', ['Noto Sans Regular']]], 'text-size': ['case', ['==', ['get', 's'], 'trein'], 12.5, 11], 'text-offset': [0.9, 0], 'text-anchor': 'left', 'symbol-sort-key': ['-', 0, ['get', 'p']], 'text-padding': 3 },
       paint: { 'text-color': KD ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
     void stFilter;
+    // vliegveld = station: een groene stip (zoals een treinstation) op de plek waar ook trein of bus stopt
+    kaart.laag({ id: 'net-vlieg-stip', type: 'circle', source: 'vliegvelden', filter: ['all', ['==', ['get', 'mil'], 0], ['any', ['==', ['get', 'groot'], 1], ['>=', ['zoom'], 8]]],
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, ['case', ['==', ['get', 'groot'], 1], 3.5, 2], 12, ['case', ['==', ['get', 'groot'], 1], 7, 5], 16, 9], 'circle-color': PASSAGIER, 'circle-stroke-width': 1.8, 'circle-stroke-color': '#ffffff' } });
     kaart.laag({ id: 'net-vlieg', type: 'symbol', source: 'vliegvelden', filter: ['any', ['==', ['get', 'groot'], 1], ['>=', ['zoom'], 8]],
-      layout: { 'text-field': ['step', ['zoom'], '✈', 9, ['concat', '✈ ', ['get', 'l']]], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [-0.4, 0] },
+      layout: { 'text-field': ['step', ['zoom'], '✈', 9, ['concat', '✈ ', ['get', 'l']]], 'text-font': ['Noto Sans Bold'], 'text-size': ['case', ['==', ['get', 'groot'], 1], 14, 12], 'text-allow-overlap': false, 'text-anchor': 'left', 'text-offset': [0.8, 0] },
       paint: { 'text-color': ['case', ['==', ['get', 'mil'], 1], '#7d7a8c', '#5b4bb7'], 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
+    // tijdens het aanleggen van een lijn: de plekken waar deze soort vervoer kan stoppen (zie kandidatenTonen)
+    kaart.bron('kandidaten', { type: 'FeatureCollection', features: [] });
+    kaart.laag({ id: 'net-kand', type: 'circle', source: 'kandidaten', paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 2.6, 12, 6, 16, 9], 'circle-color': PASSAGIER, 'circle-stroke-width': 2.2, 'circle-stroke-color': '#ffffff' } });
+    kaart.laag({ id: 'net-kand-naam', type: 'symbol', source: 'kandidaten', minzoom: 10.5, layout: { 'text-field': ['get', 'n'], 'text-font': ['Noto Sans Bold'], 'text-size': 11.5, 'text-offset': [0.9, 0], 'text-anchor': 'left', 'text-optional': true, 'text-padding': 2 },
+      paint: { 'text-color': KD ? '#e6ece9' : '#1d2724', 'text-halo-color': NK.halo, 'text-halo-width': 1.6 } });
     // geselecteerde lijn (eigen of van een ander): geel gemarkeerd met haltes
     kaart.bron('selectie', { type: 'FeatureCollection', features: [] }); kaart.bron('selectie-haltes', { type: 'FeatureCollection', features: [] });
     kaart.laag({ id: 'net-sel-halo', type: 'line', source: 'selectie', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#1d2724', 'line-width': zoomB(7, 9, 12), 'line-opacity': 0.35 } });
@@ -2568,6 +2577,24 @@ function perronsSamen(stations) {
   for (const st of uit) if (st.perrons?.length === 1) delete st.perrons;
   return uit;
 }
+// Een vliegveld is ook een station: één plek waar vliegtuigen landen en treinen of bussen stoppen. Ligt er een
+// treinstation bij (Schiphol), dan is dat de plek; anders een bushalte bij het vliegveld; anders een eigen stip.
+function vliegveldKnopen() {
+  for (const v of D.vliegvelden) {
+    v.kx = v.x; v.ky = v.y; v.knoop = null;
+    if (v.s === 'militair') continue;
+    let b = null, bd = 2500;
+    for (const st of D.stations) if (st.s === 'trein') { const d = Math.hypot(st.x - v.x, st.y - v.y); if (d < bd) { bd = d; b = st; } }
+    if (b) { v.knoop = { naam: b.n, soort: 'trein' }; v.kx = b.x; v.ky = b.y; }
+    else {
+      let g = null; bd = 1200;
+      for (const q of D.halteGroepen || []) if (q.modi & (8 | 32) && !q.vliegveld) { const d = Math.hypot(q.x - v.x, q.y - v.y); if (d < bd) { bd = d; g = q; } }
+      if (g) { v.knoop = { naam: g.naam, soort: 'bus' }; v.kx = g.x; v.ky = g.y; }
+    }
+    // bushaltes bij het vliegveld (of bij het station ervan) horen bij dit ene station
+    for (const q of D.halteGroepen || []) if (q.modi & (8 | 32) && !q.vliegveld && (Math.hypot(q.x - v.kx, q.y - v.ky) < 800 || (/airport|luchthaven|vliegveld/i.test(q.naam) && Math.hypot(q.x - v.x, q.y - v.y) < 2000))) q.vliegveld = v.n;
+  }
+}
 // per halte met meerdere perrons het perron kiezen dat het best op de route ligt (kleinste omweg tussen vorige en volgende)
 function perronsKiezen(p) {
   for (let i = 0; i < p.length; i++) {
@@ -2607,7 +2634,7 @@ function halteNaam(x, y, modus) {
 // welke bestaande haltes en stations passen bij een modus
 function kandidaten(modus) {
   const uit = [];
-  if (modus === 'vlucht') return D.vliegvelden.filter(v => v.s !== 'militair' && !(v.b && v.b > spel.jaar)).map(v => ({ naam: v.n, x: v.x, y: v.y, baan: v.baan, verhard: v.verhard, landing: v.landing, heli: v.s === 'heliport' }));
+  if (modus === 'vlucht') return D.vliegvelden.filter(v => v.s !== 'militair' && !(v.b && v.b > spel.jaar)).map(v => ({ naam: v.n, x: v.kx ?? v.x, y: v.ky ?? v.y, baan: v.baan, verhard: v.verhard, landing: v.landing, heli: v.s === 'heliport' }));
   const st = { trein: ['trein'], metro: ['metro', 'sneltram'], sneltram: ['sneltram', 'tram', 'metro'], tram: ['tram', 'sneltram'], bus: ['busstation'], hov: ['busstation'], belbus: ['busstation'], veer: ['veer'], watertaxi: ['veer'] }[modus];
   for (const s of D.stations) if (st.includes(s.s) && stationZichtbaar(s, spel.jaar)) uit.push({ naam: s.n, x: s.x, y: s.y, p: s.p, ...(s.perrons ? { perrons: s.perrons } : {}) });
   const bit = { trein: 1, metro: 2, sneltram: 6, tram: 4, bus: 8 | 32, hov: 8, belbus: 8 | 32, veer: 16, watertaxi: 16 }[modus];
@@ -2617,6 +2644,10 @@ function kandidaten(modus) {
     // bus: alle bus-perrons; tram: alleen perrons met tramspoor
     const pr = g.perrons.filter(q => q.modi & bit), x = pr.reduce((a, q) => a + q.x, 0) / pr.length, y = pr.reduce((a, q) => a + q.y, 0) / pr.length;
     // dezelfde halte staat soms ook als tramhalte op de kaart (OpenStreetMap): dan samen één halte
+    // hoort bij een vliegveld: één halte op de plek van het vliegveld-station, met alle perrons
+    if (g.vliegveld) { const v = D.vliegvelden.find(q => q.n === g.vliegveld); let c = uit.find(q => q.vliegveld === g.vliegveld);
+      if (!c) { c = { naam: g.vliegveld, x: v?.kx ?? x, y: v?.ky ?? y, vliegveld: g.vliegveld, perrons: [] }; uit.push(c); }
+      c.perrons.push(...pr.map(q => ({ x: q.x, y: q.y }))); continue; }
     const al = (opNaam.get(g.k) || []).find(c => Math.hypot(c.x - x, c.y - y) < 300);
     if (al) { al.perrons = [...(al.perrons || [{ x: al.x, y: al.y }]), ...pr.map(q => ({ x: q.x, y: q.y }))]; continue; }
     uit.push({ naam: g.naam, x, y, ...(pr.length > 1 ? { perrons: pr.map(q => ({ x: q.x, y: q.y })) } : {}), ...(g.modi & 4 ? { tramhalte: true } : {}) });
@@ -3708,6 +3739,7 @@ function init() {
   void oudVuil;
   let vorigeZicht = '';
   setInterval(spoorPlannen, 2500);
+  setInterval(kandidatenTonen, 400);
   setInterval(() => { const z = kaart.zicht().map(v => Math.round(v / 2000)).join(',') + kaart.res.toFixed(0); if (z !== vorigeZicht) { vorigeZicht = z; laadAIinBeeld(); } }, 700);
   $('bron').textContent = '';
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));
@@ -3770,6 +3802,20 @@ async function spoorAfstemmen(l) {
     melding(`Lijn ${l.nr} afgestemd (${tekst}): wachten ${Math.round(a.basis.wacht / 60)} → ${Math.round(a.wacht / 60)} min per dag${a.basis.mislukt || a.mislukt ? `, ritten zonder pad ${a.basis.mislukt} → ${a.mislukt}` : ''}.`, 9000);
     ververs();
   } finally { afstemBezig = false; }
+}
+// Lijn aanleggen: alleen de stations en haltes waar dit soort vervoer kan stoppen vallen op, de rest wordt dof
+let kandSig = '';
+const DOF_STIP = ['net-stations', 'net-haltes', 'net-vlieg-stip', 'net-overslag', 'net-voorz11', 'net-voorz13', 'net-voorz15'];
+const DOF_TEKST = ['net-stations-naam', 'net-haltes-naam', 'net-vlieg', 'net-overslag-naam', 'net-voorz-naam11', 'net-voorz-naam13', 'net-voorz-naam15'];
+function kandidatenTonen() {
+  if (!spel || !kaart?.map?.getSource('kandidaten')) return;
+  const modus = tool === 'lijn' ? bouw?.modus : tool === 'lijnhalte' && bouw?.lijnId ? lijnVan(bouw.lijnId)?.modus : null;
+  const sig = modus ? `${modus}:${spel.jaar}:${(spel.haltes || []).length}` : '';
+  if (sig === kandSig) return; kandSig = sig;
+  const m = kaart.map, dof = modus ? 0.22 : 1;
+  for (const id of DOF_STIP) if (m.getLayer(id)) { m.setPaintProperty(id, 'circle-opacity', dof); m.setPaintProperty(id, 'circle-stroke-opacity', dof); }
+  for (const id of DOF_TEKST) if (m.getLayer(id)) m.setPaintProperty(id, 'text-opacity', modus ? 0.3 : 1);
+  kaart.bron('kandidaten', { type: 'FeatureCollection', features: modus ? kandidaten(modus).map(c => ({ type: 'Feature', properties: { n: c.naam }, geometry: { type: 'Point', coordinates: lonlat(c.x, c.y) } })) : [] });
 }
 // spoorplanner: opnieuw zodra een treinlijn (van jou of een vervoerder) verandert. Rekent op de achtergrond.
 let planSig = '', planLoopt = null, stationBij = null;
