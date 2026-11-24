@@ -69,7 +69,15 @@ export class Territorium {
     k.laag({ id: 'grens-provincie', type: 'line', source: 'grenzen', filter: ['==', ['get', 'n'], 2], layout: { 'line-join': 'round' },
       paint: { 'line-color': '#5e4a7a', 'line-opacity': 0.85, 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 1, 10, 2, 14, 3.2] } }, voor);
   }
-  provincieVan(x, y) { const g = this.gemeenteVan(x, y); return g < 0 ? -1 : this.gem[g].p; }
+  // code van de provincie (of het Duitse regierungsbezirk, Franse departement ...) waarin (x, y) ligt, of null
+  provincieCode(x, y) { const i = this.provincieVan(x, y); return i >= 0 ? this.prov[i].code : null; }
+  // provincie-index bij (x, y): direct op de provincies (snel, met een cache per 500 m)
+  provincieVan(x, y) {
+    const k = Math.round(x / 500) + ',' + Math.round(y / 500); if (!this._pc) this._pc = new Map();
+    if (this._pc.has(k)) return this._pc.get(k);
+    let uit = -1; for (let i = 0; i < this.prov.length; i++) if (binnen(this.prov[i], x, y)) { uit = i; break; }
+    if (this._pc.size > 200000) this._pc.clear(); this._pc.set(k, uit); return uit;
+  }
   gemeenteVan(x, y) { for (let i = 0; i < this.gem.length; i++) if (binnen(this.gem[i], x, y)) return i; return -1; }
 
   // haltes: [{x, y}, ...] (RD). Bepaalt welke gebieden in kleur, lichter of zwart-wit staan.

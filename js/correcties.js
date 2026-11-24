@@ -12,7 +12,8 @@ export function perronVanaf(stations, pts) {
   let van = 0;
   for (const c of CORRECTIES) {
     if (c.soort !== 'perron') continue;
-    const st = stations.find(s => s.n === c.station && s.s === 'trein'); if (!st || Math.hypot(cx - st.x, cy - st.y) > 400) continue;
+    if (!c._st || c._lijst !== stations) { c._lijst = stations; c._st = stations.find(s => s.n === c.station && s.s === 'trein') || null; } // eenmalig opzoeken
+    const st = c._st; if (!st || Math.hypot(cx - st.x, cy - st.y) > 400) continue;
     if (c.oostVan != null && cx - st.x > c.oostVan) van = Math.max(van, c.van);
   }
   return van;

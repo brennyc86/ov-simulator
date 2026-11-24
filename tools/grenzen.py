@@ -73,10 +73,13 @@ def binnen(x, y, geom):
 # België en Luxemburg: geoBoundaries (open, vereenvoudigd, WGS84) omgezet naar RD.
 # België: provincies (ADM2, met Brussel) en gemeenten (ADM4); Luxemburg: kantons (ADM1) en gemeenten (ADM2).
 GB = "https://www.geoboundaries.org/api/current/gbOpen/{c}/"
-# Duitsland: deelstaten (ADM1) en regierungsbezirke (ADM2, als 'gemeente'); Frankrijk: regio's (ADM1) en departementen (ADM2).
+# Duitsland: regierungsbezirke (ADM2) en kreise (ADM3); Frankrijk: departementen (ADM2) en arrondissementen (ADM3).
 # (land, provincies, gemeenten, tolerantie provincie, tolerantie gemeente in meters)
 BUITENLAND = [("BE", "BEL/ADM2", "BEL/ADM4", 25, 15), ("LU", "LUX/ADM1", "LUX/ADM2", 25, 15),
-              ("DE", "DEU/ADM1", "DEU/ADM2", 300, 200), ("FR", "FRA/ADM1", "FRA/ADM2", 300, 200)]
+              # Duitsland: regierungsbezirke (ADM2) als 'provincie', kreise en kreisfreie Städte (ADM3) als 'gemeente'
+              ("DE", "DEU/ADM2", "DEU/ADM3", 400, 300),
+              # Frankrijk: departementen (ADM2) als 'provincie', arrondissementen (ADM3) als 'gemeente'
+              ("FR", "FRA/ADM2", "FRA/ADM3", 700, 500)]
 NAAM = {"Brussels": "Brussel", "Limburg": "Limburg (BE)", "Luxemburg": "Luxemburg (BE)"}
 
 

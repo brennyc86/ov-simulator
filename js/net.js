@@ -53,7 +53,53 @@ export class Net {
     this.eigen = []; // door spelers aangelegd spoor
     this.bouwBuren();
     this.paden = new Map();
+    this.delen = new Set(spoor?.deel ? [spoor.deel] : []);
+    if (spoor?.deel) this.takken.forEach((t, j) => { t.sleutel = spoor.deel + ':' + j; });
   }
+  // Een deel van het spoornet (één provincie, zie tools/spoordelen.py) erbij laden. Knopen op dezelfde plek (de
+  // grens tussen twee delen) worden één knoop. Takken krijgen een vaste sleutel 'deel:nummer' (voor opslag).
+  voegDeelToe(deel) {
+    if (!deel?.deel || this.delen.has(deel.deel)) return 0;
+    this.delen.add(deel.deel);
+    if (!this._knoopIdx) { this._knoopIdx = new Map(); for (let i = 0; i < this.knopen.length; i += 2) this._knoopIdx.set(this.knopen[i] + ',' + this.knopen[i + 1], i / 2); }
+    const kn = deel.knopen, map = new Array(kn.length / 2), extra = [];
+    let n = this.knopen.length / 2;
+    for (let i = 0; i < kn.length; i += 2) {
+      const k = kn[i] + ',' + kn[i + 1]; let id = this._knoopIdx.get(k);
+      if (id === undefined) { id = n++; this._knoopIdx.set(k, id); extra.push(kn[i], kn[i + 1]); }
+      map[i / 2] = id;
+    }
+    if (extra.length) { const nieuw = new Float64Array(this.knopen.length + extra.length); nieuw.set(this.knopen); nieuw.set(extra, this.knopen.length); this.knopen = nieuw; }
+    const naamStart = this.namen.length; this.namen.push(...(deel.namen || []));
+    const nieuweTakken = [];
+    deel.takken.forEach((t, j) => {
+      const [a0, b0, soort, dienst, gebruik, sporen, vmax, elek, start, eind, naam, tussen, hoogte = 0, land = 0, elek2 = 0] = t;
+      const a = map[a0], b = map[b0];
+      let pts = [this.knopen[a * 2], this.knopen[a * 2 + 1]];
+      let x = pts[0], y = pts[1];
+      for (let k = 0; k < tussen.length; k += 2) { x += tussen[k]; y += tussen[k + 1]; pts.push(x, y); }
+      pts.push(this.knopen[b * 2], this.knopen[b * 2 + 1]);
+      if (pts.length > 4) pts = glad(pts);
+      let lengte = 0, x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (let k = 0; k < pts.length; k += 2) {
+        if (k) lengte += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
+        x0 = Math.min(x0, pts[k]); x1 = Math.max(x1, pts[k]); y0 = Math.min(y0, pts[k + 1]); y1 = Math.max(y1, pts[k + 1]);
+      }
+      const tak = { i: this.takken.length, a, b, soort, dienst, gebruik, sporen, vmax, elek, elek2, start, eind, naam: naam >= 0 ? naam + naamStart : -1, hoogte, land, pts, lengte, bbox: [x0, y0, x1, y1], eigenaar: 'prorail', sleutel: deel.deel + ':' + j };
+      this.takken.push(tak); nieuweTakken.push(tak);
+    });
+    // buren en raster alleen voor de nieuwe takken bijwerken
+    for (const t of nieuweTakken) {
+      for (const [k, ander] of [[t.a, t.b], [t.b, t.a]]) { if (!this.buren.has(k)) this.buren.set(k, []); this.buren.get(k).push({ t, naar: ander }); }
+      const [x0, y0, x1, y1] = t.bbox;
+      for (let i = Math.floor(x0 / 1000); i <= Math.floor(x1 / 1000); i++) for (let j = Math.floor(y0 / 1000); j <= Math.floor(y1 / 1000); j++) {
+        const sl = i + ',' + j; if (!this.tRaster.has(sl)) this.tRaster.set(sl, []); this.tRaster.get(sl).push(t);
+      }
+    }
+    this.paden = new Map();
+    return nieuweTakken.length;
+  }
+  takMetSleutel(s) { if (!this._sleutels || this._sleutelsN !== this.takken.length) { this._sleutels = new Map(this.takken.filter(t => t.sleutel).map(t => [t.sleutel, t])); this._sleutelsN = this.takken.length; } return this._sleutels.get(s); }
   bouwBuren() {
     this.buren = new Map();
     this.tRaster = new Map();

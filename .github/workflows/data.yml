@@ -108,10 +108,15 @@ jobs:
         with:
           name: osm
           path: nieuw-osm
+      - uses: actions/checkout@v4
+        with:
+          path: code
       - name: Samenvoegen en naar de data-tak (zonder geschiedenis)
         run: |
           if [ -d nieuw-gtfs ]; then rm -rf uit/lijnen; cp -r nieuw-gtfs/. uit/; echo "dienstregeling bijgewerkt"; fi
           if [ -d nieuw-osm ]; then cp -r nieuw-osm/. uit/; echo "kaartdata bijgewerkt"; fi
+          # spoornet per provincie (het spel laadt alleen wat nodig is)
+          pip install -q shapely && python3 code/tools/spoordelen.py --spoor uit/spoor.json --grenzen uit/grenzen.json --uit uit/spoor || echo "opdelen mislukt: vorige delen blijven staan"
           echo "gtfs=${{ needs.gtfs.result }} osm=${{ needs.osm.result }}"
           du -sh uit; ls -la uit | head -30
           cd uit
