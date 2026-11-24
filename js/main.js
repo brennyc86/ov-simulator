@@ -1033,7 +1033,11 @@ function dagLicht() {
   kaart.nachtlaag.style.background = donker > 0 && donker < 0.6 && h > -8 ? '#3a2a5a' : '#0b1a33';
 }
 // weekend: daldienst in plaats van spitsdienst (eigen lijnen zonder echte dienstregeling)
+let dagLaag = -1;
 function dienstVoorDag() {
+  // laagfrequente lijnen: elke dag opnieuw welke ritten vandaag rijden
+  S.zetDag(spel.dag);
+  if (dagLaag !== spel.dag) { dagLaag = spel.dag; for (const l of spel.lijnen) if (l.dienst === 'laag') S.herbereken(l); }
   const w = S.isWeekend(spel.dag);
   if (spel._weekend === w) return;
   spel._weekend = w; S.zetWeekend(w);
@@ -1528,13 +1532,7 @@ const PANELEN = {
       ${mixBlok(l)}
       ${samenstellingBlok(l)}${locWisselBlok(l)}
       <h3>Prijzen en catering</h3>${prijzenBlok(l)}
-      <h3>Dienstregeling (elke … minuten)</h3>
-      ${l.echt && !l.aangepast ? '<p class="klein">Rijdt nu volgens de echte dienstregeling. Pas je iets aan, dan maakt het spel een eigen regelmatige dienstregeling.</p>' : ''}
-      <div class="raster2">${S.PERIODES.map(p => `<label class="veld">${p.naam}<input type="number" min="0" max="240" step="1" value="${l.interval[p.id] ?? ''}" data-wijzig="interval" data-id="${l.id}" data-p="${p.id}"></label>`).join('')}</div>
-      <div class="raster2"><label class="veld">Eerste rit<input type="time" value="${S.klok(l.eerste)}" data-wijzig="eerste" data-id="${l.id}"></label>
-      <label class="veld">Laatste rit<input type="time" value="${S.klok(l.laatste)}" data-wijzig="laatste" data-id="${l.id}"></label>
-      <label class="veld">Verschuiving (min)<input type="number" min="-30" max="30" value="${l.offset}" data-wijzig="offset" data-id="${l.id}"></label></div>
-      <p class="klein">Vertrek ${esc(l.haltes[0].naam)}: ${l.vertrek[0].filter(v => v >= 12 * 60 && v < 14 * 60).map(S.klok).join(', ') || '—'} (12–14 uur)</p>
+      <h3>Dienstregeling</h3>${dienstBlok(l)}
       ${st ? `<h3>Deze maand</h3><table class="tabel"><tr><td>Reizigers</td><td class="getal">${Math.round(st.reizigers).toLocaleString('nl-NL')}</td></tr>
         <tr><td>Kaartjes en boetes</td><td class="getal">${S.euro(st.kaartjes ?? st.opbrengst - (st.subsidie || 0))}</td></tr><tr><td>Subsidie${l.subsidiePerReiziger ? ` (incl. € ${l.subsidiePerReiziger.toFixed(2).replace('.', ',')}/reiziger)` : ''}</td><td class="getal">${S.euro(st.subsidie || 0)}</td></tr>
         <tr><td>Kosten</td><td class="getal">${S.euro(-st.kosten)}</td></tr>
@@ -1869,7 +1867,7 @@ const PANELEN = {
       <div class="raster2"><label class="veld">Lijnnummer<input id="nl-nr" value="${esc(d.nrIn ?? (d.terugVan ? d.terugVan.nr : d.modus === 'trein' ? 'RE' + vrijNr : vrijNr))}" maxlength="8"></label>
       <label class="veld">Naam<input id="nl-naam" value="${esc(d.naamIn ?? (d.rond ? 'Ring ' + d.haltes[0].naam.split(',')[0] : d.haltes[0].naam.split(',')[0] + ' – ' + d.haltes[d.haltes.length - 1].naam.split(',')[0]))}" maxlength="60"></label></div>
       <h3>Materieel</h3>${d.modus === 'vlucht' ? `<div class="veld"><select id="nl-type" data-wijzig="nl-type">${typen.map(v => `<option value="${v.id}" ${v.id === d.typeKeuze ? 'selected' : ''}>${esc(v.naam)} · ${plaatsenVan(v.id)} pl. · ${S.euroKort(v.prijs)}${spel.voertuigen[v.id] ? ` · ${spel.voertuigen[v.id]} in bezit` : ''}</option>`).join('')}</select></div>${nodigBlok(d, typen)}` : mixBlok('nl', d, typen)}
-      <div class="raster2" ${d.bijzonder ? 'hidden' : ''}><label class="veld">Spits elke (min)<input id="nl-spits" type="number" value="${d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)}" min="3"></label><label class="veld">Dal elke (min)<input id="nl-dal" type="number" value="${d.dalIn ?? 30}" min="3"></label><label class="veld">Avond elke (min)<input id="nl-avond" type="number" value="${d.avondIn ?? 60}" min="3"></label></div>
+      <div class="raster2" ${d.bijzonder ? 'hidden' : ''}>${[['nl-spits', 'Spits', d.spitsIn ?? (d.modus === 'trein' ? 30 : 15)], ['nl-dal', 'Overdag', d.dalIn ?? 30], ['nl-avond', '\'s Avonds', d.avondIn ?? 60]].map(([id, n, w]) => `<label class="veld">${n}<select id="${id}">${S.FREQS.map(f => `<option value="${f}" ${+w === f ? 'selected' : ''}>${freqNaam(f)}</option>`).join('')}</select></label>`).join('')}</div>
       <div class="veld"><label>Soort dienst</label><div class="segment">${[['regulier', 'Regulier'], ['eenmalig', 'Eenmalig'], ['bijzonder', 'Bijzonder (terugkerend)']].map(([k, n]) => `<button class="knop klein ${(d.dienst || 'regulier') === k ? 'hoofd' : ''}" data-actie="nl-dienst" data-w="${k}">${n}</button>`).join('')}</div>
         <p class="klein">${d.dienst === 'eenmalig' ? 'Eén dag: een rit (bv. een stoomtrein of themarit) of een dag heen en weer pendelen. Mensen schrijven zich in tot de dag zelf.' : d.dienst === 'bijzonder' ? 'Terugkerend maar beperkt, bv. een museumlijn die alleen in het weekend een paar keer rijdt.' : 'De gewone dienstregeling, elke dag.'}</p></div>
       ${d.bijzonder ? bijzonderFormulier(d) : ''}
@@ -2133,6 +2131,8 @@ function actieUit(a, d) {
     }
     case 'perron-stop': perronVoorstelWissen(); sluitPaneel(); break;
     case 'spoor-afstem': if (l) spoorAfstemmen(l); break;
+    case 'laag-dag': { const x = l?.ritten?.[+d.k]; if (!x) break; const dg = new Set(x.dagen || [0, 1, 2, 3, 4, 5, 6]); const i2 = +d.d; dg.has(i2) ? dg.delete(i2) : dg.add(i2);
+      x.dagen = dg.size === 7 ? null : [...dg].sort(); l.aangepast = true; S.herbereken(l); ververs(); break; }
     case 'ns-kant': paneelData.kant = -(paneelData.kant || 1); ververs(); break;
     case 'perron-bouw': {
       const o = perronOntwerp; if (!o) break;
@@ -2316,6 +2316,21 @@ function wijzig(w, i) {
     }
     case 'halte-wacht': {
       l._vorigeTr = l.tr.map(x => [...x]); l.halteWacht = l.halteWacht || {}; const m = Math.max(0, Math.min(15, Math.round(+i.value || 0))); if (m) l.halteWacht[i.dataset.k] = m; else delete l.halteWacht[i.dataset.k]; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); setTimeout(() => ververs(), 0); break; }
+    case 'freq': { for (const p of i.dataset.p.split(',')) l.interval[p] = +i.value || 999; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break; }
+    case 'minuut': { const m = Math.max(0, Math.min(59, Math.round(+i.value || 0)));
+      if (+i.dataset.r) l.offsetTerug = (l.offsetTerug || 0) + m - S.cyclusMinuut(l, 1); else { const terug = S.ritRichtingen(l) > 1 ? S.cyclusMinuut(l, 1) : null; l.offset = m; if (terug != null) l.offsetTerug = (l.offsetTerug || 0) + terug - S.cyclusMinuut(l, 1); }
+      l.aangepast = true; S.herbereken(l); break; }
+    case 'dienst': {
+      if (i.value === 'laag' && l.dienst !== 'laag') { // beginnen met de ritten die er nu zijn (hooguit 6 per richting)
+        l.ritten = [0, 1].flatMap(r => { const v = l.vertrek[r] || []; const kies = v.length <= 6 ? v : [v[0], v[Math.floor(v.length / 2)], v[v.length - 1]]; return kies.map(t => ({ r, t: Math.round(t), dagen: null })); });
+      }
+      l.dienst = i.value === 'laag' ? 'laag' : undefined; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break; }
+    case 'laag-n': { const r = +i.dataset.r, n = Math.max(0, Math.min(40, Math.round(+i.value || 0)));
+      l.ritten = l.ritten || []; const eigen = l.ritten.filter(x => x.r === r).sort((a, b) => a.t - b.t);
+      if (n < eigen.length) { const weg = new Set(eigen.slice(n)); l.ritten = l.ritten.filter(x => !weg.has(x)); }
+      for (let k = eigen.length; k < n; k++) l.ritten.push({ r, t: Math.min(23 * 60, (eigen.at(-1)?.t ?? (r ? 9.5 * 60 : 9 * 60)) + (k - eigen.length + 1) * 120), dagen: null });
+      l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break; }
+    case 'laag-tijd': { const x = l.ritten?.[+i.dataset.k]; if (x && i.value) { const [h, m] = i.value.split(':').map(Number); x.t = h * 60 + m; l.aangepast = true; S.herbereken(l); } break; }
     case 'interval': l.interval[i.dataset.p] = Math.max(0, +i.value || 0) || 999; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); break;
     case 'eerste': l.eerste = tijd(i.value); l.aangepast = true; S.herbereken(l); break;
     case 'laatste': l.laatste = tijd(i.value); l.aangepast = true; S.herbereken(l); break;
@@ -3766,6 +3781,39 @@ function init() {
   toonStart();
   laadData().then(() => { if ($('start').open) toonStart(); });
   requestAnimationFrame(lus);
+}
+// Dienstregeling instellen. Hoogfrequent: per deel van de dag een interval dat in een uurpatroon past, en de minuut
+// over het uur waarop de cyclus begint (heen en terug). Laagfrequent: losse ritten met eigen tijd en eigen dagen.
+const DAG_KORT = ['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'];
+const freqNaam = f => !f || f >= 999 ? 'geen' : f >= 60 ? `elke ${f / 60 === Math.round(f / 60) ? f / 60 + ' uur' : String(f / 60).replace('.', ',') + ' uur'}` : `elke ${String(f).replace('.', ',')} min`;
+function dienstBlok(l) {
+  const laag = l.dienst === 'laag', twee = S.ritRichtingen(l) > 1;
+  const kop = `<div class="rij"><label><input type="radio" name="dienst-${l.id}" data-wijzig="dienst" data-id="${l.id}" value="hoog" ${laag ? '' : 'checked'}> Vast patroon per uur</label>
+    <label><input type="radio" name="dienst-${l.id}" data-wijzig="dienst" data-id="${l.id}" value="laag" ${laag ? 'checked' : ''}> Losse ritten (laagfrequent)</label></div>
+    ${l.echt && !l.aangepast ? '<p class="klein">Rijdt nu volgens de echte dienstregeling. Pas je iets aan, dan maakt het spel een eigen dienstregeling.</p>' : ''}`;
+  if (!laag) {
+    const sel = (keys, waarde) => `<select data-wijzig="freq" data-id="${l.id}" data-p="${keys.join(',')}">${[0, ...S.FREQS].map(f => `<option value="${f}" ${(+waarde || 0) === f || (!f && (!waarde || waarde >= 999)) ? 'selected' : ''}>${freqNaam(f)}</option>`).join('')}</select>`;
+    const iv = l.interval, anders = (iv.vroeg !== iv.dal || iv.avond !== iv.dal) ? ` <span class="klein">(vroeg ${freqNaam(iv.vroeg)}, avond ${freqNaam(iv.avond)})</span>` : '';
+    return kop + `<div class="raster2"><label class="veld">Spits (werkdagen 7–9 en 16–18:30)${sel(['ochtendspits', 'avondspits'], iv.ochtendspits)}</label>
+      <label class="veld">Overdag en 's avonds${anders}${sel(['vroeg', 'dal', 'avond'], iv.dal)}</label>
+      <label class="veld">Nacht (na 0:30)${sel(['nacht'], iv.nacht)}</label></div>
+      <details class="klein"><summary>Per periode apart instellen</summary><div class="raster2">${S.PERIODES.map(p => `<label class="veld">${p.naam}${sel([p.id], iv[p.id])}</label>`).join('')}</div></details>
+      <div class="raster2"><label class="veld">Heen: minuut over het uur<input type="number" min="0" max="59" value="${S.cyclusMinuut(l, 0)}" data-wijzig="minuut" data-id="${l.id}" data-r="0"></label>
+      ${twee ? `<label class="veld">Terug: minuut over het uur<input type="number" min="0" max="59" value="${S.cyclusMinuut(l, 1)}" data-wijzig="minuut" data-id="${l.id}" data-r="1"></label>` : ''}
+      <label class="veld">Eerste rit<input type="time" value="${S.klok(l.eerste)}" data-wijzig="eerste" data-id="${l.id}"></label>
+      <label class="veld">Laatste rit<input type="time" value="${S.klok(l.laatste)}" data-wijzig="laatste" data-id="${l.id}"></label></div>
+      <p class="klein">Vertrek ${esc(l.haltes[0].naam)}: ${l.vertrek[0].filter(v => v >= 12 * 60 && v < 14 * 60).map(S.klok).join(', ') || '—'} (12–14 uur). Het patroon komt elk uur terug${[90, 120].some(f => Object.values(iv).includes(f)) ? ' (bij 90 en 120 min elke 3 of 2 uur)' : ''}.</p>`;
+  }
+  // laagfrequent: aantal ritten per dag per richting, per rit de tijd en de dagen
+  const rr = r => (l.ritten || []).map((x, k) => ({ ...x, k })).filter(x => x.r === r).sort((a, b) => a.t - b.t);
+  const richting = r => { const lijst = rr(r), van = r ? l.haltes[l.haltes.length - 1].naam : l.haltes[0].naam;
+    return `<h4>${r ? 'Terug' : 'Heen'} vanaf ${esc(van)}</h4>
+      <label class="veld">Ritten per dag<input type="number" min="0" max="40" value="${lijst.length}" data-wijzig="laag-n" data-id="${l.id}" data-r="${r}" style="width:5em"></label>
+      <table class="tabel klein">${lijst.map(x => `<tr><td><input type="time" value="${S.klok(x.t)}" data-wijzig="laag-tijd" data-id="${l.id}" data-k="${x.k}"></td>
+        <td>${DAG_KORT.map((d, i) => `<button class="knop klein ${!x.dagen || x.dagen.includes(i) ? 'hoofd' : ''}" data-actie="laag-dag" data-id="${l.id}" data-k="${x.k}" data-d="${i}" title="rijdt op ${S.WEEKDAG[i]}">${d}</button>`).join('')}</td>
+        <td class="klein">${!x.dagen || x.dagen.length === 7 ? 'elke dag' : x.dagen.length ? x.dagen.length + '× per week' : '<b style="color:var(--rood)">rijdt nooit</b>'}</td></tr>`).join('')}</table>`; };
+  return kop + `<p class="klein">Kies per richting hoeveel ritten per dag, hun vertrektijd en op welke dagen ze rijden (bv. alleen zaterdag en zondag, of één keer per week). Handig voor een museumlijn, vluchten en internationale treinen en bussen.</p>
+    ${richting(0)}${twee ? richting(1) : ''}`;
 }
 // samenvatting van de spoorplanner voor een lijn: waar wordt gewacht (kruisen op enkelspoor, achter een voorganger)
 function spoorplanTekst(l) {

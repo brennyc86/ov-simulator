@@ -205,6 +205,17 @@ export const VLOOT = [
   { id: 'e175', naam: 'Embraer 175', modus: 'vlucht', van: 2008, tot: 2045, zit: 88, sta: 0, vmax: 830, acc: 2, prijs: 45e6, km: 15, energie: 'kerosine', pers: 5, leven: 25, baan: 1700, gras: false, wie: 'KLM Cityhopper' },
   { id: 'e195e2', naam: 'Embraer 195-E2', modus: 'vlucht', van: 2021, tot: 2060, zit: 132, sta: 0, vmax: 830, acc: 2, prijs: 60e6, km: 17, energie: 'kerosine', pers: 6, leven: 25, baan: 1900, gras: false, wie: 'KLM Cityhopper' },
   { id: 'b737', naam: 'Boeing 737-800', modus: 'vlucht', van: 1998, tot: 2045, zit: 186, sta: 0, vmax: 840, acc: 2, prijs: 75e6, km: 22, energie: 'kerosine', pers: 6, leven: 25, baan: 2200, gras: false, wie: 'KLM, Transavia, TUI' },
+  // kleine toestellen voor regionale en kleine vliegvelden (cityhoppers, eilandhoppers, luchttaxi's)
+  { id: 'dhc6', naam: 'De Havilland Canada DHC-6 Twin Otter', modus: 'vlucht', van: 1966, tot: 2060, zit: 19, sta: 0, vmax: 340, acc: 1.5, prijs: 6.5e6, km: 4.5, energie: 'kerosine', pers: 2, leven: 30, baan: 700, gras: true, wie: 'eilandhoppers, Winair' },
+  { id: 'do228', naam: 'Dornier 228', modus: 'vlucht', van: 1982, tot: 2060, zit: 19, sta: 0, vmax: 430, acc: 1.5, prijs: 7e6, km: 4.5, energie: 'kerosine', pers: 2, leven: 30, baan: 800, gras: true, wie: 'regionale lijndiensten, Aurigny' },
+  { id: 'caravan', naam: 'Cessna 208 Caravan', modus: 'vlucht', van: 1985, tot: 2060, zit: 12, sta: 0, vmax: 340, acc: 1.5, prijs: 2.5e6, km: 3, energie: 'kerosine', pers: 1, leven: 30, baan: 700, gras: true, wie: 'luchttaxi, eilandvluchten' },
+  { id: 'tecnam', naam: 'Tecnam P2012 Traveller', modus: 'vlucht', van: 2019, tot: 2060, zit: 9, sta: 0, vmax: 360, acc: 1.5, prijs: 3e6, km: 2.2, energie: 'avgas', pers: 1, leven: 25, baan: 500, gras: true, wie: 'Cape Air, eilandhoppers' },
+  { id: 'saab340', naam: 'Saab 340', modus: 'vlucht', van: 1984, tot: 2035, zit: 34, sta: 0, vmax: 520, acc: 1.5, prijs: 9e6, km: 6.5, energie: 'kerosine', pers: 3, leven: 25, baan: 1300, gras: false, wie: 'regionale maatschappijen' },
+  { id: 'do328', naam: 'Dornier 328', modus: 'vlucht', van: 1993, tot: 2035, zit: 32, sta: 0, vmax: 620, acc: 1.5, prijs: 11e6, km: 6.5, energie: 'kerosine', pers: 3, leven: 25, baan: 1100, gras: false, wie: 'regionale maatschappijen' },
+  { id: 'erj145', naam: 'Embraer ERJ 145', modus: 'vlucht', van: 1996, tot: 2045, zit: 50, sta: 0, vmax: 830, acc: 2, prijs: 22e6, km: 11, energie: 'kerosine', pers: 4, leven: 25, baan: 1500, gras: false, wie: 'KLM exel, regionale maatschappijen' },
+  { id: 'dash8', naam: 'De Havilland Dash 8-400', modus: 'vlucht', van: 2000, tot: 2060, zit: 78, sta: 0, vmax: 660, acc: 1.5, prijs: 30e6, km: 9, energie: 'kerosine', pers: 4, leven: 25, baan: 1400, gras: false, wie: 'regionale maatschappijen' },
+  { id: 'f100', naam: 'Fokker 100', modus: 'vlucht', van: 1988, tot: 2025, zit: 107, sta: 0, vmax: 840, acc: 2, prijs: 30e6, km: 16, energie: 'kerosine', pers: 5, leven: 25, baan: 1600, gras: false, wie: 'KLM Cityhopper, Fokker Services' },
+  { id: 'es30', naam: 'Heart ES-30 (elektrisch/hybride)', modus: 'vlucht', van: 2030, tot: 2060, zit: 30, sta: 0, vmax: 400, acc: 1.5, prijs: 25e6, km: 3, energie: 'elektrisch', pers: 3, leven: 25, baan: 1100, gras: false, wie: 'regionale maatschappijen (toekomst)' },
   { id: 'heli', naam: 'Helikopter (AW139)', modus: 'vlucht', van: 2004, tot: 2060, zit: 12, sta: 0, vmax: 300, acc: 2, prijs: 13e6, km: 16, energie: 'kerosine', pers: 2, leven: 20, baan: 0, gras: true, wie: 'offshore, ANWB MAA' },
 ];
 

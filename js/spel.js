@@ -46,6 +46,9 @@ export function zonshoogte(dag, minuten) {
 // dienstregeling: in het weekend rijden de spitsritten niet (daldienst)
 let weekendDienst = false;
 export const zetWeekend = w => { weekendDienst = w; };
+// de huidige speldag (voor laagfrequente lijnen: welke ritten rijden vandaag)
+let dagNu = 0;
+export const zetDag = d => { dagNu = d; };
 export const ZWARTRIJDEN_BASIS = { bus: 0.012, hov: 0.02, tram: 0.07, metro: 0.05, sneltram: 0.06, belbus: 0.0, trein: 0.04, veer: 0.03, watertaxi: 0, vlucht: 0 };
 
 export const euro = n => (n < 0 ? '−' : '') + '€ ' + Math.abs(Math.round(n)).toLocaleString('nl-NL');
@@ -216,16 +219,42 @@ export function herbereken(lijn) {
 
 // hoeveel richtingen rijden er: heen en terug, of alleen heen (eenrichting of rondlijn)
 export const ritRichtingen = l => l.richting === 'heen' || l.richting === 'rond' ? 1 : 2;
+// Frequenties die in een uurpatroon passen (minuten). 0 = geen ritten in die periode.
+export const FREQS = [5, 7.5, 10, 15, 20, 30, 60, 90, 120];
+// begin van de cyclus (minuut over het uur) per richting; terug standaard een half interval later
+export const cyclusMinuut = (lijn, r) => {
+  const m0 = ((lijn.offset || 0) % 60 + 60) % 60;
+  return r ? ((m0 + Math.round((lijn.interval?.dal || 30) / 2) + (lijn.offsetTerug || 0)) % 60 + 60) % 60 : m0;
+};
 export function vertrekken(lijn) {
   // beide richtingen; [richting][minuten]
   const uit = [[], []];
+  // laagfrequent: losse ritten met een eigen tijd en eigen dagen (bv. alleen in het weekend, of 1× per week)
+  if (lijn.dienst === 'laag') {
+    const wd = weekdag(dagNu);
+    for (const x of lijn.ritten || []) if (x.r < ritRichtingen(lijn) && (!x.dagen || x.dagen.includes(wd))) uit[x.r].push(x.t);
+    for (const r of uit) r.sort((a, b) => a - b);
+    return uit;
+  }
+  // hoogfrequent: vast patroon per uur. Elke periode heeft een interval; de ritten liggen op de klok
+  // (minuut m over het uur + een veelvoud van het interval), zodat het patroon elk uur terugkomt.
   for (let r = 0; r < ritRichtingen(lijn); r++) {
-    let t = lijn.eerste + lijn.offset + (r ? Math.round((lijn.interval.dal || 30) / 2) + (lijn.offsetTerug || 0) : 0); // offsetTerug: terugrichting verschoven (afstemmen op enkelspoor)
-    while (t <= lijn.laatste) {
-      uit[r].push(t);
-      const p = PERIODES.find(p => t >= p.van && t < p.tot) || PERIODES[4];
+    const m = cyclusMinuut(lijn, r);
+    let t = lijn.eerste;
+    // eerste rit op of na 'eerste' die in het patroon past
+    const iv = tt => { const p = PERIODES.find(p => tt >= p.van && tt < p.tot) || PERIODES[4];
       const id = weekendDienst && (p.id === 'ochtendspits' || p.id === 'avondspits') ? 'dal' : p.id;
-      t += Math.max(3, lijn.interval[id] || lijn.interval.avond || 60);
+      return { i: lijn.interval[id] ?? lijn.interval.avond ?? 60, tot: p.tot }; };
+    while (t <= lijn.laatste) {
+      const { i, tot } = iv(t);
+      if (!i || i >= 999) { t = tot; continue; } // geen ritten in deze periode
+      const stap = Math.max(3, i);
+      // volgende tijd die op het raster ligt: m + k*stap (vanaf middernacht)
+      const k = Math.ceil((t - m - 1e-9) / stap), v = m + k * stap;
+      if (v >= tot) { t = tot; continue; }
+      if (v > lijn.laatste) break;
+      uit[r].push(Math.round(v * 2) / 2);
+      t = v + stap;
     }
   }
   return uit;
