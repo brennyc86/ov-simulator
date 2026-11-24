@@ -56,7 +56,7 @@ def gebied(bbox):
     return "@GEBIED@", "(area.nl)"
 
 
-def overpass(query, pogingen=8, detail=False):
+def overpass(query, pogingen=8, detail=False, alleen=None):
     """Eén vraag per land (een gecombineerde vraag over meerdere landen gaf onvolledige antwoorden en time-outs),
     grote landen in vier stukken; de elementen worden samengevoegd (dubbelen langs grenzen één keer) en
     krijgen het land mee in e["_l"]. query mag ook een functie van het land zijn (lichtere vraag voor DE/FR).
@@ -65,7 +65,7 @@ def overpass(query, pogingen=8, detail=False):
         return overpass_een(query, pogingen)
     alles, gezien, eerste = [], set(), True
     for land in LANDEN.split("|"):
-        if detail and land not in DETAIL:
+        if (detail and land not in DETAIL) or (alleen and land not in alleen):
             continue
         q = query(land) if callable(query) else query
         if "@GEBIED@" not in q:  # vraag met bbox (testen): één keer
@@ -245,7 +245,7 @@ def voorzieningen(bbox, uit):
     for soort, f in POI_SOORT:
         q = f'[out:json][timeout:600];{voor}(nwr{f}["name"]{g};);out center tags;'
         try:
-            res = overpass(q, detail=True)
+            res = overpass(q, alleen={"NL"})  # 12 soorten x 3 landen duurde uren
         except Exception as e:  # noqa: BLE001
             print(f"  {soort} mislukt: {e}", flush=True)
             continue
@@ -648,8 +648,9 @@ def historie(uit):
 
 def schrijf(uit, naam, obj):
     pad = os.path.join(uit, naam)
-    with open(pad, "w", encoding="utf-8") as f:
+    with open(pad + ".tmp", "w", encoding="utf-8") as f:  # eerst apart, dan in één keer: nooit een half bestand
         json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(pad + ".tmp", pad)
     print(f"  → {pad} ({os.path.getsize(pad) / 1e6:.2f} MB)", flush=True)
 
 
@@ -721,14 +722,6 @@ def main():
     stations(a.bbox, a.uit, takken)
     wissels(a.bbox, a.uit)
     perrons(a.bbox, a.uit)
-    try:
-        voorzieningen(a.bbox, a.uit)
-    except Exception as e:  # noqa: BLE001
-        print("voorzieningen mislukt:", e, flush=True)
-    try:
-        stationsgebouwen(a.bbox, a.uit)
-    except Exception as e:  # noqa: BLE001
-        print("stationsgebouwen mislukt:", e, flush=True)
     print("plaatsen, veren en vliegvelden ophalen (eerst even wachten, Overpass remt af na zware verzoeken)…", flush=True)
     time.sleep(45)
     rest = overig_ophalen(a.bbox)
@@ -736,6 +729,15 @@ def main():
     veren(a.bbox, a.uit, rest)
     vliegvelden(a.bbox, a.uit, rest)
     historie(a.uit)
+    # minder belangrijk en traag: als laatste (de workflow bewaart wat er al is als de tijd op raakt)
+    try:
+        stationsgebouwen(a.bbox, a.uit)
+    except Exception as e:  # noqa: BLE001
+        print("stationsgebouwen mislukt:", e, flush=True)
+    try:
+        voorzieningen(a.bbox, a.uit)
+    except Exception as e:  # noqa: BLE001
+        print("voorzieningen mislukt:", e, flush=True)
     try:
         trolley(a.bbox, a.uit)
     except Exception as e:  # noqa: BLE001

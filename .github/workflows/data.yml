@@ -60,18 +60,27 @@ jobs:
 
   osm:
     runs-on: ubuntu-latest
-    timeout-minutes: 340  # NL, BE, LU volledig + het landelijke spoornet van DE en FR (in stukken)
+    timeout-minutes: 330  # NL, BE, LU volledig + het landelijke spoornet van DE en FR (in stukken)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: OpenStreetMap (spoor, stations, wissels, plaatsen, veren, vliegvelden; NL, BE, LU, DE, FR)
+        timeout-minutes: 290  # daarna stoppen en bewaren wat er al is (elk bestand wordt pas geschreven als het compleet is)
+        continue-on-error: true
+        run: python3 -u tools/osm.py --uit uit
+      - name: OpenHistoricalMap en polders
+        timeout-minutes: 20
+        continue-on-error: true
         run: |
-          python3 -u tools/osm.py --uit uit
           python3 -u tools/ohm.py --uit uit || echo "OpenHistoricalMap mislukt, vorige versie blijft"
           python3 -u tools/polders.py --uit uit || echo "polders mislukt, vorige versie blijft"
+      - name: Halve bestanden weg
+        if: always()
+        run: rm -f uit/*.tmp
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: osm
           path: uit
@@ -95,7 +104,7 @@ jobs:
           name: gtfs
           path: nieuw-gtfs
       - uses: actions/download-artifact@v4
-        if: needs.osm.result == 'success'
+        continue-on-error: true  # ook na een deels gelukte osm-job: wat compleet is, gaat mee
         with:
           name: osm
           path: nieuw-osm
