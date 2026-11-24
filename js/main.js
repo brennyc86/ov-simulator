@@ -610,6 +610,43 @@ function ondergronds(v) {
   return false;
 }
 
+// ---------------------------------------------------------------- vliegtuigen
+// lengte (m) uit het aantal stoelen: Cessna ~8 m, Fokker 50 ~25 m, Boeing 737 ~40 m
+const vliegLengte = id => { const t = TYPE[id]; if (!t) return 30; if (t.baan === 0) return 16; return Math.max(8, Math.min(70, 7 + (t.zit || 20) * 0.18)); };
+// bovenaanzicht van een vliegtuig (neus naar +x), wit met de huiskleur op staart en romplijn; helikopter met rotor
+function tekenVliegtuig(ctx, px, py, hoek, L, id, kleur) {
+  const t = TYPE[id] || {}, heli = t.baan === 0, straal = !heli && (t.vmax || 0) >= 600, prop = !heli && !straal;
+  ctx.save(); ctx.translate(px, py); ctx.rotate(-hoek);
+  ctx.lineJoin = 'round'; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = Math.max(0.8, L * 0.012);
+  const romp = L * 0.055 + 1, span = heli ? 0 : L * (straal ? 0.95 : 1.15);
+  if (heli) {
+    ctx.fillStyle = '#f4f4f4'; ctx.beginPath(); ctx.ellipse(L * 0.08, 0, L * 0.28, L * 0.13, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = kleur; ctx.fillRect(-L * 0.5, -L * 0.03, L * 0.4, L * 0.06); ctx.fillRect(-L * 0.52, -L * 0.1, L * 0.06, L * 0.2);
+    ctx.strokeStyle = 'rgba(30,30,30,.45)'; ctx.lineWidth = Math.max(1, L * 0.025);
+    const a = (performance.now() / 60) % 7; ctx.beginPath(); for (let k = 0; k < 4; k++) { const b = a + k * Math.PI / 2; ctx.moveTo(0, 0); ctx.lineTo(Math.cos(b) * L * 0.55, Math.sin(b) * L * 0.55); } ctx.stroke();
+    ctx.restore(); return;
+  }
+  ctx.fillStyle = '#f7f7f5';
+  // vleugels (bij straalvliegtuigen gepijld)
+  const wx = straal ? -L * 0.02 : L * 0.05, pijl = straal ? L * 0.22 : L * 0.04, koorde = L * (straal ? 0.16 : 0.12);
+  ctx.beginPath(); ctx.moveTo(wx, -romp * 0.8); ctx.lineTo(wx - pijl, -span / 2); ctx.lineTo(wx - pijl - koorde * 0.55, -span / 2); ctx.lineTo(wx - koorde, -romp * 0.8);
+  ctx.lineTo(wx - koorde, romp * 0.8); ctx.lineTo(wx - pijl - koorde * 0.55, span / 2); ctx.lineTo(wx - pijl, span / 2); ctx.lineTo(wx, romp * 0.8); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // staartvlakken
+  const sx = -L * 0.42, ss = span * 0.34;
+  ctx.beginPath(); ctx.moveTo(sx + L * 0.05, -romp * 0.6); ctx.lineTo(sx - L * 0.03, -ss / 2); ctx.lineTo(sx - L * 0.08, -ss / 2); ctx.lineTo(sx - L * 0.06, 0); ctx.lineTo(sx - L * 0.08, ss / 2); ctx.lineTo(sx - L * 0.03, ss / 2); ctx.lineTo(sx + L * 0.05, romp * 0.6); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // romp
+  ctx.beginPath(); ctx.moveTo(L * 0.5, 0); ctx.quadraticCurveTo(L * 0.46, -romp, L * 0.36, -romp); ctx.lineTo(-L * 0.4, -romp * 0.75); ctx.lineTo(-L * 0.5, 0); ctx.lineTo(-L * 0.4, romp * 0.75); ctx.lineTo(L * 0.36, romp); ctx.quadraticCurveTo(L * 0.46, romp, L * 0.5, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // huiskleur: streep over de romp en de staart
+  ctx.fillStyle = kleur; ctx.fillRect(-L * 0.4, -romp * 0.3, L * 0.78, romp * 0.6); ctx.beginPath(); ctx.moveTo(sx + L * 0.04, -romp * 0.35); ctx.lineTo(-L * 0.5, -romp * 0.2); ctx.lineTo(-L * 0.5, romp * 0.2); ctx.lineTo(sx + L * 0.04, romp * 0.35); ctx.fill();
+  // motoren: propellers aan de vleugel, of straalmotoren onder de vleugel
+  ctx.fillStyle = '#9aa0a6';
+  const mot = (t.zit || 0) > 120 || straal ? 1 : 1, my = span * (straal ? 0.17 : 0.2);
+  void mot;
+  for (const z of [-1, 1]) { if (prop && (t.zit || 0) <= 4) break; ctx.beginPath(); ctx.ellipse(wx + L * 0.02, z * my, L * 0.05, romp * 0.45, 0, 0, 7); ctx.fill(); }
+  if (prop && (t.zit || 0) <= 4) { ctx.fillStyle = '#555'; ctx.fillRect(L * 0.5, -L * 0.08, Math.max(1, L * 0.01), L * 0.16); }
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------- omlopen
 let opstel = null, groepIdx = null, groepIdxSig = '';
 const omlopen = new Map();
@@ -695,7 +732,10 @@ function tekenBoven(ctx, k) {
     if (eh > 1) u = { ...u, bakken: [...u.bakken, ...u.bakken], _l: u._l * 2 + (u._tussen || 1) }; // gekoppeld in de spits
     const kleur = eigen ? spel.kleur : huiskleur(v.lijn, u);
     const lang = schemaLengte(u._l) * Math.min(maat, 1.25);
-    if (u._l / r >= lang && m !== 'vlucht') {
+    // vliegtuig ver genoeg ingezoomd: het toestel zelf op ware grootte (bovenaanzicht)
+    const vlL = m === 'vlucht' ? vliegLengte(tid) : 0;
+    if (m === 'vlucht' && vlL / r >= 16) { tekenVliegtuig(ctx, px, py, v.hoek, vlL / r, tid, eigen ? spel.kleur : vervoerderKleur(v.lijn.vervoerderNaam || '')); }
+    else if (u._l / r >= lang && m !== 'vlucht') {
       // ingezoomd: ware lengte en bovenaanzicht
       tekenEcht(ctx, k, v, u, kleur, eigen);
       if (tid === 'trolley') { // stroomafnemers: twee stangen schuin naar achteren naar de bovenleiding
