@@ -166,11 +166,17 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
 
 /* voertuig samenstellen: kaarten naast elkaar, naar rechts scrollen */
 .bouwrij { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px; align-items: stretch; }
-.bouwkaart { flex: 0 0 230px; border: 1px solid var(--lijn, #ccc); border-radius: 8px; padding: 6px; background: #fff; display: flex; flex-direction: column; gap: 4px; }
+.bouwkaart { flex: 0 0 250px; border: 1px solid var(--lijn, #ccc); border-radius: 8px; padding: 6px; background: #fff; display: flex; flex-direction: column; gap: 4px; }
 .bouwkaart select { width: 100%; }
-.bouwkaart .foto { height: 120px; display: flex; align-items: center; justify-content: center; background: #f2f2f0; border-radius: 6px; overflow: hidden; }
-.bouwkaart .foto img { max-width: 100%; max-height: 120px; object-fit: cover; }
+.bouwkaart .foto, .kaartje .foto { display: flex; align-items: center; justify-content: center; background: linear-gradient(#eef4f8, #f6f4ee); border-radius: 6px; overflow: hidden; padding: 2px; }
+.kaartje .foto { margin-bottom: 4px; }
+.segment { display: flex; gap: 2px; flex-wrap: wrap; }
+.segment .knop { padding: 2px 6px; }
+.aandrijving { display: flex; flex-wrap: wrap; gap: 3px 4px; align-items: center; margin: 2px 0; }
+.aandrijving .landen { display: flex; gap: 6px; flex-wrap: wrap; width: 100%; }
+.aandrijving .land { white-space: nowrap; cursor: help; }
 .bouw-erbij { flex: 0 0 44px; font-size: 22px; }
 .chipkeuze { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border: 1px solid var(--lijn); border-radius: 999px; font-size: 12px; margin: 2px; cursor: pointer; user-select: none; }
 .chipkeuze input { margin: 0; }
 .chipkeuze:has(input:checked) { background: var(--accent); color: var(--vlak); border-color: var(--accent); }
+.aandrijving .chip { font-size: 11px; padding: 1px 6px; letter-spacing: 0; }

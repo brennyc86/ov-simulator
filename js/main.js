@@ -6,7 +6,8 @@ import { Wegen } from './wegen.js';
 import { bedenkAanbieding, bedient, toetsEisen, eisenTekst, vergoedingTekst, ramingTekst } from './subsidie.js';
 import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } from './gebouw.js';
 import { busstationOntwerp } from './perron.js';
-import { prestaties, vermogen, massa, doorloop, wiki } from './techniek.js';
+import { prestaties, vermogen, massa, doorloop } from './techniek.js';
+import { schets, aandrijving } from './schets.js';
 import { perronVanaf } from './correcties.js';
 import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom } from './stroom.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
@@ -1101,7 +1102,7 @@ function ververs(data) {
   const actief = document.activeElement;
   if (actief && el.contains(actief) && (actief.tagName === 'INPUT' || actief.tagName === 'SELECT')) return; // niet storen tijdens typen
   const f = PANELEN[paneelSoort];
-  if (f) { el.innerHTML = f(paneelData); koppel(el); fotosLaden(el); }
+  if (f) { el.innerHTML = f(paneelData); koppel(el); }
 }
 
 const PANELEN = {
@@ -1478,9 +1479,9 @@ const PANELEN = {
     const advies = p.kw && p.acc < 0.3 && magAanvullen ? '<p class="klein" style="color:var(--rood)">Traag optrekken met dit gewicht. Sluit af met een tweede loc in plaats van een stuurstandrijtuig, of neem minder rijtuigen.</p>' : '';
     return `<h2>Voertuig samenstellen · ${esc(MODI[d.modus].naam)}</h2>
       ${d.terug ? '<p class="chip">Voor je nieuwe lijn: stel het voertuig samen, koop het en je gaat terug naar de lijn. <button class="knop klein" data-actie="bouwer-terug">Terug zonder kopen</button></p>' : ''}
-      <p class="klein">${magAanvullen ? 'Begin met een loc of een compleet treinstel, zet er rijtuigen of treinstellen achter (met aantal) en sluit af met een loc, stuurstandrijtuig of treinstel. Scroll naar rechts.' : 'Kies het voertuig en zijn interieur.'}</p>
+      <p class="klein">${magAanvullen ? (opbouwVan(d) === 'treinstel' ? 'Kies een treinstel en koppel er eventueel meer treinstellen aan met ＋.' : 'Kies een loc en zet er met ＋ rijtuigen (met aantal) achter; sluit af met een stuurstandrijtuig of een tweede loc, anders loopt de loc om bij het keren.') + ' Kies bovenaan treinstel of loc.' : 'Kies het voertuig en zijn interieur.'}</p>
       <div class="bouwrij">${kaarten}${magAanvullen ? `<button class="knop bouw-erbij" data-actie="bw-erbij" title="Rijtuig of treinstel toevoegen">＋</button>` : ''}</div>
-      ${t ? `<div class="kaartje"><b>${esc(t.naam || '')}</b> · ${lengte} m · ${Math.round(p.ton)} ton · ${p.kw ? Math.round(p.kw).toLocaleString('nl-NL') + ' kW' : 'geen aandrijving'}
+      ${t ? `<div class="kaartje"><div class="foto">${schets(lijst, d.modus, { breed: 460 })}</div>${aandrijving(t.id, d.modus)}<b>${esc(t.naam || '')}</b> · ${lengte} m · ${Math.round(p.ton)} ton · ${p.kw ? Math.round(p.kw).toLocaleString('nl-NL') + ' kW' : 'geen aandrijving'}
         <br>Topsnelheid <b>${Math.round(p.kw ? p.vmax : 0)} km/u</b> <span class="klein">(gebouwd voor ${Math.round(vrijeVmax)} km/u${p.kw && p.vmaxVermogen < vrijeVmax ? `, met dit gewicht haalt het vermogen ${p.vmaxVermogen} km/u` : ''}; nooit sneller dan het spoor of de weg toelaat)</span>
         · optrekken <b>${komma(p.acc, 2)} m/s²</b>${t.keerExtra ? ` · <span style="color:var(--rood)">geen stuurstand aan het eind: de loc loopt om bij het keren (+${t.keerExtra} min)</span>` : ''}
         <br>${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit} zit${k.sta ? ` + ${k.sta} sta` : ''}`).join(' · ') || 'geen reizigersruimte'}
@@ -1641,7 +1642,12 @@ function actieUit(a, d) {
     }
     case 'paneel': openPaneel(d.p); break;
     case 'bouwer-open': openPaneel('bouwer', d.type ? bouwVan(d.type) : { modus: d.m || 'trein', delen: [{ id: '', n: 1 }], aantal: 1 }); break;
-    case 'bw-erbij': { const dd = paneelData, laatste = dd.delen.length >= 3 ? dd.delen.length - 1 : dd.delen.length; dd.delen.splice(laatste, 0, { id: '', n: 1 }); if (dd.delen.length === 2) dd.delen.push({ id: '', n: 1 }); ververs(); break; }
+    case 'bw-erbij': { const dd = paneelData, ts = opbouwVan(dd) === 'treinstel', n = dd.delen.length, laatste = dd.delen[n - 1];
+      // bij een loc-trein komen nieuwe rijtuigen vóór een afsluitend stuurstandrijtuig of tweede loc
+      const voor = !ts && n >= 2 && ['stuurstand', 'loc'].includes(catVan(dd, laatste, n - 1));
+      dd.delen.splice(voor ? n - 1 : n, 0, { id: '', n: 1, cat: ts ? 'treinstel' : 'rijtuig' }); ververs(); break; }
+    case 'bw-opbouw': { const dd = paneelData; if (opbouwVan(dd) !== d.w) { dd.opbouw = d.w; dd.delen = [{ id: '', n: 1 }]; } ververs(); break; }
+    case 'bw-cat': { const x = paneelData.delen[+d.i]; if (catVan(paneelData, x, +d.i) !== d.w) { x.cat = d.w; x.id = ''; x.n = 1; } ververs(); break; }
     case 'bw-weg': paneelData.delen.splice(+d.i, 1); ververs(); break;
     case 'bw-ink': { const dd = paneelData, x = dd.delen[+d.i]; if (!TYPE[x.id]) break; terugNaarBouwer = { d: dd, i: +d.i };
       openPaneel('serie', { basis: basisId(x.id), van: null, ink: JSON.parse(JSON.stringify(serieInrichting(x.id))), n: 1, kiezen: true }); break; }
@@ -2430,26 +2436,34 @@ function nodigBlok(d, typen) {
   return `<p class="klein">Rijtijd ${Math.round(tmp.duur / 60)} min · nodig <b>${tmp.nodig}</b> × ${esc(TYPE[id].naam)}${tekort.length ? ` · nog te kopen: ${tekort.map(([c, n]) => `${n} × ${esc(TYPE[c].naam)}`).join(', ')} (${S.euroKort(kosten)})` : ' · genoeg vrij in je vloot'}</p>`;
 }
 // ---------------------------------------------------------------- voertuig samenstellen
-// rol van een kaart in de rij: eerste = aandrijving, laatste (vanaf 3 kaarten) = afsluiting, daartussen rijtuigen/treinstellen
-const rolVan = (d, i) => i === 0 ? 'begin' : d.modus === 'trein' && i === d.delen.length - 1 && d.delen.length >= 3 ? 'eind' : 'midden';
-function bouwKeuzes(d, rol) {
+// Opbouw van een trein: met een treinstel (daarna alleen nog treinstellen erbij koppelen) of met een loc
+// (daarna locs, rijtuigen en een stuurstandrijtuig). Andere modi: één voertuig.
+const soortVan = x => x?.soort || TYPE[x?.basis]?.soort || '';
+const opbouwVan = d => d.opbouw || (soortVan(TYPE[d.delen[0]?.id]) === 'loc' ? 'loc' : 'treinstel');
+const catVan = (d, x, i) => { if (d.modus !== 'trein') return 'voertuig'; if (opbouwVan(d) === 'treinstel') return 'treinstel'; if (i === 0) return 'loc';
+  return x.cat || soortVan(TYPE[x.id]) || 'rijtuig'; };
+const CAT_NAAM = { treinstel: 'Treinstel', loc: 'Loc', rijtuig: 'Rijtuig', stuurstand: 'Stuurstandrijtuig', voertuig: 'Voertuig' };
+function bouwKeuzes(d, cat) {
   const typen = [...beschikbaar(spel.jaar, d.modus), ...(d.modus === 'trein' ? beschikbaarLos(spel.jaar) : []), ...(spel.series || []).map(x => TYPE[x.id]).filter(x => x && x.modus === d.modus),
     ...Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && TYPE[id]?.modus === d.modus && !TYPE[id]?.samen).map(id => TYPE[id])]
     .filter((x, i, a) => x && a.indexOf(x) === i && !['ddr', 'stoom3700'].includes(x.id)); // samengestelde oude sets bouw je nu zelf
-  const soort = x => x.soort || TYPE[x.basis]?.soort;
-  return typen.filter(x => rol === 'begin' ? soort(x) === 'loc' || !soort(x) : rol === 'eind' ? soort(x) === 'loc' || soort(x) === 'stuurstand' || !soort(x) : soort(x) !== 'loc');
+  if (cat === 'voertuig') return typen;
+  return typen.filter(x => (soortVan(x) || 'treinstel') === cat);
 }
 function bouwKaart(d, x, i) {
-  const rol = rolVan(d, i), t = TYPE[x.id], keuzes = bouwKeuzes(d, rol);
-  const titel = { begin: d.modus === 'trein' ? 'Aandrijving (loc of treinstel)' : 'Voertuig', midden: 'Rijtuigen of treinstellen', eind: 'Afsluiting (loc, stuurstand of treinstel)' }[rol];
+  const cat = catVan(d, x, i), t = TYPE[x.id], keuzes = bouwKeuzes(d, cat), trein = d.modus === 'trein', ts = opbouwVan(d) === 'treinstel';
+  const titel = !trein ? 'Voertuig' : i === 0 ? null : ts ? 'Gekoppeld treinstel' : null;
+  // eerste kaart: treinstel of loc; daarna bij een loc-trein: loc, rijtuig of stuurstandrijtuig
+  const knoppen = (opties, actie, huidig) => `<div class="segment">${opties.map(o => `<button class="knop klein ${o === huidig ? 'hoofd' : ''}" data-actie="${actie}" data-w="${o}" data-i="${i}">${CAT_NAAM[o]}</button>`).join('')}</div>`;
+  const kop = !trein ? '' : i === 0 ? knoppen(['treinstel', 'loc'], 'bw-opbouw', ts ? 'treinstel' : 'loc') : ts ? '' : knoppen(['loc', 'rijtuig', 'stuurstand'], 'bw-cat', cat);
   const kl = t && t.soort !== 'loc' ? klassenVan(serieInrichting(x.id), x.id, d.modus) : [];
-  return `<div class="bouwkaart"><div class="rij"><b class="klein">${titel}</b>${i > 0 ? `<button class="knop klein" style="margin-left:auto" data-actie="bw-weg" data-i="${i}" title="weghalen">✕</button>` : ''}</div>
-    <div class="foto" data-foto="${esc(x.id || '')}"></div>
-    <select data-wijzig="bw-type" data-i="${i}"><option value="">— kies —</option>${keuzes.map(v => `<option value="${v.id}" ${v.id === x.id ? 'selected' : ''}>${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ''}</option>`).join('')}</select>
-    ${t ? `<p class="klein">${t.van}–${t.tot < 2100 ? t.tot : 'nu'} · ${t.vmax} km/u · ${vermogen(x.id) ? Math.round(vermogen(x.id)).toLocaleString('nl-NL') + ' kW · ' : ''}${Math.round(massa(x.id))} t${t.soort !== 'loc' ? ` · ${doorloop(x.id) ? 'doorloop' : 'geen doorloop'}` : ''} · ${S.euroKort(t.prijs)}</p>
+  return `<div class="bouwkaart"><div class="rij">${titel ? `<b class="klein">${titel}</b>` : ''}${kop}${i > 0 ? `<button class="knop klein" style="margin-left:auto" data-actie="bw-weg" data-i="${i}" title="weghalen">✕</button>` : ''}</div>
+    <div class="foto">${schets(x.id ? [x.id] : [], d.modus)}</div>
+    <select data-wijzig="bw-type" data-i="${i}"><option value="">— kies ${CAT_NAAM[cat].toLowerCase()} —</option>${keuzes.map(v => `<option value="${v.id}" ${v.id === x.id ? 'selected' : ''}>${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ''}</option>`).join('')}</select>
+    ${t ? `${aandrijving(x.id, d.modus)}<p class="klein">${t.van}–${t.tot < 2100 ? t.tot : 'nu'} · ${t.vmax} km/u · ${vermogen(x.id) ? Math.round(vermogen(x.id)).toLocaleString('nl-NL') + ' kW · ' : ''}${Math.round(massa(x.id))} t${t.soort !== 'loc' ? ` · ${doorloop(x.id) ? 'doorloop' : 'geen doorloop'}` : ''} · ${S.euroKort(t.prijs)}</p>
       ${kl.length ? `<p class="klein">${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit}${k.sta ? '+' + k.sta : ''} (${STOEL[k.stoel]?.naam || ''})`).join('<br>')}${voorzieningen(x.id).length ? '<br>' + [...new Set(voorzieningen(x.id).map(v => v.naam))].join(', ') : ''}</p>
         <button class="knop klein" data-actie="bw-ink" data-i="${i}">Interieur…</button>` : ''}
-      ${rol === 'midden' ? `<label class="veld klein">Aantal<input type="number" min="1" max="20" value="${x.n || 1}" data-wijzig="bw-n" data-i="${i}" style="width:4em"></label>` : ''}` : ''}</div>`;
+      ${trein && i > 0 && cat === 'rijtuig' ? `<label class="veld klein">Aantal<input type="number" min="1" max="20" value="${x.n || 1}" data-wijzig="bw-n" data-i="${i}" style="width:4em"></label>` : ''}` : ''}</div>`;
 }
 const bouwLijst = d => d.delen.filter(x => TYPE[x.id]).flatMap(x => Array(Math.max(1, x.n || 1)).fill(x.id));
 // van een bestaand voertuig (samenstelling of type) weer kaarten maken, om te kopiëren
@@ -2457,32 +2471,6 @@ function bouwVan(typeId) {
   const t = TYPE[typeId], ids = t?.samen || [typeId], delen = [];
   for (const id of ids) { const l = delen[delen.length - 1]; if (l && l.id === id && delen.length > 0 && TYPE[id]?.soort !== 'loc') l.n++; else delen.push({ id, n: 1 }); }
   return { modus: t?.modus || 'trein', delen, aantal: 1 };
-}
-// foto's: samenvatting van het Wikipedia-artikel (nl, anders en); zonder foto een tekening van de bakken
-const fotoCache = new Map();
-async function fotoVan(id) {
-  if (fotoCache.has(id)) return fotoCache.get(id);
-  const opgeslagen = localStorage.getItem('ovfoto:' + id); if (opgeslagen !== null) { fotoCache.set(id, opgeslagen); return opgeslagen; }
-  let url = '';
-  const [nl, en] = wiki(id);
-  for (const [taal, titel] of [['nl', nl], ['en', en]]) { if (!titel || url) continue;
-    try { const r = await fetch(`https://${taal}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(titel.replace(/ /g, '_'))}`); if (r.ok) { const j = await r.json(); url = j.thumbnail?.source || ''; } } catch { /* offline */ } }
-  fotoCache.set(id, url); try { localStorage.setItem('ovfoto:' + id, url); } catch { /* vol */ }
-  return url;
-}
-function tekeningVan(id, modus) {
-  const u = uiterlijk(id, modus), L = u._l || 20, sch = 220 / Math.max(L, 30); let x = 4, svg = '';
-  u.bakken.forEach((b, k) => { const w = b * sch, loc = u.loc && k < u.loc; svg += `<rect x="${x}" y="${u.dd ? 8 : 16}" width="${w - 2}" height="${u.dd ? 34 : 24}" rx="3" fill="${loc ? '#5f6366' : u.kleur}" stroke="#333"/>`;
-    if (!loc) for (let r = x + 6; r < x + w - 10; r += 9) svg += `<rect x="${r}" y="${u.dd ? 12 : 20}" width="6" height="7" fill="#1d2a33"/>` + (u.dd ? `<rect x="${r}" y="28" width="6" height="7" fill="#1d2a33"/>` : '');
-    x += w; });
-  return `<svg viewBox="0 0 230 50" width="100%" height="60"><line x1="0" y1="45" x2="230" y2="45" stroke="#777"/>${svg}</svg>`;
-}
-function fotosLaden(el) {
-  for (const f of el.querySelectorAll('[data-foto]')) {
-    const id = f.dataset.foto; if (!id || !TYPE[id]) continue;
-    f.innerHTML = tekeningVan(id, TYPE[id].modus);
-    fotoVan(id).then(url => { if (url && f.isConnected) f.innerHTML = `<img src="${url}" alt="${esc(TYPE[id].naam)}" loading="lazy" referrerpolicy="no-referrer">`; });
-  }
 }
 let terugNaarBouwer = null;
 // ---------------------------------------------------------------- busstation
