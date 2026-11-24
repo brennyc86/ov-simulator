@@ -261,17 +261,20 @@ export function ritPositie(lijn, r, v, tm, zonderStops = false) {
   if (v > tm) return null;
   const verstreken = (tm - v) * 60;
   const t = lijn.tr?.[r] || lijn.t, n = t.length;
-  if (verstreken > t[n - 1]) return null;
+  // vaste wachttijden uit de spoorplanner (kruisen op enkelspoor, achter een voorganger aan): per halte, opgeteld
+  const w = lijn._ritWacht?.get(`${r}:${v}`);
+  const C = i => { if (!w) return 0; let s = 0; for (let k = 0; k <= i; k++) s += w[k]; return s; };
+  if (verstreken > t[n - 1] + C(n - 2)) return null;
   if (zonderStops) { // lege rit: gelijkmatig door, niet stilstaan bij haltes
     const s = verstreken / t[n - 1] * (n - 1), i = Math.min(n - 2, Math.floor(s));
     return ritPlek(lijn, r, i, s - i, v);
   }
   let i = 0;
-  while (i < n - 2 && t[i + 1] <= verstreken) i++;
+  while (i < n - 2 && t[i + 1] + C(i) <= verstreken) i++;
   const halte = lijn._halteTijd ?? MODI[lijn.modus].halteTijd;
   // extra wachttijd bij de halte waar dit stuk begint: eerst blijven staan
-  const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60;
-  const begin = t[i] + extra, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0);
+  const extra = (lijn.halteWacht?.[`${r}:${i}`] || lijn.dw?.[i] || 0) * 60, ci = C(i);
+  const begin = t[i] + extra + ci, eind = t[i + 1] - (i + 1 < n - 1 ? halte : 0) + ci;
   const f = Math.max(0, Math.min(1, (verstreken - begin) / Math.max(1, eind - begin)));
   return ritPlek(lijn, r, i, f, v);
 }

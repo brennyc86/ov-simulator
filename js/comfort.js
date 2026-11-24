@@ -126,6 +126,19 @@ export const REST = {
   beperkt: { naam: 'beperkte restauratie (halve wagon)', comfort: 1.0, uur: 45, prijs: 250000 },
   vol:     { naam: 'restauratierijtuig (hele wagon)', comfort: 1.4, uur: 70, prijs: 450000 },
 };
+// slaapplaatsen (slaaprijtuig): soort cabine met aantal bedden per hele wagon, comfort (absoluut, 0..10) en inbouwprijs per bed
+export const SLAAP = {
+  lig6:    { naam: 'ligrijtuig: 6 couchettes per coupé (heel krap)', bedden: 60, comfort: 4, prijs: 2500 },
+  capsule: { naam: 'mini-cabines: 1 persoon per capsule (krap)', bedden: 36, comfort: 5, prijs: 7000 },
+  lig4:    { naam: 'ligrijtuig: 4 couchettes per coupé', bedden: 40, comfort: 5.5, prijs: 3500 },
+  stapel3: { naam: 'slaapcoupé: 3 bedden (stapelbed), wastafel', bedden: 30, comfort: 6.5, prijs: 9000 },
+  stapel2: { naam: 'slaapcoupé: 2 bedden (stapelbed), wastafel', bedden: 20, comfort: 7.5, prijs: 12000 },
+  enkel:   { naam: 'eenpersoons slaapcoupé, wastafel', bedden: 10, comfort: 8.3, prijs: 18000 },
+  deluxe:  { naam: 'deluxe: 2 bedden naast elkaar, eigen douche en wc', bedden: 12, comfort: 9, prijs: 32000 },
+  suite:   { naam: 'suite: tweepersoonsbed, zithoek en badkamer (half rijtuig per suite)', bedden: 4, comfort: 10, prijs: 140000 },
+};
+const slaapDeel = (cabine, len = 1) => ({ soort: 'slaap', klasse: ['lig6', 'lig4', 'capsule'].includes(cabine) ? '2' : cabine === 'suite' ? 'P' : '1', cabine, len });
+export const nieuwSlaapDeel = slaapDeel;
 const restSoort = len => len >= 0.75 ? 'vol' : 'beperkt';
 // catering per klasse (bij de lijn): comfort en netto kosten per voertuiguur (personeel en inkoop min verkoop)
 export const CATERING = [
@@ -160,6 +173,10 @@ export function standaardInrichting(typeId, modus) {
   const n = Math.max(1, wagonsVan(typeId, modus).length), t = TYPE[typeId];
   const stoel = kenmerk(typeId).comfort < 3 ? 'hout' : 'bekleed';
   if (t?.soort === 'loc') return { wagons: [], voorz: [] };
+  // restauratierijtuig is meteen een restauratie, een slaaprijtuig heeft slaapcoupés (anders in te richten via Vloot)
+  if (t?.inrichting === 'rest') return { wagons: Array.from({ length: n }, () => ({ delen: [{ soort: 'rest', len: 1 }] })), voorz: [] };
+  if (t?.inrichting === 'slaap') return { wagons: Array.from({ length: n }, () => ({ delen: [slaapDeel(JAAR < 1975 ? 'stapel3' : 'stapel2')] })), voorz: [] };
+  if (t?.inrichting === 'lig') return { wagons: Array.from({ length: n }, () => ({ delen: [slaapDeel(JAAR < 1980 ? 'lig6' : 'lig4')] })), voorz: [] };
   const oud = JAAR < DRIE_KLASSEN_TOT && modus === 'trein';
   const aandelen = modus === 'trein' && n >= 2 && !t?.soort ? (oud ? [['1', 0.1], ['2', 0.25], ['3', 0.65]] : [['1', Math.min(0.5, 0.6 / n + 0.05)], ['2', 1]]) : [[oud ? '3' : '2', 1]];
   const s = aandelen.reduce((a, x) => a + x[1], 0);
@@ -210,6 +227,7 @@ export function plaatsenPerWagon(ink, typeId) {
   const per = ink.wagons.map((w, i) => {
     const Lw = wagons[i]?.lengte || L / Math.max(1, ink.wagons.length);
     return w.delen.map(d => {
+      if (d.soort === 'slaap') return { ...d, zit: Math.max(1, Math.round((SLAAP[d.cabine] || SLAAP.stapel2).bedden * d.len)), sta: 0, lengte: Lw * d.len };
       if (d.soort !== 'zit') return { ...d, zit: 0, sta: 0 };
       const pitch = BEEN[d.been] || 80, st = STOEL[d.stoel] || STOEL.bekleed, breed = Math.min(d.breed, maxBreed(typeId));
       const zit = zitM * Lw * d.len * (breed / sb) * (80 / pitch) * st.plaats;
@@ -221,7 +239,7 @@ export function plaatsenPerWagon(ink, typeId) {
   if (['bus', 'hov', 'belbus'].includes(modus)) { const w = per[per.length - 1], d = w && [...w].reverse().find(x => x.soort === 'zit'); if (d) d.zit += 1; }
   // voorzieningen kosten plaatsen: van het grootste zitdeel
   let kost = (ink.voorz || []).reduce((a, v) => a + (VOORZ[v]?.plekken || 0), 0);
-  const alle = per.flat().filter(d => d.soort === 'zit').sort((a, b) => b.zit - a.zit);
+  const alle = per.flat().filter(d => d.soort === 'zit' && d.zit > 0).sort((a, b) => b.zit - a.zit);
   for (const d of alle) { if (kost <= 0) break; const af = Math.min(d.zit, kost); d.zit -= af; kost -= af; }
   return per;
 }
@@ -242,12 +260,12 @@ export function klassenVan(lijnInk, typeId, modus) {
     const ink = li.ink && delenVan(typeId).length === 1 ? li.ink : eigenInk(c);
     const sb = STD_BREED[t.modus] || 4, basis = kenmerk(c).comfort;
     for (const d of plaatsenPerWagon(ink, c).flat()) {
-      if (d.soort !== 'zit') continue;
+      if (d.soort !== 'zit' && d.soort !== 'slaap') continue;
       const pitch = BEEN[d.been] || 80, st = STOEL[d.stoel] || STOEL.bekleed;
-      const comfort = Math.max(0, Math.min(10, basis + (sb - Math.min(d.breed, maxBreed(c))) * 0.9 + (pitch - 80) / 12 + st.comfort + (STROOM[d.stroom || '']?.comfort || 0) + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) + rc));
+      const comfort = d.soort === 'slaap' ? Math.min(10, (SLAAP[d.cabine] || SLAAP.stapel2).comfort + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) * 0.5 + rc * 0.5) : Math.max(0, Math.min(10, basis + (sb - Math.min(d.breed, maxBreed(c))) * 0.9 + (pitch - 80) / 12 + st.comfort + (STROOM[d.stroom || '']?.comfort || 0) + (CATERING[li.catering?.[d.klasse] || 0]?.comfort || 0) + rc));
       const k = som.get(d.klasse) || { klasse: d.klasse, zit: 0, sta: 0, cw: 0, stoelen: {}, lengte: 0 };
       k.zit += d.zit; k.sta += d.sta; k.cw += comfort * Math.max(1, d.zit); k.n = (k.n || 0) + Math.max(1, d.zit); k.lengte += d.lengte || 0;
-      k.stoelen[d.stoel] = (k.stoelen[d.stoel] || 0) + d.zit;
+      k.stoelen[d.soort === 'slaap' ? 'slaap:' + d.cabine : d.stoel] = (k.stoelen[d.soort === 'slaap' ? 'slaap:' + d.cabine : d.stoel] || 0) + d.zit;
       som.set(d.klasse, k);
     }
   }
@@ -293,7 +311,7 @@ export function vraagEffect(lijn, typeId, comfortConcurrent = null) {
 }
 
 // ---------------------------------------------------------------- kosten
-const stoelKosten = (ink, typeId) => plaatsenPerWagon(ink, typeId).flat().reduce((a, d) => a + (d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + (STROOM[d.stroom || '']?.prijs || 0)) : d.soort === 'rest' ? REST[restSoort(d.len)].prijs : 0), 0)
+const stoelKosten = (ink, typeId) => plaatsenPerWagon(ink, typeId).flat().reduce((a, d) => a + (d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + (STROOM[d.stroom || '']?.prijs || 0)) : d.soort === 'rest' ? REST[restSoort(d.len)].prijs : d.soort === 'slaap' ? d.zit * (SLAAP[d.cabine] || SLAAP.stapel2).prijs : 0), 0)
   + (ink.voorz || []).reduce((a, v) => a + (VOORZ[v]?.prijs || 0), 0);
 // meerprijs van een interieur bij nieuwbouw t.o.v. het standaardinterieur (kan negatief zijn: kale bankjes)
 export function interieurMeerprijs(ink, basis) {
@@ -306,7 +324,7 @@ export function ombouwKosten(oud, nieuw, typeId) {
   const per = plaatsenPerWagon(nieuw, typeId);
   nieuw.wagons.forEach((w, i) => {
     if (JSON.stringify(w) === JSON.stringify(oud.wagons[i])) return;
-    for (const d of per[i]) k += d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + (STROOM[d.stroom || '']?.prijs || 0) + 250) : REST[restSoort(d.len)].prijs * 0.8;
+    for (const d of per[i]) k += d.soort === 'zit' ? d.zit * ((STOEL[d.stoel] || STOEL.bekleed).prijs + (STROOM[d.stroom || '']?.prijs || 0) + 250) : d.soort === 'slaap' ? d.zit * (SLAAP[d.cabine] || SLAAP.stapel2).prijs : REST[restSoort(d.len)].prijs * 0.8;
   });
   for (const v of nieuw.voorz || []) if (!(oud.voorz || []).includes(v)) k += VOORZ[v]?.prijs || 0;
   return Math.round(k / 1000) * 1000;
@@ -320,7 +338,7 @@ export function uurKosten(lijn, typeId) {
 export const haltetijdFactor = typeId => 1 / kenmerk(typeId).deuren;
 // zelfde interieur? (om een bestaande serie terug te vinden)
 export const zelfdeInterieur = (a, b) => JSON.stringify(norm(a)) === JSON.stringify(norm(b));
-const norm = i => ({ v: [...(i.voorz || [])].sort(), w: (i.wagons || []).map(w => w.delen.map(d => d.soort === 'zit' ? [d.klasse, d.stoel, d.breed, d.been, Math.round(d.len * 100), d.stroom || ''] : ['rest', Math.round(d.len * 100)])) });
+const norm = i => ({ v: [...(i.voorz || [])].sort(), w: (i.wagons || []).map(w => w.delen.map(d => d.soort === 'zit' ? [d.klasse, d.stoel, d.breed, d.been, Math.round(d.len * 100), d.stroom || ''] : d.soort === 'slaap' ? ['slaap', d.klasse, d.cabine, Math.round(d.len * 100)] : ['rest', Math.round(d.len * 100)])) });
 // welke voorzieningen passen: niet meer dan ~70% van de zitplaatsen
 export function voorzMag(id, typeId) {
   const t = TYPE[typeId], v = VOORZ[id];
@@ -351,7 +369,7 @@ export function serieNaamVoorstel(typeId, ink) {
   const d = ink.wagons.flatMap(w => w.delen), zit = d.filter(x => x.soort === 'zit');
   const gem = zit.reduce((a, x) => a + (STOEL[x.stoel] || STOEL.bekleed).comfort * x.len, 0) / (zit.reduce((a, x) => a + x.len, 0) || 1);
   const soort = zit.some(x => x.stoel === 'massage' || x.klasse === 'P') ? 'luxe' : zit.length && zit.every(x => rang(x.klasse) >= 3) ? 'budget' : gem >= 0.6 ? 'comfort' : gem <= -0.6 ? 'basic'
-    : d.some(x => x.soort === 'rest') ? 'restauratie' : (ink.voorz || []).length ? 'plus' : 'eigen';
+    : d.some(x => x.soort === 'slaap') ? 'slaap' : d.some(x => x.soort === 'rest') ? 'restauratie' : (ink.voorz || []).length ? 'plus' : 'eigen';
   return `${kortNaam(typeId)}_${soort}`;
 }
 
@@ -403,3 +421,5 @@ export function nodigPer(typeId) {
   for (const c of delenVan(typeId)) if (TYPE[c]?.soort !== 'wagon') uit[c] = (uit[c] || 0) + 1; // goederenwagens zijn van de klant
   return uit;
 }
+// naam van een stoelsoort of slaapcabine (klassenVan geeft 'slaap:<cabine>' voor slaapplaatsen)
+export const stoelNaam = s => String(s || '').startsWith('slaap:') ? (SLAAP[s.slice(6)]?.naam || 'slaapplaatsen') : STOEL[s]?.naam || '';

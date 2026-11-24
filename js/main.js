@@ -16,9 +16,10 @@ import { LANDEN } from './schets.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
 import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
+import { planAlles, stationZoeker } from './spoorplan.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
-import { kortNaam, interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
+import { kortNaam, stoelNaam, SLAAP, nieuwSlaapDeel, interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
 import { uiterlijk, typeVoor, huiskleur, schemaLengte, tekenEcht, bakkenVan, vervoerderKleur, dof, tekenIcoon } from './voertuig.js';
 import { Net, wegRoute, bboxVan, BEHEERDER } from './net.js';
 import { MODI, VLOOT, TYPE, beschikbaar, beschikbaarLos, standaardType } from './vloot.js';
@@ -597,9 +598,9 @@ function groepIndex() {
 // omloop opnieuw als een dienstregeling, route of actief-status van een lijn in de groep veranderd is
 function omloopVan(g, lijnen) {
   const c = omlopen.get(g);
-  if (c && c.lijnen.length === lijnen.length && c.lijnen.every((l, i) => l === lijnen[i] && c.v[i] === l.vertrek && c.a[i] === l.actief && c.t[i] === (l.tr || l.t))) return c.om;
+  if (c && c.lijnen.length === lijnen.length && c.lijnen.every((l, i) => l === lijnen[i] && c.v[i] === l.vertrek && c.a[i] === l.actief && c.t[i] === (l.tr || l.t) && c.w[i] === l._ritWacht)) return c.om;
   const om = maakOmloop(lijnen); om.id = g;
-  omlopen.set(g, { lijnen: [...lijnen], v: lijnen.map(l => l.vertrek), a: lijnen.map(l => l.actief), t: lijnen.map(l => l.tr || l.t), om });
+  omlopen.set(g, { lijnen: [...lijnen], v: lijnen.map(l => l.vertrek), a: lijnen.map(l => l.actief), t: lijnen.map(l => l.tr || l.t), w: lijnen.map(l => l._ritWacht), om });
   for (const l of lijnen) l._omloopN = om.voertuigen.length;
   return om;
 }
@@ -1134,7 +1135,7 @@ const komma = (x, d = 1) => x.toFixed(d).replace('.', ',');
 function prijzenBlok(l) {
   const kl = klassenVan(inrichtingVan(l, l.typeId), l.typeId, l.modus), eff = vraagEffect(l, l.typeId);
   const km = kenmerk(l.typeId), t = TYPE[l.typeId], vz = voorzieningen(l.typeId);
-  const rijen = kl.map(k => `<tr><td>${KLASSE_NAAM[k.klasse]}</td><td class="klein">${STOEL[k.stoel]?.naam || ''}<br>${k.zit} zit${k.sta ? ` + ${k.sta} sta` : ''}</td>
+  const rijen = kl.map(k => `<tr><td>${KLASSE_NAAM[k.klasse]}</td><td class="klein">${stoelNaam(k.stoel)}<br>${k.zit} ${String(k.stoel).startsWith('slaap:') ? 'bedden' : 'zit'}${k.sta ? ` + ${k.sta} sta` : ''}</td>
     <td class="getal">${Math.round(k.prijs * 100)}%</td>
     <td><select data-wijzig="lcatering" data-id="${l.id}" data-k="${k.klasse}">${CATERING.map((c, n) => `<option value="${n}" ${n === k.catering ? 'selected' : ''}>${c.naam}</option>`).join('')}</select></td>
     <td class="getal">${komma(k.comfort)}</td></tr>`).join('');
@@ -1231,7 +1232,7 @@ function vlootKaart(id) {
   const vz = t.soort === 'loc' ? [] : voorzieningen(id), bd = buitenDienst(spel, id);
   return `<div class="kaartje vlootkaart"><div class="rij"><b>${vlootNaam(id)}</b><span class="chip">${n} in bezit${bd ? ` · ${bd} in revisie` : ''}</span></div>
     <div class="foto">${schets([id], t.modus, { breed: 460 })}</div>${aandrijving(id, t.modus)}
-    <p class="klein">${kl.length ? kl.map(k => `${KLASSE_NAAM[k.klasse]}: <b>${k.zit}</b> zit${k.sta ? ` + ${k.sta} sta` : ''} (${STOEL[k.stoel]?.naam || ''})`).join(' · ') + '<br>' : ''}${vz.length ? [...new Set(vz.map(v => v.naam))].join(', ') + '<br>' : ''}
+    <p class="klein">${kl.length ? kl.map(k => `${KLASSE_NAAM[k.klasse]}: <b>${k.zit}</b> ${String(k.stoel).startsWith('slaap:') ? 'bedden' : 'zit'}${k.sta ? ` + ${k.sta} sta` : ''} (${stoelNaam(k.stoel)})`).join(' · ') + '<br>' : ''}${vz.length ? [...new Set(vz.map(v => v.naam))].join(', ') + '<br>' : ''}
       ${t.vmax} km/u · ${vermogen(id) ? Math.round(vermogen(id)).toLocaleString('nl-NL') + ' kW · ' : ''}${Math.round(massa(id))} t · ${lt ? `gem. ${Math.round(lt.gem)} van ${lt.leven} jaar${S.ouderdomFactor(lt.gem, lt.leven) > 1.15 ? ' ⚠ duurder onderhoud' : ''}` : ''}</p>
     <div class="rij"><input id="vk-${id}" type="number" min="1" max="200" value="1" style="width:4em">
       ${kopieMag(t) ? `<button class="knop klein hoofd" data-actie="vloot-kopie" data-type="${id}" title="Nieuw, met precies dit interieur">Kopie kopen (${S.euroKort(t.prijs)}/st)</button>` : '<span class="klein">niet meer nieuw te koop</span>'}
@@ -1482,6 +1483,7 @@ const PANELEN = {
     return `<h2><span class="lijnnr" style="background:${spel.kleur}">${esc(l.nr)}</span> ${esc(l.naam || '')}</h2>
       <p class="klein">${MODI[l.modus].naam} · ${l.lengteKm.toFixed(1).replace('.', ',')} km · rijtijd ${Math.round(l.duur / 60)} min · ${l.vertrek[0].length + l.vertrek[1].length} ritten per dag
       ${l.concessie ? ' · <span class="chip goed">concessie</span>' : ''} ${l.wacht ? `<span class="chip let">${l.wacht === 'stroom' ? 'rijdt niet: materieel past niet bij de bovenleiding' : 'wacht op ProRail'}</span>` : ''} ${!l.actief && !l.wacht ? '<span class="chip">gestopt</span>' : ''}</p>
+      ${spoorplanTekst(l)}
       ${l._concept ? conceptBlok(l) : `<ol class="haltelijst">${l.haltes.map((h, i) => `<li>${esc(h.naam)} <span class="klein">+${Math.round(l.t[i] / 60)}′</span>${l.bijzonder ? '' : ` <button class="knop klein" data-actie="halte-weg" data-id="${l.id}" data-i="${i}" title="halte uit de lijn halen (eerst als concept)">✕</button>`}</li>`).join('')}</ol>
       ${l.bijzonder ? '' : `<button class="knop klein" data-actie="halte-erbij" data-id="${l.id}">＋ Station/halte toevoegen</button>`}`}
       ${richtingBlok(l)}
@@ -1608,12 +1610,14 @@ const PANELEN = {
     const wagonRij = (w, i) => `<div class="kaartje"><div class="rij"><b>${wagons.length > 1 ? `Wagon ${i + 1}` : 'Indeling'}</b><span class="klein">${Math.round(wagons[i]?.lengte || 0)} m</span>
         <span style="margin-left:auto"></span>${w.delen.length < 3 ? `<button class="knop klein" data-actie="sw-splits" data-w="${i}" title="wagon in delen splitsen">½ splitsen</button>` : ''}${wagons.length > 1 ? `<button class="knop klein" data-actie="sw-kopie" data-w="${i}" title="alle wagons zo indelen">⇉ alle wagons zo</button>` : ''}</div>
       <table class="tabel klein">${w.delen.map((dl, j) => `<tr>
-        <td>${sel(i, j, 'soort', trein ? [['zit', 'zitplaatsen'], ['rest', 'restauratie']] : [['zit', 'zitplaatsen']], dl.soort)}</td>
+        <td>${sel(i, j, 'soort', trein ? [['zit', 'zitplaatsen'], ['rest', 'restauratie'], ['slaap', 'slaapplaatsen']] : [['zit', 'zitplaatsen']], dl.soort)}</td>
         ${w.delen.length > 1 ? `<td><input type="number" min="10" max="90" step="5" value="${Math.round(dl.len * 100)}" data-wijzig="sw" data-w="${i}" data-d="${j}" data-veld="len" style="width:3.6em">%</td>` : '<td></td>'}
         ${dl.soort === 'zit' ? `<td>${sel(i, j, 'klasse', KLASSEN.map(k => [k, KLASSE_NAAM[k]]), dl.klasse)}</td><td>${sel(i, j, 'stoel', Object.entries(STOEL).map(([v, st]) => [v, st.naam]), dl.stoel)}</td>
           <td>${sel(i, j, 'breed', Array.from({ length: maxBreed(d.basis) }, (_, k) => k + 1).map(x => [x, x + ' naast elkaar']), Math.min(dl.breed, maxBreed(d.basis)))}</td>
           <td>${sel(i, j, 'stroom', Object.entries(STROOM).filter(([v]) => stroomMag(v, modus, spel.jaar) || v === (dl.stroom || '')).map(([v, x]) => [v, x.naam]), dl.stroom || '')}</td><td>${sel(i, j, 'been', Object.entries(BEEN).map(([v, cm]) => [v, `${v} (${cm} cm)`]), dl.been)}</td>
           <td class="getal"><b>${per[i]?.[j]?.zit ?? 0}</b> zit${per[i]?.[j]?.sta ? ` + ${per[i][j].sta} sta` : ''}</td>`
+        : dl.soort === 'slaap' ? `<td>${sel(i, j, 'klasse', KLASSEN.map(k => [k, KLASSE_NAAM[k]]), dl.klasse)}</td><td colspan="4">${sel(i, j, 'cabine', Object.entries(SLAAP).map(([v, x]) => [v, x.naam]), dl.cabine)}</td>
+          <td class="getal"><b>${per[i]?.[j]?.zit ?? 0}</b> bed${(per[i]?.[j]?.zit ?? 0) === 1 ? '' : 'den'}</td>`
         : `<td colspan="5">${dl.len >= 0.75 ? REST.vol.naam : REST.beperkt.naam}</td>`}
         <td>${w.delen.length > 1 ? `<button class="knop klein" data-actie="sw-weg" data-w="${i}" data-d="${j}" title="deel weghalen">✕</button>` : ''}</td></tr>`).join('')}</table></div>`;
     const eigen = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && basisId(id) === d.basis);
@@ -1621,11 +1625,11 @@ const PANELEN = {
     const vzOpties = Object.entries(VOORZ).filter(([v]) => voorzMag(v, d.basis) || (ink.voorz || []).includes(v));
     if (d.kiezen) return `<p class="chip">Interieur voor het voertuig in je samenstelling. <button class="knop hoofd" data-actie="serie-kies">Dit interieur gebruiken</button> <button class="knop klein" data-actie="serie-kies-terug">Terug</button></p>` + PANELEN.serie({ ...d, kiezen: false, alleenOntwerp: true });
     return `${d.terug ? '<p class="chip">Voor je nieuwe lijn: ontwerp het interieur, koop het aantal dat je wilt en je gaat terug naar de lijn met deze serie gekozen. <button class="knop klein" data-actie="serie-terug">Terug zonder kopen</button></p>' : ''}<h2>Interieur: ${esc(b.naam)}</h2>
-      <p class="klein">Het interieur hoort bij het voertuig en deel je per wagon in. Een wagon kan in delen (bv. half 1e en half 2e klas${trein ? ', of een halve wagon beperkte restauratie' : ''}). Klassen: Premium, 1e, 2e, 3e, 4e …; met een hoger kaartje mag je lager zitten, niet andersom. Een eigen interieur wordt een eigen serie. Catering aan je plaats en openingstijden regel je per lijn.</p>
+      <p class="klein">Het interieur hoort bij het voertuig en deel je per wagon in. Een wagon kan in delen (bv. half 1e en half 2e klas${trein ? ', een halve wagon beperkte restauratie, of slaapplaatsen: van couchettes en capsules tot een suite die een half rijtuig beslaat' : ''}). Klassen: Premium, 1e, 2e, 3e, 4e …; met een hoger kaartje mag je lager zitten, niet andersom. Een eigen interieur wordt een eigen serie. Catering aan je plaats en openingstijden regel je per lijn.</p>
       ${ink.wagons.map(wagonRij).join('')}
       <div class="rij"><button class="knop klein" data-actie="sn-standaard">Standaardinterieur</button></div>
       ${vzOpties.length ? `<h3>Voorzieningen</h3>${vzOpties.map(([v, x]) => `<label class="rij klein"><input type="checkbox" data-wijzig="sv" data-v="${v}" ${(ink.voorz || []).includes(v) ? 'checked' : ''}> ${x.naam} <span class="klein">(kost ${x.plekken} zitplaatsen, ${S.euroKort(x.prijs)}${x.bemand ? `, € ${x.uur}/uur open` : ''})</span></label>`).join('')}` : ''}
-      <p>Per voertuig: ${kl.map(k => `<b>${KLASSE_NAAM[k.klasse]}</b> ${k.zit} zit${k.sta ? ` + ${k.sta} sta` : ''} (comfort ${komma(k.comfort)})`).join(' · ')}</p>
+      <p>Per voertuig: ${kl.map(k => `<b>${KLASSE_NAAM[k.klasse]}</b> ${k.zit} ${String(k.stoel).startsWith('slaap:') ? 'bedden' : 'zit'}${k.sta ? ` + ${k.sta} sta` : ''} (comfort ${komma(k.comfort)})`).join(' · ')}</p>
       ${doelId ? `<p class="chip">Dit interieur ${doelId === d.basis ? 'is het standaardinterieur' : `bestaat al: <b>${esc(TYPE[doelId].naam)}</b>`} (${spel.voertuigen[doelId] || 0} in bezit).</p>`
         : `<label class="veld">Naam van de nieuwe serie <span class="klein">(leeg laten: genummerd, bv. ${esc(kortNaam(d.basis))}2)</span><input id="sn-naam" value="${esc(d.naam || '')}" placeholder="${esc(voorstel)}" maxlength="30"></label>`}
       ${d.alleenOntwerp ? '' : `<h3>Nieuw kopen</h3><div class="rij"><label class="veld">Aantal<input id="sn-n" type="number" min="1" max="200" value="${d.n || 1}" style="width:5em"></label>
@@ -1759,7 +1763,7 @@ const PANELEN = {
       ${t ? `<div class="kaartje"><div class="foto">${schets(lijst, d.modus, { breed: 460 })}</div>${aandrijving(t.id, d.modus)}<b>${esc(t.naam || '')}</b> · ${lengte} m · ${Math.round(p.ton)} ton · ${p.kw ? Math.round(p.kw).toLocaleString('nl-NL') + ' kW' : 'geen aandrijving'}
         <br>Topsnelheid <b>${Math.round(p.kw ? p.vmax : 0)} km/u</b> <span class="klein">(gebouwd voor ${Math.round(vrijeVmax)} km/u${p.kw && p.vmaxVermogen < vrijeVmax ? `, met dit gewicht haalt het vermogen ${p.vmaxVermogen} km/u` : ''}; nooit sneller dan het spoor of de weg toelaat)</span>
         · optrekken <b>${komma(p.acc, 2)} m/s²</b>${t.keerExtra ? ` · <span style="color:var(--rood)">geen stuurstand aan het eind: de loc loopt om bij het keren (+${t.keerExtra} min)</span>` : ''}
-        <br>${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit} zit${k.sta ? ` + ${k.sta} sta` : ''}`).join(' · ') || 'geen reizigersruimte'}
+        <br>${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit} ${String(k.stoel).startsWith('slaap:') ? 'bedden' : 'zit'}${k.sta ? ` + ${k.sta} sta` : ''}`).join(' · ') || 'geen reizigersruimte'}
         ${t.samen ? `<br>${doorloopOk ? 'Je kunt door de hele trein lopen (restauratie bereikbaar, controle in één keer).' : 'Niet door de hele trein te lopen: tussen de treinstellen geen doorloop (restauratie alleen in het eigen deel, controleurs wisselen op een station).'}` : ''}
         ${p.kw ? '' : opbouwVan(d) === 'rijtuigen' ? '<br>Losse rijtuigen: koppel er per lijn een loc aan (lijnpaneel → Samenstelling).' : '<br><b style="color:var(--rood)">Zonder loc of aangedreven treinstel kan dit niet rijden.</b>'}</div>${advies}
       <div class="rij"><label class="veld">Aantal treinen<input id="bw-aantal" type="number" min="1" max="200" value="${d.aantal || 1}" data-wijzig="bw-aantal" style="width:5em"></label>
@@ -2257,7 +2261,9 @@ function wijzig(w, i) {
       const w = paneelData.ink.wagons[+i.dataset.w], dl = w.delen[+i.dataset.d], v = i.dataset.veld;
       if (v === 'len') { const x = Math.max(0.1, Math.min(0.9, (+i.value || 0) / 100)); const andere = w.delen.filter(o => o !== dl), som = andere.reduce((a, o) => a + o.len, 0) || 1; andere.forEach(o => o.len = Math.round(o.len / som * (1 - x) * 100) / 100); dl.len = x; }
       else if (v === 'breed') dl.breed = +i.value;
-      else if (v === 'soort') { if (i.value === 'rest') { for (const k of ['klasse', 'stoel', 'breed', 'been']) delete dl[k]; dl.soort = 'rest'; } else Object.assign(dl, { soort: 'zit', klasse: '2', stoel: 'bekleed', breed: 4, been: 'normaal' }); }
+      else if (v === 'soort') { for (const k of ['klasse', 'stoel', 'breed', 'been', 'stroom', 'cabine']) delete dl[k];
+        if (i.value === 'rest') dl.soort = 'rest'; else if (i.value === 'slaap') Object.assign(dl, nieuwSlaapDeel('stapel2', dl.len)); else Object.assign(dl, { soort: 'zit', klasse: '2', stoel: 'bekleed', breed: 4, been: 'normaal' }); }
+      else if (v === 'cabine') { dl.cabine = i.value; if (i.value === 'suite' && w.delen.length === 1) { dl.len = 0.5; w.delen.push({ ...dl }); } }
       else dl[v] = i.value;
       paneelData.naam = null; i.blur(); setTimeout(() => ververs(), 0); return;
     }
@@ -2976,7 +2982,7 @@ function bouwKaart(d, x, i) {
     <div class="foto">${schets(x.id ? [x.id] : [], d.modus)}</div>
     <select data-wijzig="bw-type" data-i="${i}"><option value="">— kies ${catNaam(cat, d.modus).toLowerCase()} —</option>${keuzes.map(v => `<option value="${v.id}" ${v.id === x.id ? 'selected' : ''}>${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ''}</option>`).join('')}</select>
     ${t ? `${aandrijving(x.id, d.modus)}<p class="klein">${t.van}–${t.tot < 2100 ? t.tot : 'nu'} · ${t.vmax} km/u · ${vermogen(x.id) ? Math.round(vermogen(x.id)).toLocaleString('nl-NL') + ' kW · ' : ''}${Math.round(massa(x.id))} t${t.soort !== 'loc' ? ` · ${doorloop(x.id) ? 'doorloop' : 'geen doorloop'}` : ''} · ${S.euroKort(t.prijs)}</p>
-      ${kl.length ? `<p class="klein">${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit}${k.sta ? '+' + k.sta : ''} (${STOEL[k.stoel]?.naam || ''})`).join('<br>')}${voorzieningen(x.id).length ? '<br>' + [...new Set(voorzieningen(x.id).map(v => v.naam))].join(', ') : ''}</p>
+      ${kl.length ? `<p class="klein">${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit}${k.sta ? '+' + k.sta : ''} (${stoelNaam(k.stoel)})`).join('<br>')}${voorzieningen(x.id).length ? '<br>' + [...new Set(voorzieningen(x.id).map(v => v.naam))].join(', ') : ''}</p>
         <button class="knop klein" data-actie="bw-ink" data-i="${i}">Interieur…</button>` : ''}
       ${trein && (i > 0 || rt) && cat === 'rijtuig' ? `<label class="veld klein">Aantal<input type="number" min="1" max="20" value="${x.n || 1}" data-wijzig="bw-n" data-i="${i}" style="width:4em"></label>` : ''}` : ''}</div>`;
 }
@@ -3623,6 +3629,7 @@ function init() {
   const oudVuil = Object.getOwnPropertyDescriptor(Kaart.prototype, 'vuil');
   void oudVuil;
   let vorigeZicht = '';
+  setInterval(spoorPlannen, 2500);
   setInterval(() => { const z = kaart.zicht().map(v => Math.round(v / 2000)).join(',') + kaart.res.toFixed(0); if (z !== vorigeZicht) { vorigeZicht = z; laadAIinBeeld(); } }, 700);
   $('bron').textContent = '';
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));
@@ -3649,6 +3656,26 @@ function init() {
   toonStart();
   laadData().then(() => { if ($('start').open) toonStart(); });
   requestAnimationFrame(lus);
+}
+// samenvatting van de spoorplanner voor een lijn: waar wordt gewacht (kruisen op enkelspoor, achter een voorganger)
+function spoorplanTekst(l) {
+  const k = l._kruis; if (l.modus !== 'trein' || !k) return '';
+  const n = l.haltes.length, per = new Map();
+  for (const [sl, w] of l._ritWacht || []) { const r = +sl[0]; w.forEach((x, i) => { if (x > 0) { const h = l.haltes[r ? n - 1 - i : i]?.naam || '?'; per.set(h, (per.get(h) || 0) + x); } }); }
+  const top = [...per].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h, s]) => `${esc(h)} (${Math.round(s / 60)} min/dag)`).join(', ');
+  return `<p class="klein">Spoorplan: ${k.ritten ? `${k.ritten} rit(ten) wachten vast op een tegentrein (enkelspoor) of voorganger, samen ${Math.round(k.wacht / 60)} min per dag${top ? `; vooral bij ${top}` : ''}.` : 'geen wachttijden: het spoor is vrij.'}
+    ${k.mislukt ? `<span class="chip fout">${k.mislukt} rit(ten) passen niet (meer dan 25 min wachten)</span> Leg een passeerspoor (kort stuk dubbelspoor) of dubbelspoor aan, of verschuif de vertrektijden.` : ''}</p>`;
+}
+// spoorplanner: opnieuw zodra een treinlijn (van jou of een vervoerder) verandert. Rekent op de achtergrond.
+let planSig = '', planLoopt = null, stationBij = null;
+function spoorPlannen() {
+  if (!spel || !net) return;
+  const treinen = [...AI.lijnen.filter(l => l.modus === 'trein').map(lijn => ({ lijn, vast: 1 })), ...spel.lijnen.filter(l => l.modus === 'trein' && l.actief !== false).map(lijn => ({ lijn, vast: 0 }))];
+  const sig = spel.jaar + '|' + treinen.map(({ lijn: l }) => `${l.id || l.sleutel}:${l.vertrek?.[0]?.length || 0},${l.vertrek?.[1]?.length || 0},${l.vertrek?.[0]?.[0] ?? ''}:${Math.round((l.tr || [l.t])[0]?.at(-1) || 0)}:${l.route?.pts?.length || 0}:${l.actief === false ? 0 : 1}`).join('|');
+  if (sig === planSig) return;
+  if (planLoopt) planLoopt.stop = true;
+  const taak = { stop: false }; planLoopt = taak;
+  planAlles(treinen, net, spel.jaar, { stop: () => taak.stop, bijStation: stationBij || (stationBij = stationZoeker(D.stations)) }).then(r => { if (taak.stop || !r) return; planSig = sig; planLoopt = null; if (paneelSoort === 'lijn') ververs(); }).catch(e => { console.error(e); planLoopt = null; planSig = sig; });
 }
 function zetTijd(aan) { tijdLoopt = aan; $('b-tijdknop').setAttribute('aria-pressed', String(aan)); $('b-tijdstand').textContent = aan ? '▶' : '❚❚'; }
 function zetSnelheid(s) { if (!s) return zetTijd(false); snelheid = s; zetTijd(true); document.querySelectorAll('.snelheid button').forEach(b => b.classList.toggle('aan', +b.dataset.s === s)); }
