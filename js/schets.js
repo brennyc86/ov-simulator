@@ -6,6 +6,7 @@ import { uiterlijk } from './voertuig.js';
 import { spanningenVan } from './stroom.js';
 
 const RAAM = '#1d2a33', WIEL = '#2b2b2b';
+let SCHETS_ID = 0; // unieke id's voor clipPaths
 const r1 = v => Math.round(v * 10) / 10;
 function donker(hex, f = 0.72) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#555';
@@ -25,7 +26,7 @@ function onderdeel(id, modus) {
 }
 
 // voorkant-profiel: hoe ver de bovenkant terugwijkt (m) en hoe hoog de knik zit (fractie van de hoogte)
-const PROFIEL = { spits: [3.6, 0.62], rond: [1.6, 0.45], koploper: [3.8, 0.55], hondekop: [2.6, 0.55], hoekig: [1.0, 0.35], plat: [0.35, 0.2], loc: [0.5, 0.25] };
+const PROFIEL = { bol: [2.8, 0.85], spits: [3.6, 0.62], rond: [1.6, 0.45], koploper: [3.8, 0.55], hondekop: [3.8, 0.62], hoekig: [1.0, 0.35], plat: [0.35, 0.2], loc: [0.5, 0.25] };
 
 function bakSvg(b, x, w, s, vs, gelNaast) {
   const u = b.u, kleur = u.kleur || '#ffc917', grond = 62;
@@ -38,12 +39,33 @@ function bakSvg(b, x, w, s, vs, gelNaast) {
   const [dl, kn] = b.kopL ? PROFIEL[bus ? 'plat' : u.neus] || PROFIEL.plat : [0, 0], [dr, kr] = b.kopR ? PROFIEL[bus ? 'plat' : u.neus] || PROFIEL.plat : [0, 0];
   const ml = Math.min(w * 0.3, dl * s), mr = Math.min(w * 0.3, dr * s), x1 = x + w;
   // romp met afgeronde kop(pen)
+  // bolle neus (mat '64): ook onderaan afgerond
+  const bolL = b.kopL && u.neus === 'bol' ? ml * 0.7 : 0, bolR = b.kopR && u.neus === 'bol' ? mr * 0.7 : 0;
   const pad = `M${r1(x + ml)},${r1(top)} L${r1(x1 - mr)},${r1(top)} ` +
-    (mr > 1 ? `Q${r1(x1)},${r1(top)} ${r1(x1)},${r1(top + h * kr)} ` : `L${r1(x1)},${r1(top)} `) + `L${r1(x1)},${r1(vloer)} L${r1(x)},${r1(vloer)} ` +
-    (ml > 1 ? `L${r1(x)},${r1(top + h * kn)} Q${r1(x)},${r1(top)} ${r1(x + ml)},${r1(top)} Z` : `L${r1(x)},${r1(top)} Z`);
-  let o = `<path d="${pad}" fill="${kleur}" stroke="#333" stroke-width="0.8"/>`;
-  // band onderaan in een donkerder tint (en een sierlijn bij lichte treinen)
-  o += `<rect x="${r1(x + 0.6)}" y="${r1(vloer - h * 0.17)}" width="${r1(w - 1.2)}" height="${r1(h * 0.17 - 0.5)}" fill="${donker(kleur, isLicht(kleur) ? 0.55 : 0.75)}" opacity="0.8"/>`;
+    (mr > 1 ? (u.neus === 'hondekop' ? `L${r1(x1 - mr * 0.78)},${r1(top + h * 0.42)} Q${r1(x1 - mr * 0.1)},${r1(top + h * 0.47)} ${r1(x1)},${r1(top + h * 0.62)} ` : `Q${r1(x1)},${r1(top)} ${r1(x1)},${r1(top + h * kr)} `) : `L${r1(x1)},${r1(top)} `) +
+    (bolR ? `L${r1(x1)},${r1(vloer - h * 0.25)} Q${r1(x1)},${r1(vloer)} ${r1(x1 - bolR)},${r1(vloer)} ` : `L${r1(x1)},${r1(vloer)} `) +
+    (bolL ? `L${r1(x + bolL)},${r1(vloer)} Q${r1(x)},${r1(vloer)} ${r1(x)},${r1(vloer - h * 0.25)} ` : `L${r1(x)},${r1(vloer)} `) +
+    (ml > 1 ? (u.neus === 'hondekop' ? `L${r1(x)},${r1(top + h * 0.62)} Q${r1(x + ml * 0.1)},${r1(top + h * 0.47)} ${r1(x + ml * 0.78)},${r1(top + h * 0.42)} L${r1(x + ml)},${r1(top)} Z` : `L${r1(x)},${r1(top + h * kn)} Q${r1(x)},${r1(top)} ${r1(x + ml)},${r1(top)} Z`) : `L${r1(x)},${r1(top)} Z`);
+  const clip = 'sk' + (++SCHETS_ID);
+  let o = `<defs><clipPath id="${clip}"><path d="${pad}"/></clipPath></defs><path d="${pad}" fill="${kleur}" stroke="#333" stroke-width="0.8"/>`;
+  // band onderlangs: NS-geel krijgt de blauwe band, anders een donkerder tint
+  const bandKl = u.band || (kleur === '#ffc917' ? '#003082' : donker(kleur, isLicht(kleur) ? 0.55 : 0.75));
+  const bandTop = vloer - h * 0.24, bandH = h * 0.2;
+  o += `<g clip-path="url(#${clip})"><rect x="${r1(x)}" y="${r1(bandTop)}" width="${r1(w)}" height="${r1(bandH)}" fill="${bandKl}" opacity="${u.band || kleur === '#ffc917' ? 1 : 0.8}"/>`;
+  // ICNG ('wesp'): de band wordt bij de kop zwart en loopt schuin op tot het dak
+  if (u.wesp) {
+    const wig = (links, m) => { const L = Math.max(12, 11 * s), k = links ? x : x1, d = links ? 1 : -1;
+      return `<path d="M${r1(k + d * (m + L))},${r1(bandTop)} L${r1(k + d * (m + L))},${r1(vloer + 1)} L${r1(k - d)},${r1(vloer + 1)} L${r1(k - d)},${r1(top - 1)} L${r1(k + d * (m + 0.8 * s))},${r1(top - 1)} Z" fill="#161616"/>`; };
+    if (b.kopL) o += wig(true, ml); if (b.kopR) o += wig(false, mr);
+  }
+  o += '</g>';
+  // ICM-koploper: verhoogde cabine boven de doorloop, iets achter de neus
+  if (u.neus === 'koploper') for (const [links, m] of [[true, ml], [false, mr]]) {
+    if (links ? !b.kopL : !b.kopR) continue;
+    const d = links ? 1 : -1, k = links ? x : x1, a = k + d * (m * 0.45), e = k + d * (m + 7 * s), hoog = Math.max(4.5, 0.8 * vs);
+    o += `<path d="M${r1(a)},${r1(top + 1)} Q${r1(a)},${r1(top - hoog)} ${r1(a + d * 2.2 * s)},${r1(top - hoog)} L${r1(e - d * 1.2 * s)},${r1(top - hoog)} Q${r1(e)},${r1(top - hoog)} ${r1(e)},${r1(top + 1)} Z" fill="${kleur}" stroke="#333" stroke-width="0.8"/>` +
+      `<path d="M${r1(a + d * 0.6 * s)},${r1(top - hoog * 0.15)} Q${r1(a + d * 0.6 * s)},${r1(top - hoog * 0.8)} ${r1(a + d * 2.4 * s)},${r1(top - hoog * 0.8)} L${r1(a + d * 3.4 * s)},${r1(top - hoog * 0.8)} L${r1(a + d * 3.4 * s)},${r1(top - hoog * 0.15)} Z" fill="${RAAM}"/>`;
+  }
   // ramen
   const vrijL = x + ml + (b.kopL ? 3 : 2), vrijR = x1 - mr - (b.kopR ? 3 : 2);
   const rijen = b.loc ? [] : u.dd ? [[0.14, 0.24], [0.52, 0.22]] : bus ? [[0.12, 0.42]] : [[0.18, 0.3]];
@@ -57,7 +79,7 @@ function bakSvg(b, x, w, s, vs, gelNaast) {
   for (const dx of deurX) o += `<rect x="${r1(dx)}" y="${r1(top + h * (u.dd ? 0.5 : 0.16))}" width="${r1(deurB)}" height="${r1(vloer - top - h * (u.dd ? 0.5 : 0.16) - 0.6)}" fill="${donker(kleur, 0.85)}" stroke="#333" stroke-width="0.5"/>` +
     `<rect x="${r1(dx + deurB * 0.2)}" y="${r1(top + h * (u.dd ? 0.55 : 0.22))}" width="${r1(deurB * 0.6)}" height="${r1(h * 0.22)}" fill="${RAAM}"/>`;
   // cabineramen (voorruit) aan de kop(pen)
-  const ruit = (links, m) => { const bx = links ? x + Math.max(0.8, m * 0.25) : x1 - Math.max(0.8, m * 0.25) - Math.max(3, 1.6 * s);
+  const ruit = (links, m) => { const f = u.neus === 'hondekop' ? 0.84 : 0.25, bx = links ? x + Math.max(0.8, m * f) : x1 - Math.max(0.8, m * f) - Math.max(3, 1.6 * s);
     return `<rect x="${r1(bx)}" y="${r1(top + h * 0.12)}" width="${r1(Math.max(3, 1.6 * s))}" height="${r1(h * 0.3)}" rx="1" fill="${RAAM}"/>`; };
   if (b.kopL) o += ruit(true, ml);
   if (b.kopR) o += ruit(false, mr);

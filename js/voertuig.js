@@ -7,20 +7,21 @@ import { TYPE } from './vloot.js';
 // bakken: lengtes in meters (rijtuigen of bakdelen). gel = gelede/Jacobs-draaistellen (kleine tussenruimte)
 // neus: plat | rond | koploper | spits | hondekop | loc | stoom | bus | boot | vlieg
 // dd = dubbeldekker, pant = indexen van bakken met een stroomafnemer, loc = eerste bak is een locomotief
+// band = kleur van de band onderlangs (NS: blauw), wesp = band wordt bij de kop zwart en loopt op (ICNG)
 const U = {
   stoom3700:   { bakken: [11.5, 8, 20, 20, 20, 20], neus: 'stoom', kleur: '#6b2f24', loc: 2 },
   mat36:       { bakken: [23, 23], neus: 'rond', kleur: '#2f5d3a', pant: [0] },
   hondekop:    { bakken: [25.5, 25.5, 25.5, 25.5], neus: 'hondekop', kleur: '#ffc917', pant: [0, 2] },
-  planv:       { bakken: [26, 26], neus: 'plat', kleur: '#ffc917', pant: [1] },
+  planv:       { bakken: [26, 26], neus: 'bol', kleur: '#ffc917', pant: [1] },
   sgm:         { bakken: [26, 26, 26], neus: 'plat', kleur: '#ffc917', pant: [1] },
-  icm:         { bakken: [27, 26.5, 26.5, 27], neus: 'koploper', kleur: '#ffc917', pant: [1] },
-  icmm:        { bakken: [27, 26.5, 26.5, 27], neus: 'koploper', kleur: '#ffc917', pant: [1] },
+  icm:         { bakken: [27, 26.5, 26.5, 27], neus: 'koploper', kleur: '#ffc917', band: '#003082', pant: [1] },
+  icmm:        { bakken: [27, 26.5, 26.5, 27], neus: 'koploper', kleur: '#ffc917', band: '#003082', pant: [1] },
   mddm4:       { bakken: [26.6, 26.8, 26.8, 26.8], neus: 'plat', kleur: '#ffc917', dd: true, pant: [0] },
   mddm6:       { bakken: [26.6, 26.8, 26.8, 26.8, 26.8, 26.8], neus: 'plat', kleur: '#ffc917', dd: true, pant: [0] },
   ddr:         { bakken: [17.6, 26.8, 26.8, 26.8, 26.8], neus: 'loc', kleur: '#ffc917', dd: true, loc: 1, pant: [0] },
   ddz:         { bakken: [27, 27, 27, 27, 27, 27], neus: 'hoekig', kleur: '#ffc917', dd: true, pant: [1, 4] },
   virm6:       { bakken: [27.3, 26.9, 26.9, 26.9, 26.9, 27.3], neus: 'rond', kleur: '#ffc917', dd: true, pant: [1, 4] },
-  icng5:       { bakken: [23.5, 20.6, 20.6, 20.6, 23.5], neus: 'spits', kleur: '#ffc917', gel: true, pant: [2] },
+  icng5:       { bakken: [23.5, 20.6, 20.6, 20.6, 23.5], neus: 'spits', kleur: '#ffc917', band: '#003082', wesp: true, gel: true, pant: [2] },
   slt6:        { bakken: [18.2, 15.8, 15.8, 15.8, 15.8, 18.2], neus: 'plat', kleur: '#ffc917', gel: true, pant: [2] },
   sng4:        { bakken: [20.6, 17, 17, 20.6], neus: 'plat', kleur: '#ffc917', gel: true, pant: [1] },
   flirt4:      { bakken: [20.8, 16.6, 16.6, 20.8], neus: 'spits', kleur: '#1d9fd1', gel: true, pant: [1] },
@@ -29,7 +30,7 @@ const U = {
   lint41:      { bakken: [20.8, 20.8], neus: 'spits', kleur: '#1d9fd1', gel: true },
   buffel:      { bakken: [26.1, 26.1], neus: 'plat', kleur: '#ffc917' },
   ice3:        { bakken: [25.8, 24.8, 24.8, 24.8, 24.8, 24.8, 24.8, 25.8], neus: 'spits', kleur: '#f2f2f2', pant: [1, 6] },
-  icngb:       { bakken: [23.5, 20.6, 20.6, 20.6, 23.5], neus: 'spits', kleur: '#ffc917', gel: true, pant: [2] },
+  icngb:       { bakken: [23.5, 20.6, 20.6, 20.6, 23.5], neus: 'spits', kleur: '#ffc917', band: '#003082', wesp: true, gel: true, pant: [2] },
   flirt3ms:    { bakken: [20.8, 16.6, 16.6, 20.8], neus: 'spits', kleur: '#00a5b5', gel: true, pant: [1] },
   am08:        { bakken: [26.4, 26.4, 26.4], neus: 'spits', kleur: '#e8eef4', pant: [1] },
   am96:        { bakken: [26.4, 26.4, 26.4], neus: 'rond', kleur: '#e8eef4', pant: [1] },
@@ -293,7 +294,7 @@ function bak(ctx, L, W, pm, u, i, eerste, laatste, kleur, eigen) {
   const kopTekenen = (aan, teken) => {
     if (!aan) return;
     const m = kopMaat(u.neus, s => s * pm);
-    ctx.fillStyle = kleur; ctx.fillRect(teken > 0 ? x1 - m.d - 2.2 * pm : x0, -h, m.d + 2.2 * pm, W);
+    ctx.fillStyle = u.wesp ? '#161616' : kleur; ctx.fillRect(teken > 0 ? x1 - m.d - 2.2 * pm : x0, -h, m.d + 2.2 * pm, W); // ICNG: zwarte kop
     ctx.fillStyle = RAAM;
     const raamX = m.raam * pm, raamB = Math.max(1, 0.7 * pm);
     ctx.fillRect(teken > 0 ? x1 - raamX - raamB : x0 + raamX, -h * 0.82, raamB, h * 1.64);
@@ -311,6 +312,7 @@ function kopMaat(neus, t) {
   switch (neus) {
     case 'koploper': return { d: t(4.2), w: 0.34, raam: 4.6 };   // ICM: lange neus, hoge cabine erachter
     case 'hondekop': return { d: t(3.0), w: 0.5, raam: 3.2 };
+    case 'bol': return { d: t(2.4), w: 0.7, raam: 2.2 };        // mat '64: bolle neus
     case 'spits': return { d: t(4.2), w: 0.22, raam: 3.4 };
     case 'hoekig': return { d: t(1.2), w: 0.8, raam: 1.9 };
     case 'rond': return { d: t(1.8), w: 0.62, raam: 1.6 };
