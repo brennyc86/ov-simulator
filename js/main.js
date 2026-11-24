@@ -1527,7 +1527,7 @@ const PANELEN = {
       const st = l.stat, res = st ? st.opbrengst - st.kosten : 0;
       const tekort = S.beschikbaarVoor(spel, l) < l.nodig;
       return `<tr data-actie="toon-lijn" data-id="${l.id}" style="cursor:pointer"><td><span class="lijnnr" style="background:${l.actief ? spel.kleur : '#888'}">${esc(l.nr)}</span></td>
-        <td>${esc(l.naam || l.haltes[0].naam + ' – ' + l.haltes[l.haltes.length - 1].naam)}<br><span class="klein">${MODI[l.modus].naam} · ${l.haltes.length} haltes${l.wacht ? ' · wacht op ProRail' : ''}${tekort ? ' · <b style="color:var(--rood)">materieel tekort</b>' : ''}</span></td>
+        <td>${esc(l.naam || l.haltes[0].naam + ' – ' + l.haltes[l.haltes.length - 1].naam)}<br><span class="klein">${MODI[l.modus].naam} · ${lijnModellen(l)} · ${l.haltes.length} haltes${l.wacht ? ' · wacht op ProRail' : ''}${tekort ? ' · <b style="color:var(--rood)">materieel tekort</b>' : ''}</span></td>
         <td class="getal">${st ? Math.round(st.reizigers).toLocaleString('nl-NL') : '—'}<br><span class="klein" style="color:${res < 0 ? 'var(--rood)' : 'var(--groen)'}">${st ? S.euroKort(res) : ''}</span></td></tr>`;
     }).join('');
     return `<h2>Je lijnen</h2><p class="klein">Reizigers en resultaat deze maand. Klik op een lijn voor de dienstregeling.</p>
@@ -3918,6 +3918,8 @@ function dienstBlok(l) {
   return kop + `<p class="klein">Kies per richting hoeveel ritten per dag, hun vertrektijd en op welke dagen ze rijden (bv. alleen zaterdag en zondag, of één keer per week). Handig voor een museumlijn, vluchten en internationale treinen en bussen.</p>
     ${richting(0)}${twee ? richting(1) : ''}`;
 }
+// welk materieel rijdt er op een lijn (bij een mix alle typen)
+const lijnModellen = l => { const ids = (l.mix || []).filter(m => TYPE[m.id]).map(m => m.id); const lijst = ids.length ? ids : [l.typeId]; return [...new Set(lijst.filter(id => TYPE[id]).map(id => vlootNaam(id)))].join(' + ') || 'geen materieel'; };
 // samenvatting van de spoorplanner voor een lijn: waar wordt gewacht (kruisen op enkelspoor, achter een voorganger)
 function spoorplanTekst(l) {
   const k = l._kruis; if (l.modus !== 'trein' || !k) return '';
