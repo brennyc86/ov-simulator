@@ -1,6 +1,7 @@
 // Spelkern: bedrijf, lijnen, dienstregeling, voertuigposities, geld en reizigers.
 import { MODI, TYPE, standaardType } from './vloot.js';
 import { bboxVan } from './net.js';
+import { inzetbaar } from './markt.js';
 import { inrichtingVan, klassenVan, vraagEffect, uurKosten, haltetijdFactor, nodigPer, nodigLijn } from './comfort.js';
 
 export const TARIEF = {
@@ -492,7 +493,7 @@ function eigenDeel(spel, lijn, typeId) {
   const per = nodigPer(typeId), eigen = nodigLijn(lijn, typeId);
   let deel = lijn.nodig, totaal = Infinity, vraag = 0;
   for (const [c, kk] of Object.entries(eigen)) {
-    const t = spel.voertuigen[c] || 0, k = Math.max(1, per[c] || kk / Math.max(1, lijn.nodig));
+    const t = inzetbaar(spel, c), k = Math.max(1, per[c] || kk / Math.max(1, lijn.nodig)); // in revisie telt niet mee
     const v = spel.lijnen.filter(l => l.actief).reduce((s, l) => s + (nodigLijn(l, l === lijn ? typeId : l.typeId)[c] || 0), 0) + (lijn.actief ? 0 : kk);
     const d = v <= t ? lijn.nodig : Math.floor(t * lijn.nodig * k / v / k);
     if (d < deel) deel = d;
@@ -525,7 +526,7 @@ export function leeftijden(spel) {
     if (!n) continue;
     const t = TYPE[id]; if (!t) continue;
     const k = (spel.aankopen || []).filter(a => a.id === id); let som = 0, m = 0;
-    for (const a of k) { const nn = Math.min(a.n, n - m); if (nn <= 0) break; som += nn * Math.max(0, spel.jaar - a.jaar + (spel.dag - a.dag) / 360 % 1); m += nn; }
+    for (const a of k) { const nn = Math.min(a.n, n - m); if (nn <= 0) break; som += nn * Math.max(0, spel.jaar - a.jaar + (spel.dag - a.dag) / 360 % 1 + (a.oud || 0)); m += nn; } // oud = leeftijd bij aankoop (tweedehands)
     const oud = Math.max(0, Math.min(t.leven || 30, (spel.jaar - (t.van || spel.jaar)) * 0.5)); // al in de vloot bij de start
     som += (n - m) * oud;
     uit[id] = { gem: som / n, leven: t.leven || 30, n };

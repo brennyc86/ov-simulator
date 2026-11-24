@@ -8,6 +8,7 @@ import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } f
 import { busstationOntwerp } from './perron.js';
 import { prestaties, vermogen, massa, doorloop } from './techniek.js';
 import { schets, aandrijving } from './schets.js';
+import { STAAT, marktPrijs, marktBijwerken, koopVanMarkt, renovatieKosten, renovatieDagen, inzetbaar, buitenDienst, wachtOpRevisie, startRevisie, renovatiesAfronden } from './markt.js';
 import { perronVanaf } from './correcties.js';
 import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom, landVerdeling, wisselsPerRit, WISSEL_MIN } from './stroom.js';
 import { LANDEN } from './schets.js';
@@ -815,6 +816,10 @@ function dagVoorbij() {
   bouwOpleveren();
   aanbiedingenAanvullen(); aanbiedingenToetsen(); drukteToetsen();
   bijzonderAfrekenen();
+  // tweedehandsmarkt en revisies
+  for (const a of marktBijwerken(spel)) if (a.soort === 'klassieker' || Math.random() < 0.5)
+    melding(a.soort === 'klassieker' ? `Klassieker te koop: ${a.n} × ${TYPE[a.typeId].naam} (${a.leeftijd} jaar, ${STAAT[a.staat].naam}) bij ${a.van}. Zie Vloot → Tweedehandsmarkt.` : `${a.van} doet ${a.n} × ${TYPE[a.typeId].naam} van de hand (tweedehandsmarkt).`, 8000);
+  for (const r of renovatiesAfronden(spel, S.leeftijden)) melding(`Revisie klaar: ${r.n} × ${TYPE[r.typeId].naam} weer in dienst, technisch flink jonger.`, 7000);
 
   // groepen vragen soms een eigen rit aan (alleen als je treinen hebt)
   if (spel.lijnen.some(l => l.modus === 'trein') && spel.dag >= (spel.volgendeCharter ?? 3)) {
@@ -1007,6 +1012,14 @@ function prijzenBlok(l) {
       Het interieur kies je bij het kopen of verbouwen van het materieel${t?.samen ? ' (Vloot)' : `: <a href="#" data-actie="serie-open" data-type="${l.typeId}">interieur van deze serie</a>`}. De klassetoeslagen gelden voor je hele bedrijf (<a href="#" data-actie="paneel" data-p="geld">Financiën</a>).</p>
     <div style="overflow-x:auto"><table class="tabel klein"><tr><th>Klasse</th><th>Stoelen</th><th class="getal">Prijs</th><th>Catering aan je plaats</th><th class="getal">Comfort</th></tr>${rijen}</table></div>${rest}
     <p class="klein">Verwachte reizigers ${eff.factor >= 1 ? '+' : ''}${Math.round((eff.factor - 1) * 100)}% t.o.v. standaard · gemiddelde prijs ${Math.round(eff.gemPrijs * 100)}% · gemiddeld comfort ${komma(eff.gemComfort)} · catering en voorzieningen € ${Math.round(uurKosten(l, l.typeId))} per voertuiguur.</p>`;
+}
+// eigen materieel dat niet meer nieuw te koop is (tweedehands klassiekers, oude locs en rijtuigen)
+function eigenOudBlok() {
+  const getoond = new Set([...beschikbaar(spel.jaar), ...beschikbaarLos(spel.jaar), ...museumTypen(spel.jaar)].map(v => v.id));
+  const ids = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && TYPE[id] && !TYPE[id].samen && !TYPE[id].basis && !getoond.has(id));
+  if (!ids.length) return '';
+  return `<h3>Eigen oud materieel</h3><table class="tabel">${ids.map(id => `<tr><td><b>${esc(TYPE[id].naam)}</b><br><span class="klein">${TYPE[id].van}–${TYPE[id].tot} · ${TYPE[id].vmax} km/u${buitenDienst(spel, id) ? ` · ${buitenDienst(spel, id)} buiten dienst (revisie)` : ''}</span></td><td class="getal">${spel.voertuigen[id]}</td>
+    <td><button class="knop" data-actie="verkoop" data-type="${id}">−</button></td></tr>`).join('')}</table>`;
 }
 // loc-wissel aan de grens: per land op de route een eigen loc (alleen bij een loc-getrokken trein)
 const landNaam = c => LANDEN[c]?.naam || ['Nederland', 'België', 'Luxemburg', 'Duitsland', 'Frankrijk'][c] || '?';
@@ -1305,6 +1318,26 @@ const PANELEN = {
     return `<h2>Overleg</h2><p class="klein">Aangeboden subsidies van de provincie staan onder <button class="knop klein" data-actie="open-subsidies">€ Subsidie</button>.</p><h3>Verzoeken</h3><p class="klein">Verzoeken aan en van andere vervoerders, ProRail en de provincie. ProRail en de provincie antwoorden binnen een uur speltijd, vervoerders binnen een paar uur.</p>
       ${spel.verzoeken.length ? spel.verzoeken.slice(0, 40).map(kaartje).join('') : '<p>Nog geen verzoeken. Open een lijn en kies <b>Verzoek</b> bij een gedeelde halte, of vraag een treinpad, station of spoor aan.</p>'}`;
   },
+  markt() {
+    const lt = S.leeftijden(spel), aanbod = (spel.markt || []).filter(a => TYPE[a.typeId] && a.n > 0).sort((a, b) => (b.soort === 'klassieker') - (a.soort === 'klassieker') || a.tot - b.tot);
+    const rij = a => { const t = TYPE[a.typeId], f = S.ouderdomFactor(a.leeftijd, t.leven || 30), nieuw = t.prijs;
+      return `<div class="kaartje"><div class="rij"><b>${a.soort === 'klassieker' ? '★ ' : ''}${esc(t.naam)}</b><span class="chip">${a.soort === 'klassieker' ? 'klassieker' : 'partij uit vlootvernieuwing'}</span></div>
+        <div class="foto">${schets([a.typeId], t.modus, { breed: 460 })}</div>${aandrijving(a.typeId, t.modus)}
+        <p class="klein">${a.n} stuks bij ${esc(a.van)} · ${a.leeftijd} jaar oud (levensduur ${t.leven || 30}) · <b>${STAAT[a.staat].naam}</b> · in dienst ${t.van}–${t.tot < 2100 ? t.tot : 'nu'}<br>
+          <b>${S.euroKort(a.prijs)}</b> per stuk (nieuw ${S.euroKort(nieuw)}) · onderhoud en verbruik ongeveer <b>×${komma(f, 2)}</b> door ouderdom${a.staat === 'slecht' ? ' · <span style="color:var(--rood)">moet eerst een revisie krijgen voor het kan rijden</span>' : ''}
+          · aanbieding verloopt over ${Math.max(0, a.tot - spel.dag)} dag(en)</p>
+        <div class="rij"><label class="veld klein">Aantal<input id="mk-${a.id}" type="number" min="1" max="${a.n}" value="${a.n}" style="width:4.5em"></label><button class="knop hoofd" data-actie="markt-koop" data-id="${a.id}">Kopen</button></div></div>`; };
+    const eigen = Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && TYPE[id] && !TYPE[id].samen).sort((a, b) => (lt[b]?.gem / lt[b]?.leven || 0) - (lt[a]?.gem / lt[a]?.leven || 0));
+    const lopend = (spel.renovaties || []).filter(r => TYPE[r.typeId]);
+    const revRij = id => { const t = TYPE[id], l = lt[id], f = l ? S.ouderdomFactor(l.gem, l.leven) : 1, wacht = wachtOpRevisie(spel, id), vrij = inzetbaar(spel, id) + wacht;
+      return `<tr><td><b>${esc(t.naam)}</b><br><span class="klein">${spel.voertuigen[id]} stuks · gem. ${l ? Math.round(l.gem) : '?'}/${l?.leven || t.leven || 30} jaar · kosten ×${komma(f, 2)}${wacht ? ` · <b style="color:var(--rood)">${wacht} niet rijvaardig</b>` : ''}${buitenDienst(spel, id) - wacht ? ` · ${buitenDienst(spel, id) - wacht} in revisie` : ''}</span></td>
+        <td>${vrij ? `<div class="rij" style="flex-wrap:nowrap"><input id="rv-${id}" type="number" min="1" max="${vrij}" value="${wacht || vrij}" style="width:4em"><button class="knop klein" data-actie="revisie" data-type="${id}" title="${renovatieDagen(t)} dagen buiten dienst">Revisie (${S.euroKort(renovatieKosten(t))}/st)</button></div>` : ''}</td></tr>`; };
+    return `<h2>Tweedehandsmarkt en revisie</h2>
+      <p class="klein">Als grote vervoerders hun vloot vernieuwen, komt hun oude materieel in partijen op de markt. Af en toe duikt er een klassieker op. Oud materieel is goedkoop in aanschaf, maar duurder in onderhoud en per km (slijtage, minder kennis van het materieel, minder zuinig). Een revisie maakt het technisch ruim de helft jonger, maar het staat dan een tijd buiten dienst. Het interieur vernieuw je los daarvan via Vloot (of juist niet, voor de nostalgie). Oud materieel trekt bij bijzondere ritten extra reizigers die er meer voor betalen.</p>
+      <h3>Te koop</h3>${aanbod.length ? aanbod.map(rij).join('') : '<p>Er is nu niets te koop. Kijk over een paar dagen weer.</p>'}
+      ${lopend.length ? `<h3>Lopende revisies</h3><table class="tabel">${lopend.map(r => `<tr><td>${r.n} × ${esc(TYPE[r.typeId].naam)}</td><td>${r.soort === 'wacht' ? '<b style="color:var(--rood)">wacht op revisie (niet rijvaardig)</b>' : `klaar over ${Math.max(0, r.klaar - spel.dag)} dag(en)`}</td></tr>`).join('')}</table>` : ''}
+      <h3>Revisie van je eigen materieel</h3>${eigen.length ? `<table class="tabel">${eigen.map(revRij).join('')}</table>` : '<p>Je hebt nog geen voertuigen.</p>'}`;
+  },
   vloot() {
     const nodig = {};
     for (const l of spel.lijnen) if (l.actief) for (const [c, k] of Object.entries(nodigLijn(l))) nodig[c] = (nodig[c] || 0) + k;
@@ -1330,7 +1363,8 @@ const PANELEN = {
     const samBlok = sams.length ? `<h3>Samengestelde treinen</h3><table class="tabel">${sams.map(id => { const t = TYPE[id], vrij = Math.min(...Object.entries(nodigPer(id)).map(([c, k]) => Math.floor((spel.voertuigen[c] || 0) / k)));
       return `<tr><td><b>${esc(t.naam)}</b><br><span class="klein">${t.vmax} km/u · ${komma(t.acc, 2)} m/s² · ${t.doorloop ? 'doorloop' : 'geen doorloop'} · ${S.euroKort(t.prijs)}</span></td><td class="getal">${vrij}</td><td><button class="knop klein" data-actie="bouwer-open" data-type="${id}">Kopiëren / meer</button></td></tr>`; }).join('')}</table>` : '';
     return `<h2>Vloot</h2><div class="rij">${['trein', 'metro', 'tram', 'bus'].filter(m => beschikbaar(spel.jaar, m).length).map(m => `<button class="knop hoofd" data-actie="bouwer-open" data-m="${m}">＋ ${MODI[m].naam} samenstellen</button>`).join('')}</div>
-      <p class="klein">Materieel dat in ${spel.jaar} in Nederland reed. Prijzen zijn benaderingen in euro's van nu. Verkopen levert 45% op.</p>${samBlok}${groepen}${mus}`;
+      <div class="rij"><button class="knop" data-actie="open-markt">Tweedehandsmarkt en revisie${(spel.markt || []).length ? ` (${spel.markt.length} aanbiedingen)` : ''}</button>${(spel.renovaties || []).length ? `<span class="chip">${(spel.renovaties || []).reduce((a, r) => a + r.n, 0)} voertuig(en) in of wachtend op revisie</span>` : ''}</div>
+      <p class="klein">Materieel dat in ${spel.jaar} in Nederland reed. Prijzen zijn benaderingen in euro's van nu. Verkopen levert hooguit 45% op, minder voor oud materieel.</p>${samBlok}${groepen}${mus}${eigenOudBlok()}`;
   },
   serie(d) {
     const b = TYPE[d.basis], modus = b.modus, ink = d.ink, wagons = wagonsVan(d.basis, modus);
@@ -1637,7 +1671,10 @@ function actieUit(a, d) {
     case 'verkoop': {
       const t = TYPE[d.type];
       if (!spel.voertuigen[d.type]) break;
-      spel.voertuigen[d.type]--; spel.geld += t.prijs * 0.45; ververs(); break;
+      if (inzetbaar(spel, d.type) <= 0) { melding('Deze voertuigen staan allemaal in (of wachten op) revisie.'); break; }
+      // opbrengst: hooguit 45% van nieuw, en minder naarmate het ouder is (zoals op de tweedehandsmarkt)
+      const lt = S.leeftijden(spel)[d.type], opbr = Math.min(t.prijs * 0.45, marktPrijs(t, lt?.gem || 0, 'matig'));
+      spel.voertuigen[d.type]--; spel.geld += opbr; melding(`${t.naam} verkocht voor ${S.euroKort(opbr)}.`); ververs(); break;
     }
     case 'aanuit': l.actief = !l.actief; ververs(); break;
     case 'opheffen': if (d.zeker) { spel.lijnen = spel.lijnen.filter(x => x !== l); const pr = l.paar && lijnVan(l.paar); if (pr) { pr.paar = null; S.herbereken(pr); } sluitPaneel(); melding(`Lijn ${l.nr} opgeheven.`); }
@@ -1906,6 +1943,14 @@ function actieUit(a, d) {
       melding(`Bijzondere rit uitgeschreven voor ${S.datumTekst(nl.bijzonder.dag)}. Verwachting: ${Math.min(S.capaciteit(nl), belangstelling(spel, { ...nl.bijzonder, haltes: nl.haltes, typeId, modus: nl.modus, lengteKm: nl.lengteKm }, D.plaatsen))} inschrijvingen.`, 7000);
       bouw = null; zetTool('kijk'); openPaneel('lijnen'); break;
     }
+    case 'open-markt': openPaneel('markt'); break;
+    case 'markt-koop': { const a = (spel.markt || []).find(x => x.id === d.id); if (!a) break; const n = Math.max(1, Math.min(a.n, Math.round(+$('mk-' + a.id)?.value || a.n))), t = TYPE[a.typeId];
+      if (!betaal(a.prijs * n, `${n} × ${t.naam} (tweedehands)`)) break; koopVanMarkt(spel, a, n);
+      melding(`${n} × ${t.naam} gekocht van ${a.van} voor ${S.euroKort(a.prijs * n)}${a.staat === 'slecht' ? '. Ze rijden pas na een revisie' : ''}.`, 7000); ververs(); break; }
+    case 'revisie': { const t = TYPE[d.type], n = Math.max(1, Math.round(+$('rv-' + d.type)?.value || 1)); const kosten = n * renovatieKosten(t);
+      if (!betaal(kosten, `revisie van ${n} × ${t.naam}`)) break; const k = startRevisie(spel, d.type, n);
+      if (k < n) spel.geld += (n - k) * renovatieKosten(t);
+      melding(`Revisie gestart: ${k} × ${t.naam}, klaar over ${renovatieDagen(t)} dagen. Zolang rijden ze niet.`, 7000); ververs(); break; }
     case 'koop-museum': { const t = TYPE[d.type]; if (!betaal(museumPrijs(t), t.naam)) break; spel.voertuigen[d.type] = (spel.voertuigen[d.type] || 0) + 1; melding(`${t.naam} gekocht en gerestaureerd (${S.euroKort(museumPrijs(t))}).`); ververs(); break; }
     case 'lijn-annuleer': bouw = null; sluitPaneel(); zetTool('kijk'); break;
   }
