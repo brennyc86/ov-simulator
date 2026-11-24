@@ -2756,7 +2756,7 @@ async function opheffingenZoeken() {
   if (open >= (subsidieNiveau(spel) <= 1 ? 2 : 1) || (open && Math.random() > 0.15)) return;
   opheffingBezig = true;
   try {
-    const kand = D.vervoerders.filter(v => v.id !== spel.vervoerder?.id && ((v.modi.trein || 0) > 0 || (v.modi.bus || 0) > 0));
+    const kand = D.vervoerders.filter(v => !vanSpeler(v.id) && ((v.modi.trein || 0) > 0 || (v.modi.bus || 0) > 0));
     for (let poging = 0; poging < 4; poging++) {
       const v = kand[Math.floor(Math.random() * kand.length)]; if (!v) break;
       const lijnen = (await laadVervoerderLijnen(v, spel.aiVerschuiving)).filter(l => l.sleutel.endsWith(':0') && ['trein', 'bus'].includes(l.modus) && !AI.opgeheven.has(`${l.vervoerder}:${l.lijnId}`));
@@ -3548,7 +3548,7 @@ async function historischeAI() {
   AI.lijnen = [];
   const jaar = spel.jaar;
   for (const v of vervoerdersIn(jaar)) {
-    if (v.id === spel.vervoerder?.id || !spel || spel.jaar !== jaar) continue;
+    if (!spel || vanSpeler(v.id) || spel.jaar !== jaar) continue;
     zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(v, jaar, D, net, D.plaatsen);
     noemOud(lijnen, jaar);
@@ -3573,8 +3573,7 @@ function laadAIinBeeld() {
   laadTimer = setTimeout(async () => {
     if (!spel || spel.jaar < 2020) return;
     const [x0, y0, x1, y1] = kaart.zicht(200);
-    const eigen = spel.vervoerder?.id;
-    const lijst = D.vervoerders.filter(v => v.id !== eigen && v.bbox && !(v.bbox[0] > x1 || v.bbox[2] < x0 || v.bbox[1] > y1 || v.bbox[3] < y0));
+    const lijst = D.vervoerders.filter(v => !vanSpeler(v.id) && v.bbox && !(v.bbox[0] > x1 || v.bbox[2] < x0 || v.bbox[1] > y1 || v.bbox[3] < y0));
     for (const v of lijst) {
       const treinen = (v.modi.trein || 0) > 0;
       if (!treinen && kaart.res > 60) continue;
@@ -3648,7 +3647,7 @@ async function laadSpel(data, nieuwSlot) {
     if (l.route) S.herbereken(l);
   }
   spel.lijnen = spel.lijnen.filter(l => l.route);
-  if (spel.vervoerder) AI.lijnen = AI.lijnen.filter(x => x.vervoerder !== spel.vervoerder.id);
+  if (spel.vervoerder) AI.lijnen = AI.lijnen.filter(x => !vanSpeler(x.vervoerder));
   for (const s of spel.spoor) if (s.klaar) { net.voegEigenSpoorToe(s.punten, s.eigenaar, s.sporen + (s.extraSporen || 0), spel.jaar, s.soort || 0, s.dienst || 0); if (s.verdubbelt != null && net.takken[s.verdubbelt]) net.takken[s.verdubbelt].sporen = s.nieuwSporen || 2; }
   for (const b of spel.bovenleiding || []) if (b.klaar) bovenleidingToevoegen(b.punten);
   begin();
@@ -3669,13 +3668,13 @@ async function nieuwSpelStarten() {
   if (soort === 'bestaand') {
     const keuze = document.querySelector('input[name="vervoerder"]:checked')?.value || '';
     const i = keuze.indexOf(':'), bron = keuze.slice(0, i), id = keuze.slice(i + 1); // id kan zelf ':' bevatten (IFF:NS)
-    if (bron === 'gtfs') vervoerder = D.vervoerders.find(v => v.id === id);
+    if (bron === 'gtfs') { const b = bedrijven().find(x => x.id === id); if (b) vervoerder = { ...b, id: b.leden.length === 1 ? b.leden[0].id : b.id }; }
     if (bron === 'hist') hist = vervoerdersIn(jaar).find(v => v.id === id);
     if (!vervoerder && !hist) { melding('Kies eerst een vervoerder.'); return; }
   }
   $('s-start').disabled = true; $('s-start').textContent = 'Bezig…';
   zetJaar(jaar); registreerSeries([]); zetKlassePrijzen(null);
-  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: $('s-kleur').value || hist?.kleur, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 200e6) });
+  spel = S.nieuwSpel({ naam: vervoerder?.naam || hist?.naam || naam, kleur: vervoerder ? vervoerderKleur(vervoerder.naam) : hist?.kleur || $('s-kleur').value, jaar, start: soort, vervoerder: vervoerder ? { id: vervoerder.id, naam: vervoerder.naam, leden: vervoerder.leden.map(v => v.id) } : hist ? { id: hist.id, naam: hist.naam, hist: true } : null, kapitaal: +($('s-kapitaal')?.value || 200e6) });
   if (hist) {
     zetPlaatsen(jaar);
     const lijnen = await genereerVervoerder(hist, jaar, D, net, D.plaatsen, t => { $('s-start').textContent = t; });
@@ -3687,22 +3686,24 @@ async function nieuwSpelStarten() {
   }
   slot = S.nieuwId('s');
   if (vervoerder) {
-    AI.lijnen = AI.lijnen.filter(a => a.vervoerder !== vervoerder.id); AI.geladen.delete(vervoerder.id);
-    const lijnen = await laadVervoerderLijnen(vervoerder);
-    AI.lijnen = AI.lijnen.filter(a => a.vervoerder !== vervoerder.id);
+    // alle onderdelen van het bedrijf (bus, trein, merken) samen
+    const lid = new Set(vervoerder.leden.map(v => v.id)), lijnen = [];
+    AI.lijnen = AI.lijnen.filter(a => !lid.has(a.vervoerder));
+    for (const v of vervoerder.leden) { AI.geladen.delete(v.id); lijnen.push(...await laadVervoerderLijnen(v)); }
+    AI.lijnen = AI.lijnen.filter(a => !lid.has(a.vervoerder));
     const gedaan = new Set();
     for (const a of lijnen) {
-      if (gedaan.has(a.lijnId) || !a.sleutel.endsWith(':0')) continue;
-      gedaan.add(a.lijnId);
+      if (gedaan.has(a.vervoerder + ':' + a.lijnId) || !a.sleutel.endsWith(':0')) continue;
+      gedaan.add(a.vervoerder + ':' + a.lijnId);
       const modus = MODI[a.modus] ? a.modus : 'bus';
       const l = { haltes: [], route: null };
-      vulVanAI(l, a, lijnen);
+      vulVanAI(l, a, lijnen.filter(x => x.vervoerder === a.vervoerder));
       const lijn = S.maakLijn(spel, { nr: a.nr, naam: a.naam, modus, typeId: typeVoor({ ...a, typeId: null, _typ: null }, spel.jaar, standaardType) || S.standaardTypeVoor(spel, modus), haltes: l.haltes, route: l.route, concessie: true });
       if (modus === 'trein') { lijn.spitsDubbel = true; S.herbereken(lijn); } // zoals in het echt: in de spits gekoppeld
-      lijn.echt = l.echt; lijn.bron = { vervoerder: vervoerder.id, lijnId: a.lijnId }; lijn.paden = 99; S.herbereken(lijn);
+      lijn.echt = l.echt; lijn.bron = { vervoerder: a.vervoerder, lijnId: a.lijnId }; lijn.paden = 99; S.herbereken(lijn);
     }
     for (const l of spel.lijnen) spel.voertuigen[l.typeId] = (spel.voertuigen[l.typeId] || 0) + Math.ceil(l.nodig * 1.08);
-    spel.geld = 25e6 + spel.lijnen.length * 0.4e6;
+    spel.geld = +($('s-kapitaal')?.value || 200e6); // gekozen startkapitaal
     melding(`Je neemt ${spel.lijnen.length} lijnen van ${vervoerder.naam} over, met ${Object.values(spel.voertuigen).reduce((s, n) => s + n, 0)} voertuigen.`, 7000);
   }
   begin();
@@ -3741,15 +3742,40 @@ function begin() {
   if (!spel.lijnen.length) setTimeout(() => melding('Tip: kies ＋ Lijn, dan Bus, en klik een paar plekken in een stad aan. Haltes komen er vanzelf bij.', 8000), 1200);
 }
 
+// Bedrijven: merken en dochters van één concern zijn samen één bedrijf (Arriva-bus, Arriva-trein, Bravo (Arriva) ...)
+const CONCERNS = [['Arriva', /arriva/i], ['Keolis', /keolis|^rrreis$|allgo/i], ['Transdev', /connexxion|transdev|hermes/i], ['NS', /^ns\b|^ns international|r-net ns/i], ['Qbuzz', /qbuzz|^u-ov$/i]];
+function bedrijven() {
+  const uit = new Map();
+  for (const v of D.vervoerders) {
+    const c = CONCERNS.find(([, re]) => re.test(v.naam) || re.test(v.id));
+    const id = c ? 'concern:' + c[0] : v.id, naam = c ? c[0] : v.naam;
+    if (!uit.has(id)) uit.set(id, { id, naam, leden: [], modi: {}, lijnen: 0, bbox: null });
+    const b = uit.get(id); b.leden.push(v); b.lijnen += v.lijnen || 0;
+    for (const [m, n] of Object.entries(v.modi || {})) b.modi[m] = (b.modi[m] || 0) + n;
+    if (v.bbox) b.bbox = b.bbox ? [Math.min(b.bbox[0], v.bbox[0]), Math.min(b.bbox[1], v.bbox[1]), Math.max(b.bbox[2], v.bbox[2]), Math.max(b.bbox[3], v.bbox[3])] : [...v.bbox];
+  }
+  return [...uit.values()].sort((a, b) => b.lijnen - a.lijnen);
+}
+// is deze vervoerder (uit de dienstregeling) van het bedrijf van de speler?
+const vanSpeler = id => !!spel?.vervoerder && (spel.vervoerder.id === id || (spel.vervoerder.leden || []).includes(id));
+let startModi = new Set();
 function vulVervoerders(jaar) {
   const modern = jaar >= 2020 && D.vervoerders.length;
   const MODNAAM = { trein: 'trein', bus: 'bus', tram: 'tram', metro: 'metro', veer: 'veer', belbus: 'belbus', vlucht: 'vliegtuig', sneltram: 'sneltram', hov: 'snelbus' };
   const lijst = modern
-    ? D.vervoerders.map(v => ({ waarde: 'gtfs:' + v.id, naam: v.naam, info: `${v.lijnen} lijnen · ${Object.keys(v.modi).map(m => MODNAAM[m] || m).join(', ')} · echte dienstregeling` }))
-    : vervoerdersIn(jaar).map(v => ({ waarde: 'hist:' + v.id, naam: v.naam, info: `${v.van}–${v.tot > 2050 ? 'nu' : v.tot} · ${v.modi.map(m => MODNAAM[m] || m).join(', ')}` }));
-  $('s-vervoerders').innerHTML = lijst.length ? lijst.map((v, i) => `<label><input type="radio" name="vervoerder" value="${esc(v.waarde)}" ${i ? '' : 'checked'}> ${esc(v.naam)}<span>${esc(v.info)}</span></label>`).join('')
+    ? bedrijven().map(b => ({ waarde: 'gtfs:' + b.id, naam: b.naam, modi: Object.keys(b.modi), kleur: vervoerderKleur(b.naam), info: `${b.lijnen} lijnen · ${Object.entries(b.modi).map(([m, n]) => `${n} ${MODNAAM[m] || m}`).join(', ')}${b.leden.length > 1 ? ` · ${b.leden.map(v => v.naam).join(', ')}` : ''}` }))
+    : vervoerdersIn(jaar).map(v => ({ waarde: 'hist:' + v.id, naam: v.naam, modi: v.modi, kleur: v.kleur || vervoerderKleur(v.naam), info: `${v.van}–${v.tot > 2050 ? 'nu' : v.tot} · ${v.modi.map(m => MODNAAM[m] || m).join(', ')}` }));
+  // filterknoppen per vervoerwijze en zoeken op naam
+  const alleModi = [...new Set(lijst.flatMap(v => v.modi))].filter(m => MODNAAM[m]);
+  $('s-modi').innerHTML = alleModi.map(m => `<button type="button" class="knop klein ${startModi.has(m) ? 'hoofd' : ''}" data-m="${m}">${MODNAAM[m]}</button>`).join('');
+  $('s-modi').querySelectorAll('[data-m]').forEach(b => b.onclick = () => { startModi.has(b.dataset.m) ? startModi.delete(b.dataset.m) : startModi.add(b.dataset.m); vulVervoerders(jaar); });
+  const zoek = ($('s-zoek')?.value || '').trim().toLowerCase();
+  let gekozen = document.querySelector('input[name="vervoerder"]:checked')?.value;
+  const zicht = lijst.filter(v => (!zoek || (v.naam + ' ' + v.info).toLowerCase().includes(zoek)) && [...startModi].every(m => v.modi.includes(m)));
+  if (!zicht.some(v => v.waarde === gekozen)) gekozen = null; // gekozen bedrijf valt buiten het filter: het eerste zichtbare
+  $('s-vervoerders').innerHTML = zicht.length ? zicht.map((v, i) => `<label><input type="radio" name="vervoerder" value="${esc(v.waarde)}" ${(gekozen ? v.waarde === gekozen : !i) ? 'checked' : ''}> <span class="kleurstip" style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${v.kleur};margin-right:4px;vertical-align:-1px"></span>${esc(v.naam)}<span>${esc(v.info)}</span></label>`).join('')
     + (modern ? '' : '<p class="klein" style="padding:6px 10px">Van dit jaar is geen echte dienstregeling bewaard. Het spel bouwt een lijnennet dat past bij het spoor, de plaatsen en het materieel van toen.</p>')
-    : '<p class="klein" style="padding:8px 10px">De dienstregeling wordt nog verwerkt. Probeer het later of begin blanco.</p>';
+    : lijst.length ? '<p class="klein" style="padding:8px 10px">Geen bedrijf gevonden met deze zoekterm of vervoerwijzen.</p>' : '<p class="klein" style="padding:8px 10px">De dienstregeling wordt nog verwerkt. Probeer het later of begin met een eigen bedrijf.</p>';
 }
 function jaarUitleg(j) {
   if (j >= 2020) return 'Huidige situatie: echte dienstregeling van alle vervoerders rijdt mee.';
@@ -3761,7 +3787,8 @@ async function toonStart() {
   if (!dlg.open) dlg.showModal();
   const jaar = $('s-jaar');
   jaar.oninput = () => { $('s-jaar-uit').textContent = jaar.value; $('s-jaar-uitleg').textContent = jaarUitleg(+jaar.value); vulVervoerders(+jaar.value); };
-  const kiesSoort = v => { document.querySelectorAll('#s-soort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); $('s-vervoerders').hidden = v !== 'bestaand'; };
+  const kiesSoort = v => { document.querySelectorAll('#s-soort button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === v))); $('s-bestaand').hidden = v !== 'bestaand'; $('s-eigen').hidden = v === 'bestaand'; };
+  $('s-zoek').oninput = () => vulVervoerders(+jaar.value);
   document.querySelectorAll('#s-soort button').forEach(b => b.onclick = () => kiesSoort(b.dataset.v));
   vulVervoerders(+jaar.value);
   $('s-start').onclick = nieuwSpelStarten;

@@ -67,23 +67,21 @@
   <form method="dialog" id="startform">
     <h1>OV-<em>manager</em></h1>
     <p class="lead">Run je eigen OV-bedrijf in Nederland. Leg lijnen aan, maak een dienstregeling, koop materieel en stem je tijden af met andere vervoerders, ProRail en de provincie.</p>
-    <div id="start-account"></div>
     <div id="start-opgeslagen"></div>
+    <div id="start-account"></div>
     <fieldset>
       <legend>Nieuw spel</legend>
-      <label for="s-naam">Naam van je bedrijf</label>
-      <input id="s-naam" value="Mijn OV-bedrijf" maxlength="40" required>
       <label for="s-jaar">Startjaar <output id="s-jaar-uit">2026</output></label>
       <input id="s-jaar" type="range" min="1850" max="2026" value="2026">
       <p class="klein" id="s-jaar-uitleg">Huidige situatie: echte dienstregeling van alle vervoerders.</p>
       <div class="keuze2" id="s-soort">
-        <button type="button" data-v="blanco" aria-pressed="true"><b>Blanco beginnen</b><span>€ 25 mln startkapitaal, geen lijnen</span></button>
-        <button type="button" data-v="bestaand" aria-pressed="false"><b>Bestaande vervoerder</b><span>Neem lijnen en vloot over van een echt bedrijf</span></button>
+        <button type="button" data-v="blanco" aria-pressed="true"><b>Eigen bedrijf starten</b><span>Je eigen naam en huiskleur, nog geen lijnen</span></button>
+        <button type="button" data-v="bestaand" aria-pressed="false"><b>Spelen met een bestaand bedrijf</b><span>Neem de lijnen en de vloot over van een echt bedrijf</span></button>
       </div>
-      <div id="s-vervoerders" hidden></div>
-      <label for="s-kapitaal">Startkapitaal</label>
-      <select id="s-kapitaal"><option value="25e6">€ 25 mln (krap)</option><option value="50e6">€ 50 mln</option><option value="100e6">€ 100 mln</option><option value="200e6" selected>€ 200 mln (normaal: zo'n 4 treinlijnen)</option><option value="400e6">€ 400 mln</option><option value="1e9">€ 1 mld</option><option value="1e12">onbeperkt (zandbak)</option></select>
-      <label for="s-kleur">Huiskleur</label>
+      <div id="s-eigen">
+        <label for="s-naam">Naam van je bedrijf</label>
+        <input id="s-naam" value="Mijn OV-bedrijf" maxlength="40" required>
+        <label for="s-kleur">Huiskleur</label>
       <select id="s-kleur">
         <option value="#7b1e2b" style="background:#7b1e2b;color:#fff" selected>Bordeauxrood</option>
         <option value="#1f3a7a" style="background:#1f3a7a;color:#fff">Donkerblauw</option>
@@ -94,6 +92,14 @@
         <option value="#6b4226" style="background:#6b4226;color:#fff">Bruin</option>
         <option value="#2b2d30" style="background:#2b2d30;color:#fff">Antraciet</option>
       </select>
+      </div>
+      <div id="s-bestaand" hidden>
+        <input id="s-zoek" type="search" placeholder="Zoek een bedrijf…" autocomplete="off" style="width:100%;box-sizing:border-box">
+        <div class="rij" id="s-modi"></div>
+        <div id="s-vervoerders"></div>
+      </div>
+      <label for="s-kapitaal">Startkapitaal</label>
+      <select id="s-kapitaal"><option value="25e6">€ 25 mln (krap)</option><option value="50e6">€ 50 mln</option><option value="100e6">€ 100 mln</option><option value="200e6" selected>€ 200 mln (normaal: zo'n 4 treinlijnen)</option><option value="400e6">€ 400 mln</option><option value="1e9">€ 1 mld</option><option value="1e12">onbeperkt (zandbak)</option></select>
     </fieldset>
     <button id="s-start" class="hoofdknop" type="button">Spel starten</button>
     <p class="klein" id="s-versie"></p>
