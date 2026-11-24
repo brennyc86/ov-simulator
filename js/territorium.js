@@ -81,15 +81,18 @@ export class Territorium {
   gemeenteVan(x, y) { for (let i = 0; i < this.gem.length; i++) if (binnen(this.gem[i], x, y)) return i; return -1; }
 
   // haltes: [{x, y}, ...] (RD). Bepaalt welke gebieden in kleur, lichter of zwart-wit staan.
+  // startgebied (lege regio): telt vanaf het begin als gekleurd gebied, ook zonder haltes
+  zetStart(gebieden, land) { if (this.start === gebieden) return; this.start = gebieden; this.startLand = land; this.sleutel = null; }
   zetHaltes(haltes) {
     if (!this.gem.length) return;
     const cel = new Set(); for (const h of haltes) if (h && isFinite(h.x)) cel.add(Math.round(h.x / 250) + ',' + Math.round(h.y / 250));
-    const sleutel = [...cel].sort().join(';'); if (sleutel === this.sleutel) return; this.sleutel = sleutel;
+    const sleutel = [...cel].sort().join(';') + '|' + (this.start?.length || 0); if (sleutel === this.sleutel) return; this.sleutel = sleutel;
     const actief = new Set(), cache = new Map();
     for (const c of cel) { const [i, j] = c.split(',').map(Number); if (!cache.has(c)) cache.set(c, this.gemeenteVan(i * 250, j * 250)); const g = cache.get(c); if (g >= 0) actief.add(g); }
-    this.actief = true; this.heeftHaltes = actief.size > 0; // zonder haltes: heel Nederland zwart-wit
+    this.actief = true; this.heeftHaltes = actief.size > 0 || !!this.start?.length; // zonder haltes (en startgebied): zwart-wit
     const perProv = new Map(); for (const g of actief) { const p = this.gem[g].p; perProv.set(p, (perProv.get(p) || 0) + 1); }
-    const kleur = [], licht = [], actiefLand = new Set([...perProv.keys()].map(pi => this.prov[pi]?.land));
+    const kleur = [...(this.start || [])], licht = [], actiefLand = new Set([...perProv.keys()].map(pi => this.prov[pi]?.land));
+    if (this.start?.length) actiefLand.add(this.startLand || 'NL');
     this.prov.forEach((p, pi) => { if (perProv.has(pi)) kleur.push(p); else if (actiefLand.has(p.land)) licht.push(p); });
     this.kleur = kleur; this.licht = licht; this.levendig = [...actief].map(i => this.gem[i]);
     this.kaart.map.triggerRepaint?.();

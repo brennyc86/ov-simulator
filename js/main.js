@@ -503,8 +503,12 @@ function netwerkLagen() {
 }
 // territorium: waar je haltes hebt (eigen haltes en de haltes van je lijnen)
 let territorium = null;
+let startVlakken = null, startVoor = null;
 function territoriumBijwerken() {
   if (!territorium) return;
+  // lege regio: het gekozen gebied is meteen je (gekleurde) startgebied
+  if (spel?.leeg !== startVoor) { startVoor = spel?.leeg; startVlakken = spel?.leeg ? leegVlakken(spel.leeg) : null; }
+  territorium.zetStart(startVlakken, spel?.leeg?.land);
   territorium.zetHaltes(spel ? [...spel.haltes.filter(h => h.eigen), ...spel.lijnen.flatMap(l => l.haltes || [])] : []);
 }
 // bebouwing van dat jaar op de afbeelding tekenen (kleur naar functie: wonen, winkels, bedrijven, voorzieningen)
@@ -4097,10 +4101,14 @@ function leegKeuze() {
 }
 function leegUitleg() { const k = leegKeuze(); $('s-leeg-uitleg').textContent = `${k.naam}: ${k.behoud.length ? `alleen ${k.behoud.map(b => LEEG_SOORTEN.find(x => x[0] === b)[1].toLowerCase()).join(', ')} blijft rijden` : 'al het openbaar vervoer is weg'}; de rest van de wereld rijdt gewoon.`; }
 // test of een punt in het gekozen gebied ligt (polygonen uit grenzen.json)
+function leegVlakken(k) {
+  const G = D.grenzen; if (!G || !k) return [];
+  const rij = k.niveau === 'g' ? [G.g[k.i].slice(3)] : k.niveau === 'r' ? [G.r[k.i].slice(3)] : k.niveau === 'p' ? [G.p[k.i].slice(2)] : G.p.filter(p => (G.land?.[p[0]] || 'NL') === k.land).map(p => p.slice(2));
+  return rij.map(rr => gebiedVlak('start', k.naam, rr));
+}
 function leegGebiedTest(k) {
   const G = D.grenzen; if (!G || !k) return () => false;
-  const rij = k.niveau === 'g' ? [G.g[k.i].slice(3)] : k.niveau === 'r' ? [G.r[k.i].slice(3)] : k.niveau === 'p' ? [G.p[k.i].slice(2)] : G.p.filter(p => (G.land?.[p[0]] || 'NL') === k.land).map(p => p.slice(2));
-  const vlakken = rij.map(rr => gebiedVlak('x', 'x', rr));
+  const vlakken = leegVlakken(k);
   return (x, y) => vlakken.some(v => gebiedBinnen(v, x, y));
 }
 function leegBbox(k) {
