@@ -17,6 +17,8 @@ const KENMERK = {
   buffel: [5, 1.0], ice3: [8.5, 0.8],
   icngb: [7.5, 1.0], flirt3ms: [5.5, 1.25], am08: [5.5, 1.2], am96: [6, 0.9], nmbsm7: [7, 0.95], cflkiss: [6.5, 1.1], cfl2200: [6, 1.0], talent2: [5, 1.2], ice4: [8, 0.8], regio2n: [6, 1.1], tgvduplex: [8, 0.75], thalys: [8.5, 0.7], hle18: [5, 1],
   coupe: [2.5, 1.3], staalrijtuig: [4, 0.8], plane: [5, 0.8], planw: [6, 0.75], icr: [7, 0.8], icrbvk: [7, 0.8], ddm1: [6, 0.9], ddm1bvk: [6, 0.9], viaggio: [8, 0.8], viaggiobvk: [8, 0.8],
+  bijwagen: [3.5, 1.0], bijwagen2: [4.5, 1.0], stoomtramrijtuig: [3, 1.0], tramstuur: [5, 1.0], metrorijtuig: [5, 1.0], metrostuur: [5, 1.0],
+  plank: [5, 0.8], icrm: [7.5, 0.8], icrmbvk: [7.5, 0.8], wr: [8.5, 0.8], wl: [9, 0.8], nmbsm4: [5, 0.8], nmbsm6: [6.5, 0.9], nmbsm6bx: [6.5, 0.9], nmbsi11: [7, 0.8], nmbsi11bdx: [7, 0.8], nmbsm7r: [7, 0.9], nmbsm7bmx: [7, 0.9], dbn: [4.5, 0.8], dbnbdf: [4.5, 0.8], dbdosto: [6, 0.9], dbdostost: [6, 0.9], dbic: [7, 0.8], dbic2: [7, 0.9], dbic2st: [7, 0.9], corail: [6.5, 0.8], vb2n: [5, 0.9], vb2nst: [5, 0.9],
   gvbm1: [3.5, 1.4], gvbm5: [4.5, 1.5], gvbm7: [5, 1.5], retmg2: [4, 1.3], retrsg3: [5, 1.4], regiocitadis: [5, 1.3], urbos100: [5, 1.35], sigsneltram: [3.5, 1.2],
   paardentram: [2, 0.8], stoomtram: [2.5, 0.8], tweeasser: [2.5, 1.0], pcc: [3.5, 1.1], gvb9g: [3.5, 1.1], gtl8: [4, 1.2], combino: [4.5, 1.4], citadis302: [4.5, 1.4], urbos15g: [5, 1.5], tina: [5, 1.5],
   omnibus: [1.5, 0.7], tbus: [2, 0.8], kromhout: [3, 0.9], leylandverheul: [4, 0.8], standaardstreek: [4.5, 0.8], csa1: [3.5, 1.1], citaro: [4.5, 1.15], citealle: [5, 0.95],
@@ -366,9 +368,9 @@ export function samenstelling(ids) {
     : Math.min(...d.map(x => x.acc || 1));
   const stuur = d.some(x => x.soort === 'stuurstand') || locs.length >= 2 || (!locs.length && units.length > 0) || d[d.length - 1]?.soort === 'loc' && d[0]?.soort === 'loc';
   // prestaties uit vermogen en gewicht: topsnelheid (bouw en vermogen) en optrekken met dit gewicht
-  const p = prestaties(ids.map(c => ({ id: c })), c => bakkenVan(c, 'trein'));
+  const p = prestaties(ids.map(c => ({ id: c })), c => bakkenVan(c, d[0].modus || 'trein'));
   const naamDelen = []; for (const c of ids) { const k = kortNaam(c), l = naamDelen[naamDelen.length - 1]; if (l && l.k === k) l.n++; else naamDelen.push({ k, n: 1 }); }
-  const t = { id, samen: ids, modus: 'trein', naam: naamDelen.map(x => (x.n > 1 ? x.n + '× ' : '') + x.k).join(' + '), zit: d.reduce((a, x) => a + x.zit, 0), sta: d.reduce((a, x) => a + x.sta, 0),
+  const t = { id, samen: ids, modus: d[0].modus || 'trein', naam: naamDelen.map(x => (x.n > 1 ? x.n + '× ' : '') + x.k).join(' + '), zit: d.reduce((a, x) => a + x.zit, 0), sta: d.reduce((a, x) => a + x.sta, 0),
     vmax: p.kw ? Math.round(p.vmax) : Math.min(...d.map(x => x.vmax)), acc: p.kw ? p.acc : acc, kw: p.kw, ton: p.ton, vmaxVermogen: p.vmaxVermogen,
     doorloop: ids.every((c, i) => i === 0 || (doorloopVan(ids[i - 1]) && doorloopVan(c))), prijs: d.reduce((a, x) => a + x.prijs, 0), km: d.reduce((a, x) => a + x.km, 0),
     energie: (locs[0] || units[0] || d[0]).energie, pers: Math.max(1, ...d.map(x => x.pers || 0)), leven: Math.min(...d.map(x => x.leven)),

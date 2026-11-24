@@ -1066,7 +1066,7 @@ function locWisselBlok(l) {
   const w = l.locWissel || {}, eigen = TYPE[locs[0]]?.naam || '';
   // systemen per land op deze route, om te tonen welke locs er kunnen
   const sysIn = land => [...new Set((l.route?.takken || []).map(i => i >= 1e6 ? net.eigen[i - 1e6] : net.takken[i]).filter(t => t && !t.dienst && (t.land || 0) === land).map(t => spanningVan(spel, t)))];
-  const kandidaten = [...beschikbaarLos(spel.jaar), ...Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0).map(id => TYPE[id])].filter((v, i, a) => v?.soort === 'loc' && a.indexOf(v) === i);
+  const kandidaten = [...beschikbaarLos(spel.jaar).filter(v => v.modus === 'trein'), ...Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0).map(id => TYPE[id])].filter((v, i, a) => v?.soort === 'loc' && a.indexOf(v) === i);
   const nodig = nodigLijn(l);
   return `<div class="kaartje"><b>Loc per land (loc-wissel aan de grens)</b>
     <p class="klein">Aan elke grens waar de loc verandert, wordt de loc afgekoppeld en een andere aangekoppeld (+${WISSEL_MIN} min). De afgekoppelde loc wacht daar op de trein terug, dus per land heb je alleen locs nodig voor dat deel van de rit (plus één die wacht).</p>
@@ -1078,11 +1078,11 @@ function locWisselBlok(l) {
 }
 // samenstelling van een treinlijn: treinstellen koppelen, of een loc met losse rijtuigen en eventueel een stuurstandrijtuig
 function samenstellingBlok(l) {
-  if (l.modus !== 'trein') return '';
+  if (!RAILMODI.includes(l.modus)) return '';
   const o = l._sam || (l._sam = [...delenVan(l.typeId)]);
   const nu = JSON.stringify(o) === JSON.stringify(delenVan(l.typeId));
   const t = !o.length ? null : o.length > 1 ? samenstelling(o) : TYPE[o[0]];
-  const kiesbaar = [...beschikbaar(spel.jaar, 'trein'), ...beschikbaarLos(spel.jaar), ...(spel.series || []).map(x => TYPE[x.id]).filter(x => x && x.modus === 'trein')]
+  const kiesbaar = [...beschikbaar(spel.jaar, l.modus), ...beschikbaarLos(spel.jaar).filter(x => x.modus === l.modus), ...(spel.series || []).map(x => TYPE[x.id]).filter(x => x && x.modus === 'trein')]
     .filter((x, i, a) => a.indexOf(x) === i);
   const groep = x => x.soort === 'loc' ? 'Locomotieven' : (x.soort || TYPE[x.basis]?.soort) ? 'Losse rijtuigen en stuurstandrijtuigen' : 'Treinstellen (koppelen)';
   const opties = ['Locomotieven', 'Losse rijtuigen en stuurstandrijtuigen', 'Treinstellen (koppelen)'].map(g => `<optgroup label="${g}">${kiesbaar.filter(x => groep(x) === g).map(x => `<option value="${x.id}">${esc(x.naam)}${spel.voertuigen[x.id] ? ` · ${spel.voertuigen[x.id]} in bezit` : ''}</option>`).join('')}</optgroup>`).join('');
@@ -1401,7 +1401,7 @@ const PANELEN = {
         <td class="getal">${spel.voertuigen[v.id] || 0}${lt[v.id] ? `<br><span class="klein" title="gemiddelde leeftijd / levensduur">${Math.round(lt[v.id].gem)}/${lt[v.id].leven} jr${S.ouderdomFactor(lt[v.id].gem, lt[v.id].leven) > 1.15 ? ' ⚠' : ''}</span>` : ''}${(spel.voertuigen[v.id] || 0) > (nodig[v.id] || 0) && spel.voertuigen[v.id] ? `<br><span class="klein">${spel.voertuigen[v.id] - (nodig[v.id] || 0)} staan stil</span>` : ''}${nodig[v.id] ? `<br><span class="klein" style="color:${(spel.voertuigen[v.id] || 0) < nodig[v.id] ? 'var(--rood)' : 'inherit'}">nodig ${nodig[v.id]}</span>` : ''}</td>
         <td><div class="rij" style="flex-wrap:nowrap"><button class="knop" data-actie="koop" data-type="${v.id}" data-n="1" title="Kopen">＋</button><button class="knop" data-actie="verkoop" data-type="${v.id}" title="Verkopen voor 45% van de nieuwprijs" ${spel.voertuigen[v.id] ? '' : 'disabled'}>−</button></div></td></tr>`; };
       const tabel = l2 => `<table class="tabel">${l2.map(v => rij(v) + (spel.series || []).filter(x => x.basis === v.id && TYPE[x.id]).map(x => rij(TYPE[x.id], true)).join('')).join('')}</table>`;
-      const locs = m === 'trein' ? los.filter(v => v.soort === 'loc') : [], rijt = m === 'trein' ? los.filter(v => v.soort !== 'loc') : [];
+      const locs = los.filter(v => v.modus === m && v.soort === 'loc'), rijt = los.filter(v => v.modus === m && v.soort !== 'loc');
       return `<h3>${MODI[m].naam}</h3>${tabel(lijst)}${locs.length ? `<h3>Locomotieven</h3><p class="klein">Een loc met losse rijtuigen stel je per lijn samen (lijnpaneel → Samenstelling).</p>${tabel(locs)}` : ''}${rijt.length ? `<h3>Losse rijtuigen en stuurstandrijtuigen</h3><p class="klein">Met een stuurstandrijtuig aan het eind kan de trein keren zonder dat de loc omloopt.</p>${tabel(rijt)}` : ''}`;
     }).join('');
     const museum = museumTypen(spel.jaar);
@@ -1582,7 +1582,7 @@ const PANELEN = {
     const p = prestaties(d.delen.filter(x => TYPE[x.id]).map(x => ({ id: x.id, n: x.n || 1 })), id => bakkenVan(id, d.modus));
     const kl = t ? klassenVan(serieInrichting(t.id), t.id, d.modus) : [];
     const prijs = d.delen.reduce((a, x) => a + (TYPE[x.id]?.prijs || 0) * (x.n || 1), 0), lengte = Math.round(lijst.reduce((a, id) => a + (uiterlijk(id, d.modus)._l || 0), 0));
-    const doorloopOk = t?.samen ? t.doorloop : true, magAanvullen = rail && d.modus === 'trein';
+    const doorloopOk = t?.samen ? t.doorloop : true, magAanvullen = rail;
     const vrijeVmax = p.vbouw === Infinity ? 0 : p.vbouw;
     const advies = p.kw && p.acc < 0.3 && magAanvullen ? '<p class="klein" style="color:var(--rood)">Traag optrekken met dit gewicht. Sluit af met een tweede loc in plaats van een stuurstandrijtuig, of neem minder rijtuigen.</p>' : '';
     return `<h2>Voertuig samenstellen · ${esc(MODI[d.modus].naam)}</h2>
@@ -2543,7 +2543,7 @@ function aanlegKnop(l, c) {
 }
 // sleeplocs die dit systeem aankunnen (diesel kan altijd), om ongeschikt materieel over het stuk te slepen
 function sleeplocKnoppen(l, sys) {
-  const locs = [...beschikbaarLos(spel.jaar), ...VLOOT.filter(v => v.soort === 'loc' && spel.voertuigen[v.id])].filter((v, i, a) => v.soort === 'loc' && a.indexOf(v) === i && kanOp(v.id, sys));
+  const locs = [...beschikbaarLos(spel.jaar), ...VLOOT.filter(v => v.soort === 'loc' && spel.voertuigen[v.id])].filter(v => v.modus === l.modus).filter((v, i, a) => v.soort === 'loc' && a.indexOf(v) === i && kanOp(v.id, sys));
   return locs.length ? `<select id="sleep-${l.id}">${locs.map(v => `<option value="${v.id}">${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ` · ${S.euroKort(v.prijs)}`}</option>`).join('')}</select><button class="knop klein" data-actie="sleeploc" data-id="${l.id}">Sleeploc inzetten (${l.nodig} nodig)</button>` : '';
 }
 // mag deze eigen lijn met dit materieel rijden? anders stilzetten tot het is opgelost
@@ -2568,28 +2568,30 @@ function nodigBlok(d, typen) {
 // ---------------------------------------------------------------- voertuig samenstellen
 // Opbouw van een trein: met een treinstel (daarna alleen nog treinstellen erbij koppelen) of met een loc
 // (daarna locs, rijtuigen en een stuurstandrijtuig). Andere modi: één voertuig.
+const RAILMODI = ['trein', 'tram', 'metro', 'sneltram'];
 const soortVan = x => x?.soort || TYPE[x?.basis]?.soort || '';
 const opbouwVan = d => d.opbouw || (soortVan(TYPE[d.delen[0]?.id]) === 'loc' ? 'loc' : 'treinstel');
-const catVan = (d, x, i) => { if (d.modus !== 'trein') return 'voertuig'; if (opbouwVan(d) === 'treinstel') return 'treinstel'; if (i === 0) return 'loc';
+const catVan = (d, x, i) => { if (!RAILMODI.includes(d.modus)) return 'voertuig'; if (opbouwVan(d) === 'treinstel') return 'treinstel'; if (i === 0) return 'loc';
   return x.cat || soortVan(TYPE[x.id]) || 'rijtuig'; };
 const CAT_NAAM = { treinstel: 'Treinstel', loc: 'Loc', rijtuig: 'Rijtuig', stuurstand: 'Stuurstandrijtuig', voertuig: 'Voertuig' };
+const catNaam = (c, modus) => modus === 'trein' || !['treinstel', 'rijtuig', 'stuurstand'].includes(c) ? CAT_NAAM[c] : { treinstel: modus === 'tram' ? 'Tram (motorwagen)' : 'Metrostel', rijtuig: modus === 'tram' ? 'Bijwagen' : 'Rijtuig', stuurstand: 'Stuurstand' }[c];
 function bouwKeuzes(d, cat) {
-  const typen = [...beschikbaar(spel.jaar, d.modus), ...(d.modus === 'trein' ? beschikbaarLos(spel.jaar) : []), ...(spel.series || []).map(x => TYPE[x.id]).filter(x => x && x.modus === d.modus),
+  const typen = [...beschikbaar(spel.jaar, d.modus), ...(RAILMODI.includes(d.modus) ? beschikbaarLos(spel.jaar).filter(v => v.modus === d.modus) : []), ...(spel.series || []).map(x => TYPE[x.id]).filter(x => x && x.modus === d.modus),
     ...Object.keys(spel.voertuigen).filter(id => spel.voertuigen[id] > 0 && TYPE[id]?.modus === d.modus && !TYPE[id]?.samen).map(id => TYPE[id])]
     .filter((x, i, a) => x && a.indexOf(x) === i && !['ddr', 'stoom3700'].includes(x.id)); // samengestelde oude sets bouw je nu zelf
   if (cat === 'voertuig') return typen;
   return typen.filter(x => (soortVan(x) || 'treinstel') === cat);
 }
 function bouwKaart(d, x, i) {
-  const cat = catVan(d, x, i), t = TYPE[x.id], keuzes = bouwKeuzes(d, cat), trein = d.modus === 'trein', ts = opbouwVan(d) === 'treinstel';
-  const titel = !trein ? 'Voertuig' : i === 0 ? null : ts ? 'Gekoppeld treinstel' : null;
+  const cat = catVan(d, x, i), t = TYPE[x.id], keuzes = bouwKeuzes(d, cat), trein = RAILMODI.includes(d.modus), ts = opbouwVan(d) === 'treinstel';
+  const titel = !trein ? 'Voertuig' : i === 0 ? null : ts ? (d.modus === 'trein' ? 'Gekoppeld treinstel' : 'Gekoppeld') : null;
   // eerste kaart: treinstel of loc; daarna bij een loc-trein: loc, rijtuig of stuurstandrijtuig
-  const knoppen = (opties, actie, huidig) => `<div class="segment">${opties.map(o => `<button class="knop klein ${o === huidig ? 'hoofd' : ''}" data-actie="${actie}" data-w="${o}" data-i="${i}">${CAT_NAAM[o]}</button>`).join('')}</div>`;
+  const knoppen = (opties, actie, huidig) => `<div class="segment">${opties.map(o => `<button class="knop klein ${o === huidig ? 'hoofd' : ''}" data-actie="${actie}" data-w="${o}" data-i="${i}">${catNaam(o, d.modus)}</button>`).join('')}</div>`;
   const kop = !trein ? '' : i === 0 ? knoppen(['treinstel', 'loc'], 'bw-opbouw', ts ? 'treinstel' : 'loc') : ts ? '' : knoppen(['loc', 'rijtuig', 'stuurstand'], 'bw-cat', cat);
   const kl = t && t.soort !== 'loc' ? klassenVan(serieInrichting(x.id), x.id, d.modus) : [];
   return `<div class="bouwkaart"><div class="rij">${titel ? `<b class="klein">${titel}</b>` : ''}${kop}${i > 0 ? `<button class="knop klein" style="margin-left:auto" data-actie="bw-weg" data-i="${i}" title="weghalen">✕</button>` : ''}</div>
     <div class="foto">${schets(x.id ? [x.id] : [], d.modus)}</div>
-    <select data-wijzig="bw-type" data-i="${i}"><option value="">— kies ${CAT_NAAM[cat].toLowerCase()} —</option>${keuzes.map(v => `<option value="${v.id}" ${v.id === x.id ? 'selected' : ''}>${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ''}</option>`).join('')}</select>
+    <select data-wijzig="bw-type" data-i="${i}"><option value="">— kies ${catNaam(cat, d.modus).toLowerCase()} —</option>${keuzes.map(v => `<option value="${v.id}" ${v.id === x.id ? 'selected' : ''}>${esc(v.naam)}${spel.voertuigen[v.id] ? ` (${spel.voertuigen[v.id]} in bezit)` : ''}</option>`).join('')}</select>
     ${t ? `${aandrijving(x.id, d.modus)}<p class="klein">${t.van}–${t.tot < 2100 ? t.tot : 'nu'} · ${t.vmax} km/u · ${vermogen(x.id) ? Math.round(vermogen(x.id)).toLocaleString('nl-NL') + ' kW · ' : ''}${Math.round(massa(x.id))} t${t.soort !== 'loc' ? ` · ${doorloop(x.id) ? 'doorloop' : 'geen doorloop'}` : ''} · ${S.euroKort(t.prijs)}</p>
       ${kl.length ? `<p class="klein">${kl.map(k => `${KLASSE_NAAM[k.klasse]} ${k.zit}${k.sta ? '+' + k.sta : ''} (${STOEL[k.stoel]?.naam || ''})`).join('<br>')}${voorzieningen(x.id).length ? '<br>' + [...new Set(voorzieningen(x.id).map(v => v.naam))].join(', ') : ''}</p>
         <button class="knop klein" data-actie="bw-ink" data-i="${i}">Interieur…</button>` : ''}

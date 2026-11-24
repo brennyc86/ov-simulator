@@ -63,6 +63,8 @@ const EIGEN = {
   icngb: ['1500DC', '3000DC', '25kVAC'], flirt3ms: ['1500DC', '3000DC', '15kVAC'], am08: ['3000DC', '25kVAC'], am96: ['3000DC', '25kVAC'],
   nmbsm7: ['3000DC', '25kVAC'], hle18: ['3000DC', '25kVAC', '15kVAC'], cflkiss: ['25kVAC', '15kVAC'], cfl2200: ['25kVAC', '3000DC'],
   talent2: ['15kVAC'], ice4: ['15kVAC'], regio2n: ['1500DC', '25kVAC'], tgvduplex: ['1500DC', '25kVAC'], thalys: ['1500DC', '3000DC', '15kVAC', '25kVAC'],
+  loc189: ["1500DC", "3000DC", "15kVAC", "25kVAC"], br101: ["15kVAC"], br103: ["15kVAC"], br110: ["15kVAC"], br185: ["15kVAC", "25kVAC"], nmbs13: ["3000DC", "25kVAC"], nmbs27: ["3000DC"], cfl3000: ["3000DC", "25kVAC"], cfl4000: ["3000DC", "15kVAC", "25kVAC"], bb26000: ["1500DC", "25kVAC"], bb15000: ["25kVAC"], bb22200: ["1500DC", "25kVAC"], br146: ["15kVAC"], loc1800: ["1500DC", "3000DC", "15kVAC", "25kVAC"],
+  tramelloc: ["600DC", "750DC"],
   retrsg3: ['750DC3', '750DC'], regiocitadis: ['600DC', '750DC'], sigsneltram: ['750DC', '600DC'], urbos100: ['750DC'], gvbm5: ['750DC3', '600DC'], gvbm7: ['750DC3', '600DC'],
 };
 export function spanningenVan(typeId) {
