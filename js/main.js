@@ -423,13 +423,14 @@ function netwerkLagen() {
     lijn('net-smal', 'spoor', ['all', k('smal'), jaarFilter(jaar)], NK.smal, zoomB(0.8, 1.2, 2));
     lijn('net-snel', 'spoor', ['all', k('snel'), jaarFilter(jaar)], NK.snel, zoomB(1, 2, 3));
     lijn('net-metro', 'spoor', ['all', k('metro'), jaarFilter(jaar)], NK.metro, zoomB(1, 2.2, 3.2));
-    // hoofdspoor: dikte naar aantal sporen; ver ingezoomd is elk spoor apart getekend in OSM, dan dun
+    // hoofdspoor: dikte naar aantal sporen; vanaf zoom 15 is elk spoor apart getekend (OSM) en schaalt de lijn mee met
+    // de echte spoorbreedte (~2,6 m met dwarsliggers), zodat sporen op 4,5 m van elkaar niet over elkaar vallen
     const hoofd = ['all', ['match', ['get', 'k'], ['h1', 'h2', 'h3'], true, false], jaarFilter(jaar)];
-    lijn('net-hoofd-halo', 'spoor', hoofd, NK.halo, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 4.5, 'h2', 3.5, 2.6], 13, ['match', ['get', 'k'], 'h3', 6, 'h2', 5, 3.6], 16, 3]);
-    lijn('net-hoofd', 'spoor', ['all', hoofd, ['!=', ['get', 'e'], 0]], NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4]);
+    lijn('net-hoofd-halo', 'spoor', hoofd, NK.halo, ['interpolate', ['exponential', 2], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 4.5, 'h2', 3.5, 2.6], 13, ['match', ['get', 'k'], 'h3', 6, 'h2', 5, 3.6], 15, 2.6, 16, 3, 19, 20]);
+    lijn('net-hoofd', 'spoor', ['all', hoofd, ['!=', ['get', 'e'], 0]], NK.spoor, ['interpolate', ['exponential', 2], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 15, 1.2, 16, 1.8, 19, 14]);
     // bovenleiding als patroon (dikte = aantal sporen, kleur = eigenaar): zonder bovenleiding gestreept,
     // hogesnelheidslijn met een witte middenlijn, loc-wisselspoor met wit streep-punt, vreemde spanning met witte stippen
-    const hoofdBreed = ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 16, 1.4];
+    const hoofdBreed = ['interpolate', ['exponential', 2], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 2.6, 'h2', 1.8, 1.1], 13, ['match', ['get', 'k'], 'h3', 3.6, 'h2', 2.8, 1.6], 15, 1.2, 16, 1.8, 19, 14];
     lijn('net-hoofd-geen', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 0]], NK.spoor, hoofdBreed, { 'line-dasharray': [2.2, 1.4] });
     // hogesnelheidslijn: breder dan gewoon spoor (zwaarste lijn op de kaart) met een duidelijke witte middenlijn
     lijn('net-hsl-basis', 'spoor', ['all', hoofd, ['==', ['get', 'e'], 2]], NK.spoor, ['interpolate', ['linear'], ['zoom'], 6, ['match', ['get', 'k'], 'h3', 5, 'h2', 4.2, 3.2], 13, ['match', ['get', 'k'], 'h3', 7, 'h2', 6.2, 5], 16, 2.6], {});

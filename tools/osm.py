@@ -203,6 +203,8 @@ def perrons(bbox, uit):
                 if m.get("role") == "outer" and "geometry" in m:
                     voeg(m["geometry"], True)
     print(f"  {len(lijst)} perrons", flush=True)
+    if len(lijst) < 2000:  # Overpass gaf (bijna) niets: vorige versie laten staan (eerder stond er zo een leeg bestand)
+        raise RuntimeError(f"te weinig perrons ({len(lijst)}), vorige versie blijft staan")
     schrijf(uit, "perrons.json", {"uitleg": "[1=vlak/0=lijn, x0, y0, dx, dy, ...] RD-meters", "p": lijst})
 
 
@@ -800,7 +802,10 @@ def main():
     takken = spoor(a.bbox, a.uit)
     stations(a.bbox, a.uit, takken)
     wissels(a.bbox, a.uit)
-    perrons(a.bbox, a.uit)
+    try:
+        perrons(a.bbox, a.uit)
+    except Exception as e:  # noqa: BLE001
+        print("perrons mislukt:", e, flush=True)
     print("plaatsen, veren en vliegvelden ophalen (eerst even wachten, Overpass remt af na zware verzoeken)…", flush=True)
     time.sleep(45)
     rest = overig_ophalen(a.bbox)
