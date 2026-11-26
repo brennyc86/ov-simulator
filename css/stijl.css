@@ -204,3 +204,12 @@ output { font: 600 14px var(--f-cijfer); color: var(--tekst); margin-left: 6px; 
 .mixblok .rij { flex-wrap: wrap; gap: 6px; }
 .kaartje.concept { border-left: 4px solid var(--sein); }
 .kaartje.concept li.nieuw { font-weight: 600; }
+
+/* balk onderin (vervangt de balk links) */
+.gereedschap.onder { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 8px); left: 50%; right: auto; transform: translateX(-50%); flex-direction: row; align-items: stretch; max-width: calc(100vw - 16px); overflow-x: auto; }
+.gereedschap.onder button { flex: 0 0 auto; width: 70px; }
+.gereedschap.onder hr { border: 0; border-left: 1px solid var(--lijn); margin: 4px 3px; width: 0; }
+.gereedschap.onder button.aan { background: var(--accent); color: var(--vlak); }
+.klein-knop { position: relative; font-size: 16px; }
+.klein-knop em { position: absolute; top: -3px; right: -3px; font: 700 10px/16px var(--f-cijfer); font-style: normal; min-width: 16px; padding: 0 4px; border-radius: 8px; background: var(--rood); color: #fff; }
+.legendaknop { bottom: calc(env(safe-area-inset-bottom, 0px) + 92px) !important; }
