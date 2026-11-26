@@ -8,7 +8,7 @@ import { STIJLEN, GROOTTE, stijlenVoor, gebouwPrijs, winkelHuur, plattegrond } f
 import { busstationOntwerp } from './perron.js';
 import { prestaties, vermogen, massa, doorloop } from './techniek.js';
 import { schets, aandrijving } from './schets.js';
-import { PLEKKEN, vrachtNiveau, VENSTER, FREQ, nodigKw, refLocs, vergoeding, bedenkAanvraag, vrachtTypeId, locsNodig, isVrachtLoc } from './vracht.js';
+import { tonTerug, vergoedingRetour, vrachtRijtijd, vensterVan, PLEKKEN, vrachtNiveau, VENSTER, FREQ, nodigKw, refLocs, vergoeding, bedenkAanvraag, vrachtTypeId, locsNodig, isVrachtLoc } from './vracht.js';
 import { marktStart, STAAT, marktPrijs, marktBijwerken, koopVanMarkt, renovatieKosten, renovatieDagen, inzetbaar, buitenDienst, wachtOpRevisie, startRevisie, renovatiesAfronden } from './markt.js';
 import { perronVanaf } from './correcties.js';
 import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomCheck, baanvak, ombouwKostenStroom, landVerdeling, wisselsPerRit, WISSEL_MIN, wisselTakken, bovenleidingKlasse, BOVENLEIDING_NAAM } from './stroom.js';
@@ -1424,7 +1424,7 @@ function vrachtKort() {
 function locsBezet(loc, venster, behalve) {
   let n = 0;
   for (const l of spel.lijnen) { if (!l.actief && !l.bijzonder || l === behalve) continue;
-    if (l.vracht) { if (l.vracht.loc === loc && l.vracht.venster === venster) n += l.vracht.n; continue; }
+    if (l.vracht) { if (l.vracht.loc === loc && (l.vracht.vensters || [l.vracht.venster]).includes(venster)) n += l.vracht.n; continue; }
     if (l.bijzonder) continue;
     const k = nodigPer(l.typeId)[loc] || 0; if (!k) continue;
     const spits = k * l.nodig; n += venster === 'spits' ? spits : venster === 'dal' ? Math.ceil(spits * Math.min(1, (l.interval?.ochtendspits || 30) / (l.interval?.dal || 30))) : 0;
@@ -1440,17 +1440,26 @@ const PANEEL_VRACHT = d => {
   if (!d) d = paneelData = {};
   const lijst = (spel.vrachtAanvragen || []).filter(a => a.route);
   const kaart_ = a => { const keuze = (d.keuze ||= {})[a.id] ||= { venster: 'nacht', tijd: VENSTER.nacht.tijden[1] }; const locs = vrachtTypen(a);
+    a.retour ||= 'leeg'; a.losUren ||= 4;
+    // terugrit: vroegst na aankomst + lossen; standaard het eerste vertrek dat daarna kan
+    const vroegst = +keuze.tijd + vrachtRijtijd(a.km) + a.losUren * 60;
+    if (!keuze.vensterT) { keuze.vensterT = vensterVan(vroegst); keuze.tijdT = VENSTER[keuze.vensterT].tijden.find(t => t >= vroegst % 1440) ?? VENSTER[keuze.vensterT].tijden[0]; }
     if (!locs.some(v => v.id === keuze.loc)) keuze.loc = locs.sort((x, y) => (spel.voertuigen[y.id] || 0) - (spel.voertuigen[x.id] || 0) || vermogen(y.id) - vermogen(x.id))[0]?.id;
-    const n = keuze.loc ? locsNodig(keuze.loc, a.ton, keuze.venster) : 0, vrij = keuze.loc ? Math.max(0, inzetbaar(spel, keuze.loc) - locsBezet(keuze.loc, keuze.venster)) : 0, tekort = Math.max(0, n - vrij);
+    const n = keuze.loc ? Math.max(locsNodig(keuze.loc, a.ton, keuze.venster), locsNodig(keuze.loc, tonTerug(a), keuze.vensterT)) : 0;
+    const vrij = keuze.loc ? Math.max(0, inzetbaar(spel, keuze.loc) - Math.max(locsBezet(keuze.loc, keuze.venster), locsBezet(keuze.loc, keuze.vensterT))) : 0, tekort = Math.max(0, n - vrij);
+    const terugTe = +keuze.tijdT < vroegst % 1440 && vroegst < 1440 + 300;
     return `<div class="kaartje"><div class="rij"><b>${esc(a.klant)}</b><span class="chip">${esc(a.lading)}</span><span class="chip">${FREQ[a.freq].naam}</span></div>
       <p>${esc(a.van.naam)} → ${esc(a.naar.naam)} · ${a.km} km · ${a.wagons} wagons (${a.lengte} m, ${a.ton.toLocaleString('nl-NL')} t) · aanvraag geldig nog ${Math.max(0, a.tot - spel.dag)} dag(en)</p>
+      <p class="klein">De wagons zijn van de klant. Lossen duurt <b>${a.losUren} uur</b>; daarna gaan de wagons ${a.retour === 'vol' ? '<b>vol met andere lading</b> terug (betaalt 60% extra)' : '<b>leeg</b> terug'} naar ${esc(a.van.naam)}. Tussendoor kan je loc iets anders doen (bv. een spitstrein).</p>
       <table class="tabel"><tr><th>Tijdvak</th><th class="getal">nodig vermogen</th><th class="getal">vergoeding per rit</th></tr>${Object.entries(VENSTER).map(([k, v]) => `<tr><td>${v.naam}</td><td class="getal">${nodigKw(a.ton, k).toLocaleString('nl-NL')} kW (± ${refLocs(a.ton, k)} loc)</td><td class="getal">${S.euroKort(vergoeding(a.ton, k, a.km))}</td></tr>`).join('')}</table>
       <div class="raster2"><label class="veld">Tijdvak<select data-wijzig="vr-keuze" data-id="${a.id}" data-k="venster">${Object.entries(VENSTER).map(([k, v]) => `<option value="${k}" ${k === keuze.venster ? 'selected' : ''}>${v.naam}</option>`).join('')}</select></label>
         <label class="veld">Vertrek<select data-wijzig="vr-keuze" data-id="${a.id}" data-k="tijd">${VENSTER[keuze.venster].tijden.map(t => `<option value="${t}" ${t === +keuze.tijd ? 'selected' : ''}>${S.klok(t)}</option>`).join('')}</select></label>
+        <label class="veld">Terug: tijdvak<select data-wijzig="vr-keuze" data-id="${a.id}" data-k="vensterT">${Object.entries(VENSTER).map(([k, v]) => `<option value="${k}" ${k === keuze.vensterT ? 'selected' : ''}>${v.naam}</option>`).join('')}</select></label>
+        <label class="veld">Terug: vertrek ${esc(a.naar.naam.split(' (')[0])}<select data-wijzig="vr-keuze" data-id="${a.id}" data-k="tijdT">${VENSTER[keuze.vensterT].tijden.map(t => `<option value="${t}" ${t === +keuze.tijdT ? 'selected' : ''}>${S.klok(t)}${t < vroegst % 1440 && vroegst < 1440 + 300 ? ' (te vroeg)' : ''}</option>`).join('')}</select></label>
         <label class="veld">Loc<select data-wijzig="vr-keuze" data-id="${a.id}" data-k="loc">${locs.map(v => `<option value="${v.id}" ${v.id === keuze.loc ? 'selected' : ''}>${esc(v.naam)} · ${Math.round(vermogen(v.id)).toLocaleString('nl-NL')} kW${spel.voertuigen[v.id] ? ` · ${spel.voertuigen[v.id]} in bezit` : ` · ${S.euroKort(v.prijs)}`}</option>`).join('') || '<option value="">geen loc kan over deze hele route</option>'}</select></label></div>
       ${keuze.loc ? `<div class="foto">${schets([...Array(n).fill(keuze.loc), ...Array(Math.min(a.wagons, 8)).fill('goederenwagen')], 'trein', { breed: 460 })}</div>
         <p class="klein">Nodig: <b>${n} × ${esc(TYPE[keuze.loc].naam)}</b> in dit tijdvak · vrij: ${vrij}${tekort ? ` · nog te kopen: ${tekort} (${S.euroKort(tekort * TYPE[keuze.loc].prijs)})` : ''}. ${keuze.venster !== 'spits' ? 'Buiten de spits kunnen deze locs in de spits een reizigerstrein trekken.' : 'In de spits zijn de locs niet beschikbaar voor reizigerstreinen.'}</p>
-        <button class="knop hoofd" data-actie="vracht-aan" data-id="${a.id}">Aannemen: ${S.euroKort(vergoeding(a.ton, keuze.venster, a.km))} per rit${tekort ? `, ${tekort} loc(s) kopen` : ''}</button>` : ''}</div>`; };
+        ${terugTe ? `<p class="klein" style="color:var(--rood)">De terugrit vertrekt voordat de wagons gelost zijn (vroegst ${S.klok(vroegst % 1440)}).</p>` : ''}<button class="knop hoofd" data-actie="vracht-aan" data-id="${a.id}" ${terugTe ? 'disabled' : ''}>Aannemen: ${S.euroKort(vergoedingRetour(a, keuze.venster))} per keer heen en terug${tekort ? `, ${tekort} loc(s) kopen` : ''}</button>` : ''}</div>`; };
   return `<h2>Goederenvervoer</h2><p class="chip">Vertrouwen van klanten: niveau ${vrachtNiveau(spel) + 1} van 5 · ${spel.vrachtRitten || 0} rit(ten) gereden</p>${vrachtKortLopend()}<p class="klein">Klanten vragen een goederentrein aan; zij zorgen voor de wagons, jij voor de loc(s), het pad en het personeel. Een lange, zware trein moet in de dienstregeling mee kunnen komen: in de spits is per ton veel meer trekkracht nodig dan 's nachts. Locs die 's nachts of overdag buiten de spits goederen trekken, kunnen in de spits gewoon een reizigerstrein trekken.</p>
     ${lijst.length ? lijst.map(kaart_).join('') : '<p>Er zijn nu geen aanvragen. Er komen er regelmatig nieuwe bij.</p>'}`;
 };
@@ -2519,15 +2528,16 @@ function actieUit(a, d) {
       melding(`${n} × ${t.naam} verkocht op de tweedehandsmarkt voor ${S.euroKort(w)}.`); ververs(); break; }
     case 'open-vracht': openPaneel('vracht', paneelSoort === 'vracht' ? paneelData : {}); break;
     case 'vracht-aan': { const a = (spel.vrachtAanvragen || []).find(x => x.id === d.id), k = paneelData?.keuze?.[d.id]; if (!a || !k?.loc) break;
-      const n = locsNodig(k.loc, a.ton, k.venster), vrij = Math.max(0, inzetbaar(spel, k.loc) - locsBezet(k.loc, k.venster)), tekort = Math.max(0, n - vrij), loc = TYPE[k.loc];
+      const n = Math.max(locsNodig(k.loc, a.ton, k.venster), locsNodig(k.loc, tonTerug(a), k.vensterT || k.venster)), vrij = Math.max(0, inzetbaar(spel, k.loc) - Math.max(locsBezet(k.loc, k.venster), locsBezet(k.loc, k.vensterT || k.venster))), tekort = Math.max(0, n - vrij), loc = TYPE[k.loc];
       if (tekort && !betaal(tekort * loc.prijs, `${tekort} × ${loc.naam}`)) break;
       if (tekort) { spel.voertuigen[k.loc] = (spel.voertuigen[k.loc] || 0) + tekort; (spel.aankopen ||= []).push({ id: k.loc, n: tekort, dag: spel.dag, jaar: spel.jaar }); }
       const typeId = vrachtTypeId(k.loc, n, a.wagons); samenstellingVan(typeId);
       const eenmalig = a.freq === 'eenmalig', dagen = FREQ[a.freq].dagen || [Math.floor(Math.random() * 5)];
       const l = maakBijzonder({ nr: 'G', naam: `${a.klant}: ${a.van.naam.split(' (')[0]} – ${a.naar.naam.split(' (')[0]}`, modus: 'trein', typeId, haltes: [{ naam: a.van.naam, x: a.van.x, y: a.van.y }, { naam: a.naar.naam, x: a.naar.x, y: a.naar.y }], route: a.route,
-        soort: eenmalig ? 'eenmalig' : 'bijzonder', dag: eenmalig ? spel.dag + 2 : undefined, dagen: eenmalig ? undefined : dagen, vanaf: spel.dag + 1, vertrek: +k.tijd, charter: true, bod: vergoeding(a.ton, k.venster, a.km), personen: 0, wie: a.klant });
-      l.vracht = { loc: k.loc, n, venster: k.venster, wagons: a.wagons, ton: a.ton, klant: a.klant };
-      const r = pendel(+k.tijd, 1, 60, l.duur); l.bijzonder.heen = r.heen; l.bijzonder.terug = r.terug; bijzonderBijwerken(l); stroomBijwerken(l);
+        soort: eenmalig ? 'eenmalig' : 'bijzonder', dag: eenmalig ? spel.dag + 2 : undefined, dagen: eenmalig ? undefined : dagen, vanaf: spel.dag + 1, vertrek: +k.tijd, charter: true, bod: vergoedingRetour(a, k.venster), personen: 0, wie: a.klant });
+      l.vracht = { loc: k.loc, n, venster: k.venster, vensters: [k.venster, k.vensterT || k.venster], wagons: a.wagons, ton: a.ton, klant: a.klant, retour: a.retour, losUren: a.losUren };
+      // heen met lading; terug (leeg of met andere lading) na het lossen, op het gekozen tijdstip
+      l.bijzonder.heen = [+k.tijd]; l.bijzonder.terug = [+(k.tijdT ?? (+k.tijd + l.duur / 60 + a.losUren * 60))]; bijzonderBijwerken(l); stroomBijwerken(l);
       spel.vrachtAanvragen = spel.vrachtAanvragen.filter(x => x !== a);
       melding(`Goederentrein aangenomen: ${l.naam}, ${FREQ[a.freq].naam} om ${S.klok(+k.tijd)}${tekort ? ` (${tekort} × ${loc.naam} gekocht)` : ''}.`, 8000); ververs(); break; }
     case 'markt-koop': { const a = (spel.markt || []).find(x => x.id === d.id); if (!a) break; const n = Math.max(1, Math.min(a.n, Math.round(+$('mk-' + a.id)?.value || a.n))), t = TYPE[a.typeId];
@@ -2573,7 +2583,7 @@ function wijzig(w, i) {
     case 'perron-vorm': if (perronOntwerp) perronOntwerpen(perronOntwerp.naam, perronOntwerp.x, perronOntwerp.y, perronOntwerp.kant, i.value, perronOntwerp.eind); return;
     case 'lijn-richting': l.richting = i.value; l.aangepast = true; S.herbereken(l); padOpnieuwNodig(l); ververs(); return;
     case 'nl-bijzonder': paneelData.bijzonder = i.checked; i.blur(); ververs(); return;
-    case 'vr-keuze': { const kz = paneelData.keuze[i.dataset.id]; kz[i.dataset.k] = i.value; if (i.dataset.k === 'venster') kz.tijd = VENSTER[i.value].tijden[1] ?? VENSTER[i.value].tijden[0]; i.blur(); setTimeout(() => ververs(), 0); return; }
+    case 'vr-keuze': { const kz = paneelData.keuze[i.dataset.id]; kz[i.dataset.k] = i.value; if (i.dataset.k === 'venster') { kz.tijd = VENSTER[i.value].tijden[1] ?? VENSTER[i.value].tijden[0]; delete kz.vensterT; } if (i.dataset.k === 'vensterT') kz.tijdT = VENSTER[i.value].tijden[0]; if (i.dataset.k === 'tijd') delete kz.vensterT; i.blur(); setTimeout(() => ververs(), 0); return; }
     case 'nb-veld': paneelData.nb[i.dataset.k] = i.value; i.blur(); setTimeout(() => ververs(), 0); return;
     case 'nb-wacht': paneelData.nb.wacht[i.dataset.i] = Math.max(0, Math.min(120, Math.round(+i.value || 0))); i.blur(); setTimeout(() => ververs(), 0); return;
     case 'nb-dag': { const l2 = paneelData.nb.dagen, w2 = +i.dataset.w, k = l2.indexOf(w2); if (i.checked && k < 0) l2.push(w2); else if (!i.checked && k >= 0) l2.splice(k, 1); ververs(); return; }

@@ -57,7 +57,9 @@ export function bedenkAanvraag(spel, plekRd, kanRijden, niveau = vrachtNiveau(sp
     const soort = Math.random() < 0.5 ? a[3] : b[3], wagons = rnd(nv.wagons[0], nv.wagons[1]), ton = wagons * WAGON_TON;
     const freq = niveau === 0 ? kies(['eenmalig', 'eenmalig', 'werkdagen', 'wekelijks']) : kies(['eenmalig', 'dagelijks', 'dagelijks', 'werkdagen', 'werkdagen', 'wekelijks']);
     return { id: 'g' + Math.random().toString(36).slice(2, 9), klant: kies(KLANTEN[soort] || KLANTEN.gemengd), lading: soort, van: { naam: a[0], ...pa }, naar: { naam: b[0], ...pb },
-      wagons, ton, lengte: wagons * WAGON_M, km: Math.round(route.lengte / 1000), freq, niveau, dag: spel.dag, tot: spel.dag + rnd(6, 16), route };
+      wagons, ton, lengte: wagons * WAGON_M, km: Math.round(route.lengte / 1000), freq, niveau, dag: spel.dag, tot: spel.dag + rnd(6, 16), route,
+      // de wagons zijn van de klant en moeten terug: leeg, of vol met andere lading (betaalt meer); lossen kost tijd
+      retour: Math.random() < 0.3 ? 'vol' : 'leeg', losUren: rnd(2, 8) };
   }
   return null;
 }
@@ -67,3 +69,10 @@ export const vrachtTypeId = (loc, n, wagons) => `sam:${Array(n).fill(loc).concat
 export const trekkracht = (loc, n) => vermogen(loc) * n;
 export const locsNodig = (loc, ton, venster) => Math.max(1, Math.ceil(nodigKw(ton, venster) / Math.max(1, vermogen(loc))));
 export const isVrachtLoc = v => v?.soort === 'loc' && v.modus === 'trein';
+
+// trekkracht voor de terugrit: lege wagons wegen ongeveer een kwart
+export const tonTerug = a => a.retour === 'vol' ? a.ton : Math.round(a.ton * 0.28);
+// vergoeding voor heen en terug samen (een terugrit met lading betaalt 60% extra)
+export const vergoedingRetour = (a, venster) => Math.round(vergoeding(a.ton, venster, a.km) * (a.retour === 'vol' ? 1.6 : 1) / 1000) * 1000;
+// geschatte rijtijd (min) voor een goederentrein over deze afstand
+export const vrachtRijtijd = km => Math.round(km / 65 * 60 + 10);
