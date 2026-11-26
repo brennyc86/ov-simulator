@@ -1768,7 +1768,7 @@ const PANELEN = {
       <table class="tabel">${freq}</table>
       ${eigen ? `<h3>Aanpassen</h3>
         <div class="raster2"><label class="veld">Hele lijn verschuiven (min)<input type="number" min="-30" max="30" value="${l.offset}" data-wijzig="offset" data-id="${l.id}"></label>
-        ${twee ? `<button class="knop klein" data-actie="terug-direct" data-id="${l.id}" title="de terugrit vertrekt zodra het voertuig is aangekomen en gekeerd: zo min mogelijk voertuigen">Terugrit direct na aankomst</button>` : ''}
+        ${S.ritRichtingen(l) > 1 ? `<button class="knop klein" data-actie="terug-direct" data-id="${l.id}" title="de terugrit vertrekt zodra het voertuig is aangekomen en gekeerd: zo min mogelijk voertuigen">Terugrit direct na aankomst</button>` : ''}
       <label class="veld">Eerste rit<input type="time" value="${S.klok(l.eerste)}" data-wijzig="eerste" data-id="${l.id}"></label>
         <label class="veld">Laatste rit<input type="time" value="${S.klok(l.laatste)}" data-wijzig="laatste" data-id="${l.id}"></label></div>
         <p class="klein">Frequentie per periode stel je in bij de <button class="knop klein" data-actie="toon-lijn" data-id="${l.id}">hele lijn</button>.</p>
