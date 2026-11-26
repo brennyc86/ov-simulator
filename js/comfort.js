@@ -401,6 +401,8 @@ export const samenstellingVan = id => typeof id === 'string' && id.startsWith('s
 // eigen deel van de route (aandeel van de rijtijd), plus één die aan de grens op de terugkerende trein wacht.
 export function nodigLijn(l, typeId = l.typeId, nodig = l.nodig) {
   if (l.vracht && !(l.vracht.vensters || [l.vracht.venster]).includes('spits')) return {}; // goederen buiten de spits: de locs worden apart ingepland (gedeeld met de spits)
+  if (l.vracht?.legs) { // goederentrein met ritten in de spits: de locs van die ritten (per type het meeste tegelijk)
+    const uit = {}; for (const g of l.vracht.legs.filter(g => g.venster === 'spits')) for (const q of g.locs) uit[q.id] = Math.max(uit[q.id] || 0, q.n); return uit; }
   const per = nodigPer(typeId), uit = {}, w = l.locWissel, frac = l._landFrac;
   const metWissel = w && frac?.length && Object.keys(w).length;
   const locs = Object.entries(per).filter(([c]) => TYPE[c]?.soort === 'loc'), nLoc = locs.reduce((a, [, k]) => a + k, 0);

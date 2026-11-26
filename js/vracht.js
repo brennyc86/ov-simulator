@@ -59,7 +59,7 @@ export function bedenkAanvraag(spel, plekRd, kanRijden, niveau = vrachtNiveau(sp
     return { id: 'g' + Math.random().toString(36).slice(2, 9), klant: kies(KLANTEN[soort] || KLANTEN.gemengd), lading: soort, van: { naam: a[0], ...pa }, naar: { naam: b[0], ...pb },
       wagons, ton, lengte: wagons * WAGON_M, km: Math.round(route.lengte / 1000), freq, niveau, dag: spel.dag, tot: spel.dag + rnd(6, 16), route,
       // de wagons zijn van de klant en moeten terug: leeg, of vol met andere lading (betaalt meer); lossen kost tijd
-      retour: Math.random() < 0.3 ? 'vol' : 'leeg', losUren: rnd(2, 8) };
+      retour: Math.random() < 0.3 ? 'vol' : 'leeg', losUren: rnd(2, 8), tonVol: Math.round(ton * (0.6 + Math.random() * 0.9)) };
   }
   return null;
 }
@@ -71,7 +71,9 @@ export const locsNodig = (loc, ton, venster) => Math.max(1, Math.ceil(nodigKw(to
 export const isVrachtLoc = v => v?.soort === 'loc' && v.modus === 'trein';
 
 // trekkracht voor de terugrit: lege wagons wegen ongeveer een kwart
-export const tonTerug = a => a.retour === 'vol' ? a.ton : Math.round(a.ton * 0.28);
+export const tonTerug = a => a.retour === 'vol' ? (a.tonVol || a.ton) : Math.round(a.ton * 0.28); // andere lading kan lichter of zwaarder zijn
+// samenstelling uit een lijst locs (verschillende typen mogen) en de wagons van de klant
+export const vrachtTypeIdMix = (locs, wagons) => `sam:${locs.flatMap(x => Array(x.n).fill(x.id)).concat(Array(wagons).fill('goederenwagen')).join('+')}`;
 // vergoeding voor heen en terug samen (een terugrit met lading betaalt 60% extra)
 export const vergoedingRetour = (a, venster) => Math.round(vergoeding(a.ton, venster, a.km) * (a.retour === 'vol' ? 1.6 : 1) / 1000) * 1000;
 // geschatte rijtijd (min) voor een goederentrein over deze afstand
