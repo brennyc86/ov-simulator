@@ -485,7 +485,7 @@ export function verrekenUur(spel, ctx, uurBegin) {
     const [instap, perKm] = TARIEF[lijn.modus] || TARIEF.bus;
     const ritprijs = instap + perKm * (lijn.modus === 'trein' ? Math.min(gemKm, 40) + Math.max(0, gemKm - 40) * 0.7 : gemKm);
     // zwartrijden en controle
-    const pak = pakkans(spel, lijn);
+    const pak = pakkans(spel, lijn, uurBegin);
     const basis = ZWARTRIJDEN_BASIS[lijn.modus] ?? 0.03;
     const zwartFractie = basis * (spel.controle.poortjes && (lijn.modus === 'trein' || lijn.modus === 'metro') ? 0.35 : 1)
       * (lijn.modus === 'bus' && spel.controle.chauffeur ? 0.5 : 1) * Math.exp(-pak * 6) * 1.6;
@@ -523,7 +523,8 @@ export function verrekenUur(spel, ctx, uurBegin) {
   }
   // controleurs (steekproef en ploegen)
   if (periode) {
-    const ploegKosten = spel.controle.ploegen.reduce((s, p) => s + (uurBegin >= p.van && uurBegin < p.tot ? p.mensen * LOON.controleur : 0), 0);
+    const actiefNu = p => p.route?.length ? p.route.some(st => uurBegin >= st.van && uurBegin < st.tot) : uurBegin >= p.van && uurBegin < p.tot; // met een route: alleen in de uren van de route
+    const ploegKosten = spel.controle.ploegen.reduce((s, p) => s + (actiefNu(p) ? p.mensen * LOON.controleur : 0), 0);
     const steek = spel.controle.steekproef * 0.01 * spel.lijnen.reduce((s, l) => s + (l.actief ? Math.min(l.nodig, beschikbaarVoor(spel, l)) : 0), 0) * LOON.controleur;
     m.personeel += ploegKosten + steek; spel.geld -= ploegKosten + steek;
   }
@@ -551,10 +552,19 @@ export function gebruiksvergoeding(spel, lijn) {
   return lijn.eigenSpoor ? 0 : 1.95;
 }
 
-export function pakkans(spel, lijn) {
+export function pakkans(spel, lijn, uur = null) {
   let p = spel.controle.steekproef / 100 * 0.7;
   if (lijn.conducteur) p = Math.max(p, 0.85);
   for (const pl of spel.controle.ploegen) {
+    if (pl.route?.length) {
+      // route: de ploeg zit in dit uur op deze lijn (en controleert al zijn voertuigen daar)
+      const stappen = pl.route.filter(st => st.lijnId === lijn.id);
+      if (!stappen.length) continue;
+      const deel = uur == null ? stappen.reduce((a, st) => a + Math.max(0, st.tot - st.van), 0) / (19 * 60) : stappen.some(st => uur + 30 >= st.van && uur + 30 < st.tot) ? 1 : 0;
+      const dekking = pl.mensen * 2 / Math.max(1, lijn.nodig);
+      p = Math.max(p, Math.min(0.85, dekking * 0.6) * Math.min(1, deel));
+      continue;
+    }
     if (!pl.lijnen.includes(lijn.id)) continue;
     // een controleur haalt ongeveer 2 voertuigen per uur, gedeeld over de lijnen van zijn ploeg
     const dekking = pl.mensen * 2 / Math.max(1, pl.lijnen.length * Math.max(1, lijn.nodig));

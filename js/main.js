@@ -1944,10 +1944,15 @@ const PANELEN = {
       <p class="klein">Kost ${S.euro(S.LOON.controleur)} per controleur-uur. Op lijnen met een conducteur is de pakkans altijd hoog.</p>
       <h3>Poortjes</h3><label class="rij"><input type="checkbox" data-wijzig="poortjes" ${c.poortjes ? 'checked' : ''}> Poortjes op je trein- en metrostations (eenmalig € 250.000 per station, € 4.000 onderhoud per maand)</label>
       <h3>Bus</h3><label class="rij"><input type="checkbox" data-wijzig="chauffeur-alles" ${c.chauffeur ? 'checked' : ''}> Instappen voorin bij de chauffeur (halveert zwartrijden op de bus)</label>
-      <h3>Controleploegen</h3><p class="klein">Een ploeg rijdt mee op de lijnen die je kiest, binnen een tijdvak.</p>
+      <h3>Controleploegen</h3><p class="klein">Neem een ploeg aan en laat ze op vaste lijnen controleren binnen een tijdvak, of geef ze een route over de dag: na elkaar een lijn met een tijdvak (bv. 's ochtends lijn 5, 's middags lijn 12). Je betaalt alleen de uren dat ze werken.</p>
       ${c.ploegen.map((p, i) => `<div class="kaartje"><div class="rij"><b>Ploeg ${i + 1}</b><span class="klein">${p.mensen} controleurs · ${S.klok(p.van)}–${S.klok(p.tot)}</span><button class="knop gevaar" style="margin-left:auto" data-actie="ploeg-weg" data-i="${i}">×</button></div>
         <div class="raster2"><label class="veld">Mensen<input type="number" min="1" max="40" value="${p.mensen}" data-wijzig="ploeg-mensen" data-i="${i}"></label><label class="veld">Van<input type="time" value="${S.klok(p.van)}" data-wijzig="ploeg-van" data-i="${i}"></label><label class="veld">Tot<input type="time" value="${S.klok(p.tot)}" data-wijzig="ploeg-tot" data-i="${i}"></label></div>
-        <div>${spel.lijnen.map(l => `<label class="rij klein"><input type="checkbox" data-wijzig="ploeg-lijn" data-i="${i}" data-id="${l.id}" ${p.lijnen.includes(l.id) ? 'checked' : ''}> ${esc(l.nr)} ${esc(l.naam || '')}</label>`).join('')}</div></div>`).join('')}
+        <div class="segment">${[['lijnen', 'Vaste lijnen'], ['route', 'Route over de dag']].map(([k, n]) => `<button class="knop klein ${(p.route ? 'route' : 'lijnen') === k ? 'hoofd' : ''}" data-actie="ploeg-soort" data-i="${i}" data-w="${k}">${n}</button>`).join('')}</div>
+        ${p.route ? `<p class="klein">De ploeg rijdt deze stappen na elkaar en controleert in dat tijdvak op die lijn.</p><table class="tabel klein">${p.route.map((st, k) => `<tr><td><select data-wijzig="ploeg-stap" data-i="${i}" data-k="${k}" data-veld="lijnId">${spel.lijnen.map(l => `<option value="${l.id}" ${l.id === st.lijnId ? 'selected' : ''}>${esc(l.nr)} ${esc(l.naam || '')}</option>`).join('')}</select></td>
+            <td><input type="time" value="${S.klok(st.van)}" data-wijzig="ploeg-stap" data-i="${i}" data-k="${k}" data-veld="van"></td><td><input type="time" value="${S.klok(st.tot)}" data-wijzig="ploeg-stap" data-i="${i}" data-k="${k}" data-veld="tot"></td>
+            <td><button class="knop klein" data-actie="ploeg-stap-weg" data-i="${i}" data-k="${k}">×</button></td></tr>`).join('')}</table>
+          <div class="rij"><button class="knop klein" data-actie="ploeg-stap-erbij" data-i="${i}">＋ Stap</button><button class="knop klein" data-actie="ploeg-toon" data-i="${i}">Route op de kaart</button></div>`
+        : `<div>${spel.lijnen.map(l => `<label class="rij klein"><input type="checkbox" data-wijzig="ploeg-lijn" data-i="${i}" data-id="${l.id}" ${p.lijnen.includes(l.id) ? 'checked' : ''}> ${esc(l.nr)} ${esc(l.naam || '')}</label>`).join('')}</div>`}</div>`).join('')}
       <button class="knop" data-actie="ploeg-erbij">＋ Ploeg toevoegen</button>`;
   },
   geld(d) {
@@ -2397,6 +2402,12 @@ function actieUit(a, d) {
     case 'vz-ja': case 'vz-nee': case 'vz-tegen': case 'vz-tegen-ja': case 'vz-tegen-nee': case 'vz-opnieuw': reageerOpVerzoek(a, spel.verzoeken.find(v => v.id === d.id)); break;
     case 'ploeg-erbij': spel.controle.ploegen.push({ mensen: 4, van: 7 * 60, tot: 19 * 60, lijnen: spel.lijnen.map(x => x.id) }); ververs(); break;
     case 'ploeg-weg': spel.controle.ploegen.splice(+d.i, 1); ververs(); break;
+    case 'ploeg-soort': { const pl = spel.controle.ploegen[+d.i]; if (d.w === 'route') pl.route = pl.route || [{ lijnId: pl.lijnen[0] || spel.lijnen[0]?.id, van: pl.van, tot: pl.tot }]; else delete pl.route; ververs(); break; }
+    case 'ploeg-stap-erbij': { const pl = spel.controle.ploegen[+d.i], laatst = pl.route.at(-1); pl.route.push({ lijnId: laatst?.lijnId || spel.lijnen[0]?.id, van: laatst?.tot ?? 7 * 60, tot: Math.min(24 * 60, (laatst?.tot ?? 7 * 60) + 120) }); ververs(); break; }
+    case 'ploeg-stap-weg': spel.controle.ploegen[+d.i].route.splice(+d.k, 1); ververs(); break;
+    case 'ploeg-toon': { const pl = spel.controle.ploegen[+d.i], ls = [...new Set(pl.route.map(st => st.lijnId))].map(lijnVan).filter(Boolean); if (!ls.length) break;
+      selectie = { lijn: ls[0] }; const b = ls.reduce((a, l) => [Math.min(a[0], l.bbox[0]), Math.min(a[1], l.bbox[1]), Math.max(a[2], l.bbox[2]), Math.max(a[3], l.bbox[3])], [...ls[0].bbox]);
+      kaart.vliegNaar((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.max(b[2] - b[0], b[3] - b[1]) / Math.min(kaart.W, kaart.H) * 1.3); melding(`Ploeg ${+d.i + 1}: ${pl.route.map(st => `${S.klok(st.van)} lijn ${lijnVan(st.lijnId)?.nr || '?'}`).join(' → ')}`, 9000); break; }
     case 'bewaar': bewaar(true); break;
     case 'nieuw': toonStart(); break;
     case 'perron-ontwerp': perronOntwerpen(d.naam, +d.x, +d.y); break;
@@ -2648,6 +2659,7 @@ function wijzig(w, i) {
     case 'ploeg-mensen': spel.controle.ploegen[+i.dataset.i].mensen = Math.max(1, +i.value); break;
     case 'ploeg-van': spel.controle.ploegen[+i.dataset.i].van = tijd(i.value); break;
     case 'ploeg-tot': spel.controle.ploegen[+i.dataset.i].tot = tijd(i.value); break;
+    case 'ploeg-stap': { const st = spel.controle.ploegen[+i.dataset.i].route[+i.dataset.k]; const v = i.dataset.veld; st[v] = v === 'lijnId' ? i.value : tijd(i.value); break; }
     case 'ploeg-lijn': { const p = spel.controle.ploegen[+i.dataset.i]; p.lijnen = i.checked ? [...new Set([...p.lijnen, i.dataset.id])] : p.lijnen.filter(x => x !== i.dataset.id); break; }
     case 'achtergrond': spel.achtergrond = i.value; kaart.zetAchtergrond(i.value); jaarBijwerken(); $('bron').textContent = ACHTERGROND_KEUZE[i.value]?.bron || ''; break;
   }
