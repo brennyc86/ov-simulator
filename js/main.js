@@ -19,6 +19,7 @@ import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { planAlles, stationZoeker, stationVinder, zoekAfstemming } from './spoorplan.js';
 import { vluchtRoute } from './vlucht.js';
 import { laad } from './laadscherm.js';
+import { ico, MODUS_ICO } from './iconen.js';
 import { ritReizigers, bezettingKlassen } from './reizigers.js';
 import { museumTypen, museumPrijs, isMuseum, gewonePrijs, belangstelling, inschrijvingen, vertrekOpDag, ritKosten, bedenkCharter, rittenVan, rijdtOp, aantalRitten, pendel } from './bijzonder.js';
 import { kortNaam, stoelNaam, SLAAP, nieuwSlaapDeel, interieurMeerprijs, inrichtingVan, klassenVan, vraagEffect, ombouwKosten, standaardInrichting, serieInrichting, BEEN, STOEL, CATERING, VOORZ, REST, KLASSEN, KLASSE_NAAM, kenmerk, registreerSeries, serieNaamVoorstel, zelfdeInterieur, basisId, uurKosten, wagonsVan, plaatsenPerWagon, voorzieningen, voorzMag, zetKlassePrijzen, klassePrijs, samenstelling, samenstellingVan, nodigPer, nodigLijn, delenVan, restauratieOpen, zetJaar, STROOM, stroomMag, maxBreed } from './comfort.js';
@@ -646,7 +647,7 @@ function vCat(id) {
   if (sr === 'loc') return 'loc'; if (sr === 'rijtuig' || sr === 'stuurstand') return 'rijtuig'; if (sr === 'wagon') return null;
   return { trein: 'treinstel', metro: 'metro', sneltram: 'tram', tram: 'tram', bus: 'bus', hov: 'bus', belbus: 'bus', veer: 'boot', watertaxi: 'boot', vlucht: 'vliegtuig', vracht: 'vracht' }[t.modus] || null;
 }
-const vlootFilter = new Set(), marktFilter = new Set();
+const vlootFilter = new Set(), marktFilter = new Set(), lijnenFilter = new Set();
 const filterKnoppen = (set, actie, aanwezig) => `<div class="rij">${VCAT.filter(([k]) => aanwezig.has(k)).map(([k, n]) => `<button class="knop klein ${set.has(k) ? 'hoofd' : ''}" data-actie="${actie}" data-w="${k}">${n}</button>`).join('')}${set.size ? `<button class="knop klein" data-actie="${actie}" data-w="">alles</button>` : ''}</div>`;
 // Kleur per eigen lijn: tot 12 lijnen elk een duidelijk andere kleur; daarboven per soort vervoer een kleurfamilie
 // (trein blauw, metro paars, tram groen, bus oranje, boot cyaan, vliegen roze) met kleine accentverschillen.
@@ -672,21 +673,28 @@ function lijnKleur(l) {
 const KOMT_NOG = wat => () => melding(`${wat} aanleggen komt nog. Voorlopig gebruik je de bestaande.`, 6000);
 let catNu = null;
 function categorie(c) {
-  if (catNu === c && tool === 'kijk') { catNu = null; hint(null); document.querySelectorAll('[data-cat]').forEach(b => b.classList.remove('aan')); return; }
+  const sm = $('submenu');
+  if (catNu === c) { catNu = null; sm.hidden = true; zetTool('kijk'); document.querySelectorAll('[data-cat]').forEach(b => b.classList.remove('aan')); return; }
   zetTool('kijk'); catNu = c;
   document.querySelectorAll('[data-cat]').forEach(b => b.classList.toggle('aan', b.dataset.cat === c));
   const halte = m => () => { zetTool('halte'); halteModus(m); }, spoor = m => () => { zetTool('spoor'); spoorBegin(m); };
+  // [pictogram, nieuw-plusje, uitleg, actie]
   const menu = {
-    wegen: ['Wegen', [['Nieuwe buslijn', () => lijnBegin('bus')], ['Snelbuslijn (HOV)', () => lijnBegin('hov')], ['Belbus', () => lijnBegin('belbus')], ['Halte aan de weg', halte('weg')], ['Bushalte', halte('bus')], ['Tramhalte', halte('tram')],
-      ['Trambaan in de weg', spoor('trambaan')], ['Los tramspoor', spoor('tram')], ['Busstation', () => zetTool('busstation')], ['Trolleybus-bovenleiding', spoor('trolley')], ['Weg aanleggen', KOMT_NOG('Wegen')]]],
-    lightrail: ['Lightrail', [['Nieuwe tramlijn', () => lijnBegin('tram')], ['Nieuwe sneltramlijn', () => lijnBegin('sneltram')], ['Nieuwe metrolijn', () => lijnBegin('metro')], ['Tramspoor', spoor('tram')], ['Trambaan in de weg', spoor('trambaan')], ['Metrospoor', spoor('metro')],
-      ['Tramhalte', halte('tram')], ['Metro- of tramstation', () => zetTool('station')]]],
-    trein: ['Trein', [['Nieuwe treinlijn', () => lijnBegin('trein')], ['Treinspoor', spoor('trein')], ['Station bouwen', () => zetTool('station')], ['Perron of opstelspoor', () => zetTool('perron')], ['Spoor erbij (2e, 3e, 4e)', () => zetTool('verdubbel')],
-      ['Passeerspoor op enkelspoor', () => zetTool('passeer')], ['Kruising ongelijkvloers', () => zetTool('kruising')]]],
-    boot: ['Boot', [['Nieuwe veerlijn', () => lijnBegin('veer')], ['Nieuwe watertaxilijn', () => lijnBegin('watertaxi')], ['Steiger (veer)', halte('veer')], ['Steiger (watertaxi)', halte('watertaxi')], ['Haven aanleggen', KOMT_NOG('Havens')]]],
-    vliegen: ['Vliegen', [['Nieuwe vliegroute', () => lijnBegin('vlucht')], ['Vliegveld aanleggen', KOMT_NOG('Vliegvelden')], ['Helikopterplatform aanleggen', KOMT_NOG('Helikopterplatforms')]]],
+    wegen: ['Wegen', [['bus', 1, 'Nieuwe buslijn', () => lijnBegin('bus')], ['hov', 1, 'Nieuwe snelbuslijn (HOV)', () => lijnBegin('hov')], ['belbus', 1, 'Nieuwe belbus', () => lijnBegin('belbus')],
+      ['halteWeg', 0, 'Halte aan de weg (tram als er tramspoor ligt, anders bus)', halte('weg')], ['halte', 0, 'Bushalte', halte('bus')], ['tramhalte', 0, 'Tramhalte', halte('tram')], ['busstation', 0, 'Busstation bij een station of halte', () => zetTool('busstation')],
+      ['trambaan', 0, 'Trambaan in de weg', spoor('trambaan')], ['tramspoor', 0, 'Los tramspoor', spoor('tram')], ['trolley', 0, 'Trolleybus-bovenleiding', spoor('trolley')], ['weg', 0, 'Weg aanleggen (komt nog)', KOMT_NOG('Wegen')]]],
+    lightrail: ['Lightrail', [['tram', 1, 'Nieuwe tramlijn', () => lijnBegin('tram')], ['sneltram', 1, 'Nieuwe sneltramlijn', () => lijnBegin('sneltram')], ['metro', 1, 'Nieuwe metrolijn', () => lijnBegin('metro')], ['monorail', 1, 'Nieuwe monorail (komt nog)', KOMT_NOG('Monorails')],
+      ['tramspoor', 0, 'Tramspoor', spoor('tram')], ['trambaan', 0, 'Trambaan in de weg', spoor('trambaan')], ['metrospoor', 0, 'Metrospoor', spoor('metro')], ['monorailspoor', 0, 'Monorailbaan (komt nog)', KOMT_NOG('Monorailbanen')],
+      ['tramhalte', 0, 'Tramhalte', halte('tram')], ['metrostation', 0, 'Metro- of tramstation', () => zetTool('station')]]],
+    trein: ['Trein', [['trein', 1, 'Nieuwe treinlijn', () => lijnBegin('trein')], ['spoor', 0, 'Treinspoor', spoor('trein')], ['station', 0, 'Station bouwen', () => zetTool('station')], ['perron', 0, 'Perron of opstelspoor', () => zetTool('perron')],
+      ['verdubbel', 0, 'Spoor erbij (2e, 3e, 4e spoor)', () => zetTool('verdubbel')], ['passeer', 0, 'Passeerspoor op enkelspoor (1 km)', () => zetTool('passeer')], ['kruising', 0, 'Kruising ongelijkvloers maken', () => zetTool('kruising')]]],
+    boot: ['Boot', [['veer', 1, 'Nieuwe veerlijn', () => lijnBegin('veer')], ['watertaxi', 1, 'Nieuwe watertaxilijn', () => lijnBegin('watertaxi')], ['steiger', 0, 'Steiger (veer)', halte('veer')], ['steiger', 0, 'Steiger (watertaxi)', halte('watertaxi')], ['haven', 0, 'Haven aanleggen (komt nog)', KOMT_NOG('Havens')]]],
+    vliegen: ['Vliegen', [['vliegtuig', 1, 'Nieuwe vliegroute', () => lijnBegin('vlucht')], ['vliegveld', 0, 'Vliegveld aanleggen (komt nog)', KOMT_NOG('Vliegvelden')], ['heli', 0, 'Helikopterplatform aanleggen (komt nog)', KOMT_NOG('Helikopterplatforms')]]],
   }[c];
-  if (menu) hint(menu[0] + ':', [...menu[1], ['Sluiten', () => { catNu = null; zetTool('kijk'); }]]);
+  if (!menu) { sm.hidden = true; return; }
+  sm.innerHTML = `<span class="titel">${menu[0]}</span>` + menu[1].map(([ic, nw, t], i) => `<button type="button" data-sub-i="${i}" title="${esc(t)}" aria-label="${esc(t)}" class="${/komt nog/.test(t) ? 'uit' : ''}">${ico(ic, !!nw)}</button>`).join('');
+  sm.hidden = false;
+  sm.querySelectorAll('[data-sub-i]').forEach(b => b.onclick = () => { sm.querySelectorAll('button').forEach(x => x.classList.toggle('aan', x === b)); menu[1][+b.dataset.subI][3](); });
 }
 
 // ---------------------------------------------------------------- spoornet per provincie
@@ -1679,7 +1687,20 @@ function openPaneel(soort, data) {
 }
 function sluitPaneel() { if (perronOntwerp || paneelSoort === 'nieuwStation' || paneelSoort === 'nieuwSpoor') { perronVoorstelWissen(); handvattenWeg(); } $('paneel').hidden = true; paneelSoort = null; selectie = null; document.querySelectorAll('[data-paneel]').forEach(b => b.classList.remove('aan')); }
 let paneelData = null;
+// tweede venster uiterst rechts: subsidies (kan naast een ander venster open staan)
+function subsidiesOpen(open = $('paneel2').hidden) {
+  $('paneel2').hidden = !open; document.body.classList.toggle('met-sub', open);
+  document.querySelectorAll('[data-sub]').forEach(b => b.classList.toggle('aan', open));
+  if (open) subsidiesVervers();
+}
+function subsidiesVervers() {
+  if ($('paneel2').hidden || !spel) return;
+  const el = $('paneel2-inhoud'), actief = document.activeElement;
+  if (actief && el.contains(actief) && (actief.tagName === 'INPUT' || actief.tagName === 'SELECT')) return;
+  el.innerHTML = PANELEN.subsidies(); koppel(el);
+}
 function ververs(data) {
+  subsidiesVervers();
   if (data !== undefined) paneelData = data;
   if (!paneelSoort || !spel) return;
   const el = $('paneel-inhoud');
@@ -1762,16 +1783,19 @@ const PANELEN = {
         <button class="knop hoofd" data-actie="rit-verzoek">Verzoek sturen</button>`}`;
   },
   lijnen() {
-    const rijen = spel.lijnen.filter(l => !l.bijzonder).map(l => {
+    // bovenin: soorten OV aan/uit (pictogram per soort)
+    const soorten = [['trein', 'Trein'], ['sneltram', 'Sneltram'], ['metro', 'Metro'], ['tram', 'Tram'], ['bus', 'Bus'], ['hov', 'HOV'], ['belbus', 'Belbus'], ['veer', 'Veer'], ['watertaxi', 'Taxi'], ['vlucht', 'Vliegen']].filter(([m]) => spel.lijnen.some(l => l.modus === m));
+    const filter = soorten.length > 1 ? `<div class="ico-filter">${soorten.map(([m, n]) => `<button type="button" data-actie="lijnen-modus" data-w="${m}" class="${lijnenFilter.has(m) ? 'uit' : ''}" title="${n} ${lijnenFilter.has(m) ? 'tonen' : 'verbergen'}">${ico(MODUS_ICO[m])}${n}</button>`).join('')}</div>` : '';
+    const rijen = spel.lijnen.filter(l => !l.bijzonder && !lijnenFilter.has(l.modus)).map(l => {
       const st = l.stat, res = st ? st.opbrengst - st.kosten : 0;
       const tekort = S.beschikbaarVoor(spel, l) < l.nodig;
       return `<tr data-actie="toon-lijn" data-id="${l.id}" style="cursor:pointer"><td><span class="lijnnr" style="background:${l.actief ? lijnKleur(l) : '#888'}">${esc(l.nr)}</span></td>
         <td>${esc(l.naam || l.haltes[0].naam + ' – ' + l.haltes[l.haltes.length - 1].naam)}<br><span class="klein">${MODI[l.modus].naam} · ${lijnModellen(l)} · ${l.haltes.length} haltes${l.wacht ? ' · wacht op ProRail' : ''}${tekort ? ' · <b style="color:var(--rood)">materieel tekort</b>' : ''}</span></td>
         <td class="getal">${st ? Math.round(st.reizigers).toLocaleString('nl-NL') : '—'}<br><span class="klein" style="color:${res < 0 ? 'var(--rood)' : 'var(--groen)'}">${st ? S.euroKort(res) : ''}</span></td></tr>`;
     }).join('');
-    return `<h2>Je lijnen</h2><p class="klein">Reizigers en resultaat deze maand. Klik op een lijn voor de dienstregeling.</p>
+    return `<div class="rij"><button class="knop hoofd" data-actie="lijn-nieuw">＋ Nieuwe lijn</button></div>${filter}<h2>Je lijnen</h2><p class="klein">Reizigers en resultaat deze maand. Klik op een lijn voor de dienstregeling.</p>
       ${spel.lijnen.length ? `<table class="tabel"><tr><th>Lijn</th><th>Route</th><th class="getal">Reizigers</th></tr>${rijen}</table>` : '<p>Nog geen lijnen. Kies in de balk onderin een soort vervoer (bijv. <b>Trein → Nieuwe treinlijn</b>) en klik haltes of stations op volgorde aan.</p>'}
-      <button class="knop hoofd" data-actie="tool" data-tool="lijn">＋ Nieuwe lijn</button>
+      <button class="knop hoofd" data-actie="lijn-nieuw">＋ Nieuwe lijn</button>
       <h3>Goederenvervoer</h3>${vrachtKort()}
       <h3>Bijzondere ritten</h3>${bijzonderTabel()}`;
   },
@@ -1898,6 +1922,23 @@ const PANELEN = {
       <h3>Voertuigen op de kaart</h3>
       <label class="veld">Hooguit zoveel voertuigen tekenen<select data-wijzig="inst-max">${[50, 100, 200, 400, 800, 2000, 100000].map(n => `<option value="${n}" ${INST.max === n ? 'selected' : ''}>${n >= 100000 ? 'alle (kan traag worden)' : n}</option>`).join('')}</select></label>
       <p class="klein">Minder voertuigen = vloeiender. Een kwart gaat naar de voertuigen met de langste routes (van iedereen), de rest eerst naar je eigen voertuigen en dan naar die van anderen, langste routes eerst. Uitgezoomd zie je daardoor vooral internationale treinen en intercity's; hoe verder je inzoomt, hoe meer lokaal verkeer.</p>`;
+  },
+  // nieuwe lijn: eerst de soort kiezen (in het venster rechts)
+  nieuwLijnSoort() {
+    const modi = [['trein', 'Trein'], ['sneltram', 'Sneltram'], ['metro', 'Metro'], ['tram', 'Tram'], ['bus', 'Bus'], ['hov', 'Snelbus (HOV)'], ['belbus', 'Belbus'], ['veer', 'Veer'], ['watertaxi', 'Watertaxi'], ['vlucht', 'Vliegtuig']];
+    return `<div class="rij"><button class="knop klein" data-actie="naar-lijnen">${ico('terug')} Terug</button></div><h2>Nieuwe lijn</h2><p class="klein">Kies de soort vervoer. Daarna klik je op de kaart de haltes of stations op volgorde aan.</p>
+      <div class="ico-keuze">${modi.map(([m, n]) => `<button type="button" data-actie="lijn-soort" data-w="${m}">${ico(MODUS_ICO[m])}${n}</button>`).join('')}
+      <button type="button" class="uit" title="komt nog" data-actie="komt-nog" data-w="Monorails">${ico('monorail')}Monorail</button></div>`;
+  },
+  // nieuwe lijn: haltes aanklikken op de kaart (de lijst groeit hier mee)
+  lijnTekenen() {
+    if (!bouw?.modus) return '<p>Er wordt geen lijn getekend.</p><button class="knop" data-actie="naar-lijnen">Naar je lijnen</button>';
+    const m = bouw.modus, p = bouw.punten || [];
+    return `<div class="rij"><button class="knop klein" data-actie="lijn-nieuw">${ico('terug')} Andere soort</button></div>
+      <h2>${ico(MODUS_ICO[m])} Nieuwe ${MODI[m].naam.toLowerCase()}lijn</h2>
+      <p>Klik op de kaart de haltes of stations op volgorde aan${['bus', 'hov', 'belbus', 'veer', 'watertaxi'].includes(m) ? '; klik je naast een halte, dan komt er automatisch een nieuwe' : ''}. Nog eens klikken op een halte haalt hem eruit.</p>
+      ${p.length ? `<ol class="haltelijst">${p.map(h => `<li>${esc(h.naam)}</li>`).join('')}</ol>` : '<p class="klein">Nog geen haltes gekozen.</p>'}
+      <div class="rij"><button class="knop hoofd" data-actie="lijn-klaar" ${p.length >= 2 ? '' : 'disabled'}>Verder: route en instellingen</button><button class="knop" data-actie="lijn-laatste-weg" ${p.length ? '' : 'disabled'}>Laatste weg</button><button class="knop" data-actie="lijn-annuleer">Annuleren</button></div>`;
   },
   stations() {
     const lijst = mijnStations().map(st => ({ ...st, w: [...st.lijnen].reduce((a, l) => a + wachtendBij(st, l), 0) })).sort((a, b) => b.w - a.w);
@@ -2453,6 +2494,13 @@ function actieUit(a, d) {
     case 'spoor-afstem': if (l) spoorAfstemmen(l); break;
     case 'station-open': { const st = D.stations.find(x => x.n === d.naam && Math.hypot(x.x - +d.x, x.y - +d.y) < 50); kaart.vliegNaar(+d.x, +d.y, Math.min(kaart.res, 3)); openPaneel('station', { naam: d.naam, p: st?.p, x: +d.x, y: +d.y }); break; }
     case 'vloot-filter': case 'markt-filter': { const set = a === 'vloot-filter' ? vlootFilter : marktFilter; if (!d.w) set.clear(); else set.has(d.w) ? set.delete(d.w) : set.add(d.w); ververs(); break; }
+    case 'lijn-nieuw': zetTool('kijk'); openPaneel('nieuwLijnSoort'); break;
+    case 'naar-lijnen': zetTool('kijk'); openPaneel('lijnen'); break;
+    case 'lijn-soort': lijnBegin(d.w); break;
+    case 'komt-nog': KOMT_NOG(d.w)(); break;
+    case 'lijn-klaar': lijnKlaar(); break;
+    case 'lijn-laatste-weg': laatsteWeg(); if (paneelSoort === 'lijnTekenen') ververs(); break;
+    case 'lijnen-modus': { if (lijnenFilter.has(d.w)) lijnenFilter.delete(d.w); else lijnenFilter.add(d.w); ververs(); break; }
     case 'geld-tab': openPaneel('geld', { tab: d.w }); break;
     case 'station-verbouw': openPaneel('station', { ...paneelData, verbouw: true }); break;
     case 'station-overzicht': openPaneel('station', { ...paneelData, verbouw: false }); break;
@@ -2843,7 +2891,7 @@ function zetTool(t) {
     ['Spoor erbij (2e, 3e, 4e spoor)', () => zetTool('verdubbel')], ['Passeerspoor op enkelspoor (1 km)', () => zetTool('passeer')], ['Opstelspoor bij station', () => zetTool('perron')], ['Kruising ongelijkvloers maken', () => zetTool('kruising')], ['Stoppen', () => zetTool('kijk')]]);
   if (t === 'kruising') hint('Klik op een gelijkvloerse kruising of splitsing van sporen: die wordt een flyover (over het andere spoor heen) of een dive-under (eronderdoor).', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'busstation') hint('Klik bij een station of halte waar het busstation moet komen.', [['Stoppen', () => zetTool('kijk')]]);
-  if (t === 'kijk') document.querySelectorAll('[data-cat]').forEach(b => b.classList.toggle('aan', false));
+  if (t === 'kijk') $('submenu')?.querySelectorAll('button').forEach(x => x.classList.remove('aan'));
   if (t === 'passeer') hint('Klik op enkelspoor waar treinen elkaar moeten kunnen kruisen: er komt ongeveer 1 km tweede spoor met wissels aan beide kanten.', [['Stoppen', () => zetTool('kijk')]]);
   if (t === 'verdubbel') hint('Klik op het spoor waar een extra spoor naast moet komen (van wissel tot wissel): van enkel- naar dubbelspoor, of een 3e of 4e spoor.', [['Stoppen', () => zetTool('kijk')]]);
 }
@@ -2853,8 +2901,7 @@ function kiesModus() {
 }
 function lijnModus(m) {
   bouw = { modus: m, punten: [] };
-  hint(`Klik de haltes van je ${MODI[m].naam.toLowerCase()}lijn op volgorde aan.${['bus', 'hov', 'belbus', 'veer', 'watertaxi'].includes(m) ? ' Klik je naast een halte, dan komt er automatisch een nieuwe.' : ''}`,
-    [['Klaar', lijnKlaar], ['Laatste weg', laatsteWeg], ['Stoppen', () => zetTool('kijk')]]);
+  hint(null); openPaneel('lijnTekenen');
 }
 // nieuwe lijn van deze soort beginnen (vanuit de balk onderin)
 function lijnBegin(m) { zetTool('lijn'); lijnModus(m); }
@@ -3089,9 +3136,11 @@ function aanbiedingenAanvullen() {
   const max = spel.groot ? 3 : 8;
   treinGebiedBijwerken();
   // lege regio: opdrachten in jouw regio, en soms van jouw regio naar een belangrijk punt erbuiten
-  const regio = spel.leeg ? leegGebiedTest(spel.leeg) : null;
+  // alleen opdrachten in het gebied waarvan het spoor geladen is (of in je lege regio)
+  const geladen = D.spoorIndex ? D.spoorIndex.filter(d => net.delen.has(d.c) && !d.c.startsWith('X-')).map(d => d.b) : null;
+  const regio = spel.leeg ? leegGebiedTest(spel.leeg) : geladen ? (x, y) => geladen.some(b => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) : null;
   for (let k = 0; k < 20 && spel.aanbiedingen.filter(a => a.status === 'open').length < max; k++) {
-    const a = bedenkAanbieding(spel, D.stations, D.plaatsen, { voorz: D.voorz, ...(regio ? { binnen: regio, doelBinnen: Math.random() < 0.7 ? regio : null } : {}) }); if (a) spel.aanbiedingen.push(a); }
+    const a = bedenkAanbieding(spel, D.stations, D.plaatsen, { voorz: D.voorz, ...(regio ? { binnen: regio, doelBinnen: spel.leeg ? (Math.random() < 0.7 ? regio : null) : regio } : {}) }); if (a) spel.aanbiedingen.push(a); }
   opheffingenZoeken();
 }
 // een andere vervoerder stopt met een korte lijn (alleen echte dienstregeling, nooit je eigen bedrijf)
@@ -3847,11 +3896,11 @@ function klik(px, py) {
     if (bouw.punten.length >= 3 && bouw.punten[0].naam === c.naam && !bouw.terugVan) { bouw.punten.push(bouw.punten[0]); bouw.rond = true; melding('Rondlijn gesloten.'); lijnKlaar(); return; }
     // al in de lijn: nog eens klikken haalt hem eruit
     const al = bouw.punten.findIndex(q => q.naam === c.naam);
-    if (al >= 0) { if (bouw.punten.length > 1 && !(al === 0 && bouw.terugVan)) { bouw.punten.splice(al, 1); melding(`${c.naam} uit de lijn gehaald.`); lijnVoorbeeld(); } return; }
+    if (al >= 0) { if (bouw.punten.length > 1 && !(al === 0 && bouw.terugVan)) { bouw.punten.splice(al, 1); melding(`${c.naam} uit de lijn gehaald.`); lijnVoorbeeld(); if (paneelSoort === 'lijnTekenen') ververs(); } return; }
     // op de logische plek: tussen twee stops waar de omweg het kleinst is, of als nieuw begin- of eindpunt
     const pos = invoegPlek(bouw.punten, c, !!bouw.terugVan);
     bouw.punten.splice(pos, 0, c); (bouw.erbij = bouw.erbij || []).push(c.naam);
-    lijnVoorbeeld();
+    lijnVoorbeeld(); if (paneelSoort === 'lijnTekenen') ververs();
     return;
   }
   if (tool === 'halte') { nieuweHalte(x, y, halteSoort); return; }
@@ -4331,6 +4380,8 @@ function init() {
   $('bron').textContent = '';
   document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => zetTool(b.dataset.tool)));
   document.querySelectorAll('[data-cat]').forEach(b => b.addEventListener('click', () => categorie(b.dataset.cat)));
+  document.querySelectorAll('[data-sub]').forEach(b => b.addEventListener('click', () => subsidiesOpen()));
+  $('paneel2-sluit').onclick = () => subsidiesOpen(false);
   document.querySelectorAll('[data-paneel]').forEach(b => b.addEventListener('click', () => paneelSoort === b.dataset.paneel ? sluitPaneel() : openPaneel(b.dataset.paneel)));
   $('paneel-sluit').onclick = sluitPaneel;
   $('b-legenda').onclick = () => legendaKaart();

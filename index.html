@@ -38,6 +38,7 @@
   <button class="account" id="b-account" type="button">Inloggen</button>
 </header>
 
+<div id="submenu" class="submenu" hidden></div>
 <nav class="gereedschap onder" aria-label="Aanleggen en overzichten">
   <button data-cat="wegen" title="Wegen: trambanen, haltes, busstations en buslijnen"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 5 21M16 3l3 18M12 4v3M12 10v3M12 16v3"/></svg></span>Wegen</button>
   <button data-cat="lightrail" title="Lightrail: tram, sneltram en metro (sporen, haltes, stations, lijnen)"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="11" rx="3"/><path d="M9 2h6M12 2v4M9 20l-2 2M15 20l2 2M6 12h12"/></svg></span>Lightrail</button>
@@ -50,6 +51,7 @@
   <button data-paneel="stations" title="Stations die je aandoet: wachtende reizigers en overstappen"><span>▣</span>Stations</button>
   <button data-paneel="vracht" title="Goederenvervoer: aanvragen en inplannen"><span>▦</span>Goederen<em id="b-vracht" hidden>0</em></button>
   <button data-paneel="controle" title="Kaartcontrole en controleploegen"><span>✓</span>Controle</button>
+  <button data-sub="subsidies" title="Subsidies: opdrachten om uit te voeren (opent uiterst rechts, naast een ander venster)"><span>★</span>Subsidies</button>
   <button data-paneel="geld" title="Geld: inkomsten, uitgaven en subsidies"><span>€</span>Geld</button>
 </nav>
 
@@ -58,6 +60,10 @@
   <button data-paneel="subsidies"></button><button data-tool="kijk"></button><button data-tool="lijn"></button><button data-tool="halte"></button><button data-tool="station"></button><button data-tool="perron"></button><button data-tool="spoor"></button>
 </div>
 
+<aside class="paneel paneel2" id="paneel2" hidden>
+  <button class="sluit" id="paneel2-sluit" type="button" aria-label="Subsidies sluiten">×</button>
+  <div id="paneel2-inhoud"></div>
+</aside>
 <aside class="paneel" id="paneel" hidden>
   <button class="sluit" id="paneel-sluit" type="button" aria-label="Paneel sluiten">×</button>
   <div id="paneel-inhoud"></div>
