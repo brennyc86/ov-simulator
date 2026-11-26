@@ -71,7 +71,7 @@ r.forEach(x => { x.checked = false; x.removeAttribute('checked'); }); kies.check
 await document.getElementById('s-start').onclick();
 await tot(() => !document.getElementById('start').open, 60000);
 log('gestart als', kies.value, '→', document.getElementById('b-naam').textContent, document.getElementById('b-geld').textContent);
-for (const p of ['lijnen', 'vloot', 'controle', 'geld', 'kaart', 'verzoeken']) {
+for (const p of ['lijnen', 'vloot', 'controle', 'geld', 'kaart', 'verzoeken', 'stations']) {
   document.querySelector(`[data-paneel="${p}"]`).click();
   const h = document.getElementById('paneel-inhoud').innerHTML;
   log('paneel', p, h.length, 'tekens');
