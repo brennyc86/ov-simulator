@@ -101,21 +101,26 @@ export function opSpoor(net, pts, modus, jaar) {
 
 // lijn bijwerken: nieuwe route, cumulatieve afstanden en haltes opnieuw op de route geprojecteerd
 export function lijnOpSpoor(net, lijn, jaar) {
-  if (lijn._spoor !== undefined) return;
+  // opnieuw proberen als er stukken zonder spoor waren en er intussen meer spoor geladen is
+  if (lijn._spoor !== undefined && !(lijn._gaten && lijn._delenN !== (net.delen?.size || 0))) return;
   lijn._spoor = false;
-  let gids = lijn.route.pts;
+  const ruw = lijn._ruw ||= { pts: lijn.route.pts, cum: lijn.cum }; // de oorspronkelijke vorm bewaren voor een volgende poging
+  let gids = ruw.pts, gaten = 0;
   // zonder echte vorm (alleen rechte lijnen tussen haltes): eerst over het spoornet van halte naar halte
-  const lengte = lijn.cum?.[lijn.cum.length - 1] || 0;
+  let lengte = 0; for (let k = 2; k < gids.length; k += 2) lengte += Math.hypot(gids[k] - gids[k - 2], gids[k + 1] - gids[k - 1]);
   if (gids.length / 2 < lijn.haltes.length * 3 || lengte / (gids.length / 2) > 400) {
     const pts = [];
     for (let i = 1; i < lijn.haltes.length; i++) {
       const a = lijn.haltes[i - 1], b = lijn.haltes[i];
       const r = net.route([a.x, a.y], [b.x, b.y], lijn.modus, jaar);
-      const stuk = r && r.lengte < Math.hypot(b.x - a.x, b.y - a.y) * 2.5 + 500 ? r.pts : [a.x, a.y, b.x, b.y];
+      const ok = r && r.lengte < Math.hypot(b.x - a.x, b.y - a.y) * 2.5 + 500;
+      if (!ok) gaten++;
+      const stuk = ok ? r.pts : [a.x, a.y, b.x, b.y];
       pts.push(...(pts.length ? stuk.slice(2) : stuk));
     }
     if (pts.length >= 4) gids = pts;
   }
+  lijn._gaten = gaten; lijn._delenN = net.delen?.size || 0;
   const nieuw = opSpoor(net, gids, lijn.modus, jaar) || (gids !== lijn.route.pts ? glad(gids, 30) : null);
   if (!nieuw) return;
   const cum = [0];

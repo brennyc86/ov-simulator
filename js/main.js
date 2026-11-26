@@ -573,8 +573,20 @@ function historischUiterlijk(jaar) {
 }
 // alle richtingen van een lijn: bij andere vervoerders zijn heen en terug losse lijnen met hetzelfde lijnnummer
 const lijnGroep = l => !l ? [] : l.ai ? AI.lijnen.filter(x => x.vervoerder === l.vervoerder && x.lijnId === l.lijnId) : [l, ...(l.paar ? [lijnVan(l.paar)].filter(Boolean) : [])];
+// gekozen lijn van een ander zonder echte vorm: meteen over spoor of weg leggen (niet hemelsbreed tekenen)
+function vormHerstel(ls) {
+  for (const l of ls) {
+    if (RAILMODI.includes(l.modus) && !l.route?.takken && (l._spoor === undefined || (l._gaten && l._delenN !== (net.delen?.size || 0)))) { lijnOpSpoor(net, l, spel.jaar); l._lk = undefined; }
+    else if (l.ai && busRecht(l) && !l._wegBezig) { l._wegBezig = true;
+      wegRoute(l.haltes.map(h => [h.x, h.y])).then(r => { if (!r.weg) return; l.route = { ...l.route, pts: r.pts, lengte: r.lengte, weg: true };
+        const cum = [0]; for (let k = 2; k < r.pts.length; k += 2) cum.push(cum.at(-1) + Math.hypot(r.pts[k] - r.pts[k - 2], r.pts[k + 1] - r.pts[k - 1]));
+        let st = 0; l.km = l.haltes.map(h => { let bd = Infinity, bi = st; for (let i = st; i < cum.length; i++) { const d = Math.hypot(r.pts[i * 2] - h.x, r.pts[i * 2 + 1] - h.y); if (d < bd) { bd = d; bi = i; } } st = bi; return cum[bi]; });
+        l.cum = cum; l._lk = undefined; if (lijnGroep(selectie?.lijn).includes(l)) selectieKaart(); }).finally(() => { l._wegBezig = false; }); }
+  }
+}
 function selectieKaart() {
   if (!kaart?.map?.getSource?.('selectie')) return;
+  try { vormHerstel(lijnGroep(selectie?.lijn)); } catch {}
   const ls = lijnGroep(selectie?.lijn).filter(l => l.route?.pts?.length >= 4);
   kaart.bron('selectie', { type: 'FeatureCollection', features: ls.map(l => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: lijnGeo(l.route.pts) } })) });
   const gezien = new Set(), hs = [];
@@ -3634,19 +3646,19 @@ async function routeVoor(m, p) {
   perronsKiezen(p);
   if (['trein', 'metro', 'sneltram', 'tram'].includes(m)) {
     await delenVoorRoute(p);
-    const pts = [], takken = []; let lengte = 0;
+    const pts = [], takken = []; let lengte = 0, gat = false;
     for (let i = 1; i < p.length; i++) {
       let r = net.route([p[i - 1].x, p[i - 1].y], [p[i].x, p[i].y], m, spel.jaar);
       // geen verbinding: misschien loopt het spoor om door een provincie die nog niet geladen is
       if (!r && D.spoorIndex) { const a = p[i - 1], b = p[i], vak = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)];
         const extra = D.spoorIndex.filter(d => !net.delen.has(d.c) && bboxRaakt(d.b, vak, 30000)).map(d => d.c);
         if (extra.length) { await laadDelen(extra, { reden: 'Omweg zoeken: meer sporen laden' }); r = net.route([a.x, a.y], [b.x, b.y], m, spel.jaar); } }
-      if (!r) { waarschuwing = `Geen ${m === 'trein' ? 'spoor' : 'rails'}verbinding tussen ${p[i - 1].naam} en ${p[i].naam}; daar tekent het spel een rechte lijn. Leg dat stuk spoor aan.`; pts.push(p[i - 1].x, p[i - 1].y, p[i].x, p[i].y); lengte += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); continue; }
+      if (!r) { gat = true; waarschuwing = `Geen ${m === 'trein' ? 'spoor' : 'rails'}verbinding tussen ${p[i - 1].naam} en ${p[i].naam}. Leg dat stuk spoor aan; zodra het er ligt, volgt de lijn vanzelf het spoor.`; pts.push(p[i - 1].x, p[i - 1].y, p[i].x, p[i].y); lengte += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y); continue; }
       // het eerste en laatste punt van net.route zijn de stations zelf (bij het gebouw): niet heen rijden, op het spoor blijven
       const op = r.pts.length >= 8 ? r.pts.slice(2, -2) : r.pts;
       pts.push(...op); lengte += r.lengte; takken.push(...r.takken);
     }
-    route = { pts, lengte, takken };
+    route = { pts, lengte, takken, ...(gat ? { gat: true } : {}) };
   } else if (m === 'vlucht') {
     // over de echte banen: taxiën, opstijgen, vliegen, nadering, landen, taxiën (zie vlucht.js)
     route = vluchtRoute(p.map(h => ({ x: h.x, y: h.y, veld: D.vliegvelden.find(v => v.n === (h.veld || h.naam)) })));
@@ -3993,12 +4005,39 @@ async function historischeAI() {
   aiBezig = false;
 }
 // rechte busroutes vervangen door echte wegroutes (rustig, één per seconde)
+const WEGMODI = ['bus', 'hov', 'belbus'];
+// een busroute is (nog) hemelsbreed: gemarkeerd, de routeplanner faalde, of alleen de haltes als punten
+const busRecht = l => WEGMODI.includes(l.modus) && l.route?.pts && (l.route.rechtLijnig || l.route.weg === false || (!l.route.weg && l.route.pts.length / 2 <= l.haltes.length + 1));
+let busHerstelBezig = false;
 async function busroutesVerfijnen() {
-  for (const l of spel.lijnen) {
-    if (!l.route?.rechtLijnig) continue;
+  if (busHerstelBezig || !spel) return; busHerstelBezig = true;
+  try { for (const l of [...spel.lijnen]) {
+    if (!busRecht(l) || l._wegPoging > Date.now() - 120000) continue; l._wegPoging = Date.now();
     const r = await wegRoute(l.haltes.map(h => [h.x, h.y]));
-    if (r.weg) { l.route = r; S.herbereken(l); eigenNetBijwerken(); }
+    if (r.weg) { l.route = r; if (l.echt) delete l.echt.km; S.herbereken(l); l._banen = null; l._banenVan = null; eigenNetBijwerken(); }
     await new Promise(res => setTimeout(res, 1100));
+  } } finally { busHerstelBezig = false; }
+}
+// spoorlijnen met rechte stukken: opnieuw op het spoor leggen (eigen lijnen en lijnen van anderen in beeld), ook als er
+// later meer spoor geladen is; een beetje per keer zodat het spel niet hapert
+function spoorHerstel() {
+  if (!spel || !net || $('laadscherm').style.display === 'flex') return;
+  const t0 = performance.now(), n = net.delen?.size || 0, [x0, y0, x1, y1] = kaart.zicht(5000);
+  const inBeeld = l => l.bbox && !(l.bbox[0] > x1 || l.bbox[2] < x0 || l.bbox[1] > y1 || l.bbox[3] < y0);
+  const nodig = l => RAILMODI.includes(l.modus) && !l.route?.takken && l.route?.pts && (l._spoor === undefined || (l._gaten && l._delenN !== n));
+  const werk = [...spel.lijnen.filter(nodig), ...AI.lijnen.filter(l => nodig(l) && inBeeld(l)).sort((a, b) => lijnKm(b) - lijnKm(a))];
+  let eigen = false;
+  for (const l of werk) {
+    lijnOpSpoor(net, l, spel.jaar); l._lk = undefined;
+    if (l._spoor && !l.ai) { if (l.echt) delete l.echt.km; eigen = true; }
+    if (performance.now() - t0 > 12) break;
+  }
+  if (eigen) eigenNetBijwerken();
+  // eigen spoorlijnen die bij het aanleggen een gat hadden: opnieuw routeren als er spoor bij is gekomen
+  for (const l of spel.lijnen) if (RAILMODI.includes(l.modus) && l.route?.gat && l.route.gatN !== n + ':' + (spel.spoor?.length || 0) && !l._gatBezig) {
+    l._gatBezig = true; l.route.gatN = n + ':' + (spel.spoor?.length || 0);
+    routeVoor(l.modus, l.haltes).then(({ route }) => { if (!route.gat) { l.route = route; S.herbereken(l); l._banen = null; l._banenVan = null; eigenNetBijwerken(); melding(`Lijn ${l.nr} volgt nu helemaal het spoor.`); } else route.gatN = l.route.gatN; }).catch(() => {}).finally(() => { l._gatBezig = false; });
+    break;
   }
 }
 
@@ -4373,6 +4412,8 @@ function init() {
   let vorigeZicht = '';
   setInterval(spoorPlannen, 2500);
   setInterval(kandidatenTonen, 400);
+  setInterval(() => { try { spoorHerstel(); } catch (e) { console.warn('spoorHerstel', e); } }, 700); // rechte stukken op het spoor leggen
+  setInterval(() => { if (spel && spel.lijnen.some(busRecht)) busroutesVerfijnen(); }, 30000); // rechte busroutes over de weg
   // bouwprojecten: de voortgangsbalken lopen zichtbaar vol zolang je het paneel open hebt
   setInterval(() => { if (spel && paneelSoort === 'station' && !paneelData?.verbouw && tijdLoopt) ververs(); }, 3000); // vertrekbord bijwerken
   setInterval(() => { if (spel && paneelSoort === 'bouw' && tijdLoopt && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) ververs(); }, 1000);
@@ -4459,14 +4500,23 @@ function mijnStations() {
   }
   return [...uit.values()];
 }
-function wachtendBij(st, l) { // reizigers die bij de eerstvolgende vertrekken van lijn l (beide richtingen) bij dit station instappen
+// Wie er nu op het perron staat: reizigers nemen de eerstvolgende rit van hun lijn (in hun richting) en komen
+// geleidelijk binnen tussen het vorige vertrek en dat volgende vertrek. Op latere ritten wacht nu nog niemand.
+function wachtNu(l, r, i, v, vorige) {
+  const nu = spel.tijd, t = l.tr?.[r] || l.t, dep = v + t[i] / 60;
+  let instap = 0; try { const typeId = l.ai ? typeVoor(l, spel.jaar, standaardType) : l.typeId; instap = ritReizigers(spel, l, r, v, typeId, ctx()).haltes?.[i]?.in || 0; } catch { return null; }
+  const begin = vorige != null ? vorige + t[i] / 60 : dep - 30; // zonder vorige rit: in het half uur ervoor
+  const f = dep <= begin ? 1 : Math.max(0, Math.min(1, (nu - begin) / (dep - begin)));
+  return { nu: Math.round(instap * f), totaal: Math.round(instap) };
+}
+function wachtendBij(st, l) { // reizigers die nu bij dit station op lijn l wachten (beide richtingen, alleen de eerstvolgende rit)
   let som = 0; const nu = spel.tijd, bij = h => Math.hypot(h.x - st.x, h.y - st.y) < 350;
   for (let r = 0; r < S.ritRichtingen(l); r++) {
     const volg = r ? [...l.haltes].reverse() : l.haltes, i = volg.findIndex(bij); if (i < 0 || i === volg.length - 1) continue;
-    const t = l.tr?.[r] || l.t, v = (l.vertrek[r] || []).find(v => v + t[i] / 60 >= nu); if (v == null) continue;
-    try { som += ritReizigers(spel, l, r, v, l.typeId, ctx()).haltes?.[i]?.in || 0; } catch {}
+    const t = l.tr?.[r] || l.t, vt = l.vertrek[r] || [], j = vt.findIndex(v => v + t[i] / 60 >= nu); if (j < 0) continue;
+    som += wachtNu(l, r, i, vt[j], j > 0 ? vt[j - 1] : null)?.nu || 0;
   }
-  return Math.round(som);
+  return som;
 }
 // Stationsoverzicht: de vertrekken van de komende anderhalf uur van alle lijnen die hier stoppen (eigen en van
 // anderen), met soort vervoer, vervoerder, richting en hoeveel mensen er op die rit wachten.
@@ -4479,25 +4529,27 @@ function stationOverzicht(s) {
       const n = l.haltes.length, volg = r ? [...l.haltes].reverse() : l.haltes, i = volg.findIndex(bij);
       if (i < 0 || i === n - 1) continue; // hier eindigt de rit
       const t = l.tr?.[r] || l.t;
-      for (const v of l.vertrek[r] || []) {
+      let eerste = true; const vt = l.vertrek[r] || [];
+      for (const [j, v] of vt.entries()) {
         const pw = l._ritWacht?.get(`${r}:${v}`) || [], extra = pw.reduce((a, q) => a + (q.t <= t[i] + 1 ? q.w : 0), 0);
         const dep = v + (t[i] + extra) / 60 + ((l.halteWacht?.[`${r}:${i}`] || l.dw?.[i] || 0));
-        if (dep >= nu - 0.5 && dep <= nu + 90) rijen.push({ l, r, v, i, dep, naar: volg[n - 1].naam });
+        if (dep >= nu - 0.5 && dep <= nu + 90) { rijen.push({ l, r, v, i, dep, naar: volg[n - 1].naam, eerste, vorige: j > 0 ? vt[j - 1] : null }); eerste = false; }
       }
     }
   }
   rijen.sort((a, b) => a.dep - b.dep);
   const toon = rijen.slice(0, 16);
-  const wachtend = x => { try { const typeId = x.l.ai ? typeVoor(x.l, spel.jaar, standaardType) : x.l.typeId; const rr = ritReizigers(spel, x.l, x.r, x.v, typeId, ctx()); return Math.round(rr.haltes?.[x.i]?.in || 0); } catch { return null; } };
+  // alleen de eerstvolgende rit per lijn en richting heeft nu wachtenden; latere ritten: verwachting (grijs)
+  const wachtend = x => { const w = wachtNu(x.l, x.r, x.i, x.v, x.vorige); if (!w) return '—'; return x.eerste ? String(w.nu) : `<span class="klein" style="opacity:.55" title="verwacht aantal instappers; ze komen pas na de vorige rit naar het station">± ${w.totaal}</span>`; };
   const eigen = l => !l.ai;
   return `<div class="rij"><button class="knop hoofd" data-actie="station-verbouw">Verbouwen</button></div>
     <h2>${esc(s.naam)}</h2><p class="klein">${s.eigen ? 'Jouw station' : 'Bestaand station'}${s.p ? ` · ongeveer ${s.p} sporen` : ''} · vertrekken de komende anderhalf uur (nu ${S.klok(nu)})</p>
     ${toon.length ? `<table class="tabel"><tr><th>Tijd</th><th>Lijn</th><th>Soort</th><th>Vervoerder</th><th>Richting</th><th class="getal">Wachtend</th></tr>
       ${toon.map(x => { const w = wachtend(x); return `<tr ${eigen(x.l) ? `data-actie="toon-lijn" data-id="${x.l.id}" style="cursor:pointer"` : ''}><td class="getal"><b>${S.klok(Math.floor(x.dep))}</b></td>
         <td><span class="lijnnr" style="background:${eigen(x.l) ? spel.kleur : esc(x.l.kleur || '#777')}">${esc(x.l.nr || '')}</span></td><td>${esc(MODI[x.l.modus]?.naam || x.l.modus)}</td>
-        <td>${esc(eigen(x.l) ? spel.naam : x.l.vervoerderNaam || '')}</td><td>${esc(x.naar)}</td><td class="getal">${w == null ? '—' : w}</td></tr>`; }).join('')}</table>
+        <td>${esc(eigen(x.l) ? spel.naam : x.l.vervoerderNaam || '')}</td><td>${esc(x.naar)}</td><td class="getal">${w}</td></tr>`; }).join('')}</table>
       ${rijen.length > toon.length ? `<p class="klein">En nog ${rijen.length - toon.length} vertrekken later.</p>` : ''}` : '<p>De komende anderhalf uur vertrekt hier niets.</p>'}
-    <p class="klein">Wachtend = reizigers die bij deze halte instappen op die rit.</p>
+    <p class="klein">Wachtend = reizigers die nu op het perron staan. Iedereen neemt de eerstvolgende rit van zijn lijn; voor latere ritten staat in grijs hoeveel mensen er verwacht worden (die komen pas na de vorige rit).</p>
     ${stationOverstappen(s, rijen)}`;
 }
 // overstappen op dit station: van elke aankomende eigen rit naar de eerstvolgende vertrekken van andere lijnen (ook van anderen)

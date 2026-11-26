@@ -12,7 +12,12 @@ export async function laadVervoerderLijnen(v, verschuivingen = {}) {
     const uit = [];
     for (const l of d.lijnen) {
       if (AI.opgeheven.has(`${v.id}:${l.id}`)) continue;
-      for (const [ri, r] of l.r.entries()) {
+      for (let [ri, r] of l.r.entries()) {
+        // haltes met onzinnige coördinaten (fout in de bron, bv. St. Pölten op 5700 km onder de evenaar) weglaten,
+        // samen met hun tijden, anders trekt de lijn een streep dwars over de kaart
+        const goed = r.h.map(i => { const h = AI.haltes[i]; return h && Math.abs(h[1]) < 2.5e6 && Math.abs(h[2]) < 2.5e6; });
+        if (goed.includes(false)) { const k = goed.map((g, j) => g ? j : -1).filter(j => j >= 0); if (k.length < 2) continue;
+          r = { ...r, h: k.map(j => r.h[j]), t: r.t.map((_, j) => j).filter(j => goed[j]).map(j => r.t[j]), km: r.km ? k.map(j => r.km[j]) : r.km, vorm: r.vorm ? zonderUitschieters(r.vorm) : r.vorm }; }
         const haltes = r.h.map(i => { const h = AI.haltes[i]; return { naam: h[0], x: h[1], y: h[2], ref: i }; });
         let pts;
         if (r.vorm) {
@@ -318,4 +323,14 @@ export function beoordeelAanpassing(spel, vz, ctx) {
   const nodig = Math.ceil((nadeel(k) - waarde(0)) * 15000 / 5000) * 5000;
   if (nodig <= 150000) return { status: 'tegenvoorstel', tegen: { minuten: k, vergoeding: nodig }, reden: `Dat kost ons reizigers en aansluitingen. Voor ${euro(nodig)} per jaar doen we het.` };
   return { status: 'afgewezen', reden: `${wat(k)} past niet in onze dienstregeling${enkelspoor ? ' (enkelspoor: de kruisingen liggen vast)' : ''}.` };
+}
+
+// vorm (eerste punt absoluut, daarna verschillen) zonder punten met onzinnige coördinaten
+function zonderUitschieters(vorm) {
+  const pts = [vorm[0], vorm[1]]; let x = vorm[0], y = vorm[1];
+  for (let k = 2; k < vorm.length; k += 2) { x += vorm[k]; y += vorm[k + 1]; pts.push(x, y); }
+  const ok = []; for (let k = 0; k < pts.length; k += 2) if (Math.abs(pts[k]) < 2.5e6 && Math.abs(pts[k + 1]) < 2.5e6) ok.push(pts[k], pts[k + 1]);
+  if (ok.length < 4) return null;
+  const uit = [ok[0], ok[1]]; for (let k = 2; k < ok.length; k += 2) uit.push(ok[k] - ok[k - 2], ok[k + 1] - ok[k - 1]);
+  return uit;
 }
