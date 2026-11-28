@@ -59,9 +59,13 @@ export function marktBijwerken(spel) {
 // kopen: voertuigen komen in de vloot met hun leeftijd; 'slecht' moet eerst technisch gerenoveerd worden
 export function koopVanMarkt(spel, aanbod, n) {
   n = Math.max(1, Math.min(aanbod.n, n));
-  spel.voertuigen[aanbod.typeId] = (spel.voertuigen[aanbod.typeId] || 0) + n;
-  (spel.aankopen = spel.aankopen || []).unshift({ id: aanbod.typeId, n, dag: spel.dag, jaar: spel.jaar, oud: aanbod.leeftijd, staat: aanbod.staat });
-  if (aanbod.staat === 'slecht') (spel.renovaties = spel.renovaties || []).push({ id: id(), typeId: aanbod.typeId, n, soort: 'wacht', oud: aanbod.leeftijd });
+  // een loc-getrokken trein (stoomtrein, DDM met loc ...) komt binnen als losse loc en losse rijtuigen
+  const delen = {}; for (const c of TYPE[aanbod.typeId]?.deel || [aanbod.typeId]) delen[c] = (delen[c] || 0) + n;
+  for (const [c, k] of Object.entries(delen)) {
+    spel.voertuigen[c] = (spel.voertuigen[c] || 0) + k;
+    (spel.aankopen = spel.aankopen || []).unshift({ id: c, n: k, dag: spel.dag, jaar: spel.jaar, oud: aanbod.leeftijd, staat: aanbod.staat });
+    if (aanbod.staat === 'slecht') (spel.renovaties = spel.renovaties || []).push({ id: id(), typeId: c, n: k, soort: 'wacht', oud: aanbod.leeftijd });
+  }
   aanbod.n -= n;
   return n;
 }

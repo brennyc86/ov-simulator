@@ -1377,6 +1377,29 @@ function planningBlok(v) {
   return `<h3>Planning vandaag</h3><table class="tabel klein">${toon.map(rij).join('')}</table>
     ${lijst.length > toon.length ? `<details><summary class="klein">Hele dag (${lijst.length} onderdelen)</summary><table class="tabel klein">${lijst.map(rij).join('')}</table></details>` : ''}`;
 }
+// Loc-getrokken treinen (stoomtrein, DDM met loc 1700, M7 met HLE 18, stoomtram) bestaan in je vloot als losse loc en
+// losse rijtuigen: de loc kan zo ook goederen trekken en de rijtuigen kunnen achter een andere loc. Oude spellen en
+// nieuwe aankopen worden hier omgezet; lijnen met zo'n trein rijden met dezelfde samenstelling uit losse delen.
+// uitleg bij een loc-getrokken trein: wat je precies krijgt
+function delenTekst(t) {
+  if (!t?.deel) return '';
+  const tel = {}; for (const c of t.deel) tel[c] = (tel[c] || 0) + 1;
+  return ` <span class="chip" title="Je krijgt losse voertuigen: de loc kan ook goederen trekken of andere rijtuigen">los: ${Object.entries(tel).map(([c, k]) => `${k} × ${esc(kortNaam(c))}`).join(' + ')}</span>`;
+}
+function vlootSplitsen() {
+  if (!spel) return false;
+  let iets = false;
+  const telDelen = (id, n) => { const d = {}; for (const c of TYPE[id].deel) d[c] = (d[c] || 0) + n; return d; };
+  for (const [id, n] of Object.entries(spel.voertuigen || {})) {
+    if (!TYPE[id]?.deel) continue;
+    if (n) for (const [c, k] of Object.entries(telDelen(id, n))) spel.voertuigen[c] = (spel.voertuigen[c] || 0) + k;
+    delete spel.voertuigen[id]; iets = true;
+  }
+  if (spel.aankopen?.some(a => TYPE[a.id]?.deel)) { spel.aankopen = spel.aankopen.flatMap(a => TYPE[a.id]?.deel ? Object.entries(telDelen(a.id, a.n)).map(([c, k]) => ({ ...a, id: c, n: k })) : [a]); iets = true; }
+  if (spel.renovaties?.some(r => TYPE[r.typeId]?.deel)) { spel.renovaties = spel.renovaties.flatMap(r => TYPE[r.typeId]?.deel ? Object.entries(telDelen(r.typeId, r.n)).map(([c, k], j) => ({ ...r, id: r.id + '-' + j, typeId: c, n: k })) : [r]); iets = true; }
+  for (const l of spel.lijnen) if (TYPE[l.typeId]?.deel) { const sam = 'sam:' + TYPE[l.typeId].deel.join('+'); samenstellingVan(sam); l.typeId = sam; try { S.herbereken(l); } catch {} iets = true; }
+  return iets;
+}
 function ritData(e) {
   const nv = e.wacht && e.volgende, l = nv ? nv.l : e.lijn;
   return { lijn: l, vertrek: nv ? nv.dep : e.vertrek, r: nv ? nv.r : e.r, wacht: e.wacht, klaarVandaag: !!e.wacht && !nv, omloop: e.omloop, pool: e.pool, selectie: { lijn: l, voertuig: e.omloop } };
@@ -1961,7 +1984,7 @@ const PANELEN = {
   markt() {
     const lt = S.leeftijden(spel), alleAanbod = (spel.markt || []).filter(a => TYPE[a.typeId] && a.n > 0), aanbod = alleAanbod.filter(a => !marktFilter.size || marktFilter.has(vCat(a.typeId))).sort((a, b) => (b.soort === 'klassieker') - (a.soort === 'klassieker') || a.tot - b.tot);
     const rij = a => { const t = TYPE[a.typeId], f = S.ouderdomFactor(a.leeftijd, t.leven || 30), nieuw = t.prijs;
-      return `<div class="kaartje"><div class="rij"><b>${a.soort === 'klassieker' ? '★ ' : ''}${esc(t.naam)}</b><span class="chip">${a.soort === 'klassieker' ? 'klassieker' : 'partij uit vlootvernieuwing'}</span></div>
+      return `<div class="kaartje"><div class="rij"><b>${a.soort === 'klassieker' ? '★ ' : ''}${esc(t.naam)}</b>${delenTekst(t)}<span class="chip">${a.soort === 'klassieker' ? 'klassieker' : 'partij uit vlootvernieuwing'}</span></div>
         <div class="foto">${schets([a.typeId], t.modus, { breed: 460 })}</div>${aandrijving(a.typeId, t.modus)}
         <p class="klein">${a.n} stuks bij ${esc(a.van)} · ${a.leeftijd} jaar oud (levensduur ${t.leven || 30}) · <b>${STAAT[a.staat].naam}</b> · in dienst ${t.van}–${t.tot < 2100 ? t.tot : 'nu'}<br>
           <b>${S.euroKort(a.prijs)}</b> per stuk (nieuw ${S.euroKort(nieuw)}) · onderhoud en verbruik ongeveer <b>×${komma(f, 2)}</b> door ouderdom${a.staat === 'slecht' ? ' · <span style="color:var(--rood)">moet eerst een revisie krijgen voor het kan rijden</span>' : ''}
@@ -4464,6 +4487,7 @@ function init() {
   let vorigeZicht = '';
   setInterval(spoorPlannen, 2500);
   setInterval(kandidatenTonen, 400);
+  setInterval(() => { if (vlootSplitsen() && ['vloot', 'markt'].includes(paneelSoort)) ververs(); }, 1500); // gekochte loc-treinen als losse loc en rijtuigen
   setInterval(() => { try { spoorHerstel(); } catch (e) { console.warn('spoorHerstel', e); } }, 700); // rechte stukken op het spoor leggen
   setInterval(() => { if (spel && spel.lijnen.some(busRecht)) busroutesVerfijnen(); }, 30000); // rechte busroutes over de weg
   // bouwprojecten: de voortgangsbalken lopen zichtbaar vol zolang je het paneel open hebt

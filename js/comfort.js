@@ -151,7 +151,7 @@ export const CATERING = [
 // ---------------------------------------------------------------- interieur per wagon
 // ink = { wagons: [{ delen: [{ soort:'zit', klasse, stoel, breed, been, len } | { soort:'rest', len }] }], voorz: ['koffie', …] }
 export const wagonsVan = (typeId, modus) => bakkenVan(typeId, modus || TYPE[typeId]?.modus).filter(b => !b.loc);
-const zitDeel = (klasse, modus, stoel, len) => ({ soort: 'zit', klasse, stoel: stoel === 'hout' ? 'hout' : stoelStandaard(modus, klasse), stroom: stroomStandaard(modus, klasse),
+const zitDeel = (klasse, modus, stoel, len) => ({ soort: 'zit', klasse, stoel: stoel === 'hout' || stoel === 'bank' ? (stoel === 'bank' && klasse === '1' ? 'bekleed' : stoel) : stoelStandaard(modus, klasse), stroom: stroomStandaard(modus, klasse),
   breed: klasse === '1' || klasse === 'P' ? Math.max(2, (STD_BREED[modus] || 4) - 1) : STD_BREED[modus] || 4, been: klasse === '1' || klasse === 'P' ? 'ruim' : 'normaal', len });
 // wagons vullen met klassen naar aandeel (in volgorde), knippen op de grenzen
 function vul(n, aandelen, modus, stoel) {
@@ -171,7 +171,10 @@ function vul(n, aandelen, modus, stoel) {
 export function standaardInrichting(typeId, modus) {
   modus = modus || TYPE[typeId]?.modus;
   const n = Math.max(1, wagonsVan(typeId, modus).length), t = TYPE[typeId];
-  const stoel = kenmerk(typeId).comfort < 3 ? 'hout' : 'bekleed';
+  // passend bij de tijd waarin het voertuig gebouwd is: houten bankjes (stoom en vooroorlogs), beklede bankjes tot de
+  // jaren '90, daarna losse stoelen. Anders kan na een renovatie (interieur aanpassen in Vloot).
+  const bouw = t?.van ?? TYPE[basisId(typeId)]?.van ?? 2000;
+  const stoel = bouw < 1940 || kenmerk(typeId).comfort < 2 ? 'hout' : bouw < 1990 ? 'bank' : 'bekleed';
   if (t?.soort === 'loc') return { wagons: [], voorz: [] };
   // restauratierijtuig is meteen een restauratie, een slaaprijtuig heeft slaapcoupés (anders in te richten via Vloot)
   if (t?.inrichting === 'rest') return { wagons: Array.from({ length: n }, () => ({ delen: [{ soort: 'rest', len: 1 }] })), voorz: [] };

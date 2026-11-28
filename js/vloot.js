@@ -18,7 +18,7 @@ export const MODI = {
 
 export const VLOOT = [
   // ---------------- trein ----------------
-  { id: 'stoom3700', naam: 'Stoomlocomotief NS 3700 + rijtuigen', modus: 'trein', van: 1910, tot: 1958, zit: 240, sta: 60, vmax: 90, acc: 0.25, prijs: 4.5e6, km: 4.5, energie: 'kolen', pers: 2, leven: 40, wie: 'HSM, SS, NS' },
+  { id: 'stoom3700', deel: ['stoomloc3700', 'coupe', 'coupe', 'coupe', 'coupe'], naam: 'Stoomlocomotief NS 3700 + rijtuigen', modus: 'trein', van: 1910, tot: 1958, zit: 240, sta: 60, vmax: 90, acc: 0.25, prijs: 4.5e6, km: 4.5, energie: 'kolen', pers: 2, leven: 40, wie: 'HSM, SS, NS' },
   { id: 'mat36', naam: 'Materieel \'36 (Mat \'36)', modus: 'trein', van: 1936, tot: 1962, zit: 200, sta: 80, vmax: 125, acc: 0.5, prijs: 6e6, km: 2.6, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
   { id: 'hondekop', naam: 'Mat \'54 "Hondekop" (4-delig)', modus: 'trein', van: 1956, tot: 1996, zit: 216, sta: 100, vmax: 140, acc: 0.55, prijs: 8e6, km: 2.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'planv', naam: 'Mat \'64 "Plan V" (2-delig)', modus: 'trein', van: 1966, tot: 2016, zit: 152, sta: 100, vmax: 140, acc: 0.6, prijs: 5e6, km: 2.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
@@ -27,7 +27,7 @@ export const VLOOT = [
   { id: 'icmm', naam: 'ICMm "Koploper" gemoderniseerd (4-delig)', modus: 'trein', van: 2011, tot: 2027, zit: 240, sta: 120, vmax: 160, acc: 0.6, prijs: 9.5e6, km: 2.8, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'mddm4', naam: 'mDDM dubbeldekker met motorpost (4-delig)', modus: 'trein', van: 1992, tot: 2019, zit: 390, sta: 180, vmax: 140, acc: 0.55, prijs: 12e6, km: 3.6, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
   { id: 'mddm6', naam: 'mDDM dubbeldekker met motorpost (6-delig)', modus: 'trein', van: 1992, tot: 2019, zit: 620, sta: 280, vmax: 140, acc: 0.5, prijs: 17e6, km: 4.6, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
-  { id: 'ddr', naam: 'DDM-1 dubbeldekker met loc 1700 ("DDR")', modus: 'trein', van: 1985, tot: 2019, zit: 470, sta: 200, vmax: 140, acc: 0.45, prijs: 13e6, km: 4.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
+  { id: 'ddr', deel: ['loc1700', 'ddm1', 'ddm1', 'ddm1bvk'], naam: 'DDM-1 dubbeldekker met loc 1700 ("DDR")', modus: 'trein', van: 1985, tot: 2019, zit: 470, sta: 200, vmax: 140, acc: 0.45, prijs: 13e6, km: 4.0, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'ddz', naam: 'DDZ dubbeldekker (6-delig)', modus: 'trein', van: 2011, tot: 2030, zit: 550, sta: 250, vmax: 140, acc: 0.6, prijs: 14e6, km: 4.2, energie: 'elektrisch', pers: 1, leven: 30, wie: 'NS' },
   { id: 'virm6', naam: 'VIRM dubbeldekker (6-delig)', modus: 'trein', van: 1994, tot: 2035, zit: 570, sta: 300, vmax: 160, acc: 0.6, prijs: 16e6, km: 4.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
   { id: 'icng5', naam: 'ICNG (5-delig)', modus: 'trein', van: 2023, tot: 2065, zit: 286, sta: 240, vmax: 200, acc: 0.7, prijs: 15e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NS' },
@@ -45,7 +45,7 @@ export const VLOOT = [
   { id: 'flirt3ms', naam: 'Stadler FLIRT drielandentrein (3 spanningen)', modus: 'trein', van: 2024, tot: 2065, zit: 180, sta: 200, vmax: 160, acc: 1.1, prijs: 9.5e6, km: 2.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'Arriva (Maastricht–Aken–Luik)' },
   { id: 'am08', naam: 'NMBS AM08 Desiro (3-delig)', modus: 'trein', van: 2012, tot: 2055, zit: 280, sta: 180, vmax: 160, acc: 1.0, prijs: 8e6, km: 2.3, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
   { id: 'am96', naam: 'NMBS AM96 (3-delig)', modus: 'trein', van: 1996, tot: 2035, zit: 230, sta: 120, vmax: 160, acc: 0.8, prijs: 7e6, km: 2.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
-  { id: 'nmbsm7', naam: 'NMBS M7 dubbeldekker met HLE 18 (6 rijtuigen)', modus: 'trein', van: 2018, tot: 2060, zit: 620, sta: 300, vmax: 200, acc: 0.6, prijs: 18e6, km: 4.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
+  { id: 'nmbsm7', deel: ['hle18', 'nmbsm7r', 'nmbsm7r', 'nmbsm7r', 'nmbsm7r', 'nmbsm7bmx'], naam: 'NMBS M7 dubbeldekker met HLE 18 (6 rijtuigen)', modus: 'trein', van: 2018, tot: 2060, zit: 620, sta: 300, vmax: 200, acc: 0.6, prijs: 18e6, km: 4.5, energie: 'elektrisch', pers: 1, leven: 35, wie: 'NMBS, SNCB' },
   { id: 'cflkiss', naam: 'CFL Stadler KISS dubbeldekker (3-delig)', modus: 'trein', van: 2014, tot: 2060, zit: 300, sta: 200, vmax: 160, acc: 1.0, prijs: 12e6, km: 3.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'CFL' },
   { id: 'cfl2200', naam: 'CFL Z2N 2200 dubbeldekker (3-delig)', modus: 'trein', van: 2004, tot: 2050, zit: 280, sta: 180, vmax: 160, acc: 0.9, prijs: 10e6, km: 3.1, energie: 'elektrisch', pers: 1, leven: 35, wie: 'CFL' },
   { id: 'talent2', naam: 'DB Talent 2 (4-delig)', modus: 'trein', van: 2011, tot: 2055, zit: 200, sta: 200, vmax: 160, acc: 1.0, prijs: 8e6, km: 2.4, energie: 'elektrisch', pers: 1, leven: 35, wie: 'DB, DB Regio' },
@@ -153,7 +153,7 @@ export const VLOOT = [
 
   // ---------------- tram ----------------
   { id: 'paardentram', naam: 'Paardentram', modus: 'tram', van: 1864, tot: 1917, zit: 20, sta: 10, vmax: 10, acc: 0.3, prijs: 90e3, km: 1.8, energie: 'paarden', pers: 1, leven: 20, wie: 'HTM, AOM, RTM' },
-  { id: 'stoomtram', naam: 'Stoomtram', modus: 'tram', van: 1879, tot: 1966, zit: 90, sta: 30, vmax: 30, acc: 0.3, prijs: 900e3, km: 3.2, energie: 'kolen', pers: 2, leven: 35, wie: 'RTM, NTM, GTW' },
+  { id: 'stoomtram', deel: ['stoomtramloc', 'stoomtramrijtuig', 'stoomtramrijtuig'], naam: 'Stoomtram', modus: 'tram', van: 1879, tot: 1966, zit: 90, sta: 30, vmax: 30, acc: 0.3, prijs: 900e3, km: 3.2, energie: 'kolen', pers: 2, leven: 35, wie: 'RTM, NTM, GTW' },
   { id: 'tweeasser', naam: 'Elektrische tweeasser (Werkspoor/Beijnes)', modus: 'tram', van: 1900, tot: 1970, zit: 22, sta: 40, vmax: 40, acc: 0.8, prijs: 900e3, km: 1.9, energie: 'elektrisch', pers: 2, leven: 35, wie: 'GVB, HTM, RET, GVU, NZH' },
   { id: 'pcc', naam: 'HTM PCC-car', modus: 'tram', van: 1949, tot: 1993, zit: 40, sta: 80, vmax: 60, acc: 1.2, prijs: 1.6e6, km: 2.2, energie: 'elektrisch', pers: 1, leven: 35, wie: 'HTM' },
   { id: 'gvb9g', naam: 'GVB Beijnes 9G/10G gelede tram', modus: 'tram', van: 1957, tot: 2004, zit: 40, sta: 110, vmax: 50, acc: 1.0, prijs: 1.8e6, km: 2.3, energie: 'elektrisch', pers: 1, leven: 35, wie: 'GVB' },
