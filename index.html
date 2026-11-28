@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spitsuur</title>
+<meta name="description" content="OV-simulator van Nederland: bouw lijnen, maak een dienstregeling en onderhandel met andere vervoerders.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23173b3a'/%3E%3Cpath d='M6 22 L16 10 L26 22' stroke='%23f2c14e' stroke-width='3' fill='none'/%3E%3Ccircle cx='16' cy='10' r='4' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/stijl.css">
+</head>
+<body>
+<div id="kaart" aria-label="Kaart van Nederland met het OV-netwerk"></div>
+
+<header class="balk">
+  <div class="merk"><span class="logo" aria-hidden="true"></span><b>Spitsuur</b></div>
+  <div class="bedrijf" id="b-bedrijf" hidden><i id="b-kleur"></i><span id="b-naam"></span></div>
+  <div class="stat"><small>Kas</small><b id="b-geld">—</b></div>
+  <div class="stat"><small id="b-dag">Dag 1</small><b id="b-klok">06:00</b></div>
+  <button class="klokknop" id="b-tijdknop" type="button" title="Tijd aan/uit (spatie)" aria-pressed="true"><span class="wijzer" aria-hidden="true"></span><b id="b-tijdstand">▶</b></button>
+  <div class="snelheid" role="group" aria-label="Spelsnelheid">
+    <button data-s="1" title="Echte tijd: treinen rijden op ware snelheid">1×</button>
+    <button data-s="2" title="2× zo snel: een uur duurt 30 minuten">2×</button>
+    <button data-s="5" title="5× zo snel: een uur duurt 12 minuten">5×</button>
+    <button data-s="10" title="10× zo snel: een uur duurt 6 minuten">10×</button>
+    <button data-s="20" title="20× zo snel: een uur duurt 3 minuten">20×</button>
+    <button data-s="50" title="50× zo snel: een dag duurt bijna een half uur">50×</button>
+    <button data-s="100" title="100× zo snel: een dag duurt 14½ minuut">100×</button>
+  </div>
+  <button class="geluid klein-knop" data-paneel="verzoeken" title="Overleg: verzoeken en onderhandelingen" aria-label="Overleg">✉<em id="b-inbox" hidden>0</em></button>
+  <button class="geluid klein-knop" data-paneel="bouw" title="Bouwprojecten en voortgang" aria-label="Bouw">▤<em id="b-bouw" hidden>0</em></button>
+  <button class="geluid klein-knop" data-paneel="kaart" title="Kaartlagen en jaartal" aria-label="Kaart">◫</button>
+  <button class="geluid" id="b-opslaan" type="button" title="Nu opslaan (het spel slaat ook elke minuut vanzelf op)" aria-label="Opslaan"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M5 3h11l3 3v15H5zM7 5v5h9V5zm5 9a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"/></svg></button>
+  <button class="geluid" id="b-instellingen" type="button" title="Instellingen (muziek, voertuigen op de kaart)" aria-label="Instellingen"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm8.94 4.43l1.56 1.22-1.5 2.6-1.9-.58a7.6 7.6 0 0 1-1.6.93L17.2 19h-3l-.3-1.9a7.6 7.6 0 0 1-1.6-.93l-1.9.58-1.5-2.6 1.56-1.22a7.7 7.7 0 0 1 0-1.86L8.9 9.85l1.5-2.6 1.9.58c.5-.38 1.04-.7 1.6-.93L14.2 5h3l.3 1.9c.56.23 1.1.55 1.6.93l1.9-.58 1.5 2.6-1.56 1.22c.08.62.08 1.24 0 1.86z" transform="translate(-3.7 0)"/></svg></button>
+  <button class="geluid" id="b-muziek" type="button" title="Muziek aanzetten" aria-pressed="false" aria-label="Muziek aan of uit"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><g class="kruis" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 9l5 6M21 9l-5 6"/></g><g class="golf" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 9.5a4 4 0 0 1 0 5"/><path d="M18.5 7a7.5 7.5 0 0 1 0 10"/></g></svg></button>
+  <button class="account" id="b-account" type="button">Inloggen</button>
+</header>
+
+<div id="submenu" class="submenu" hidden></div>
+<nav class="gereedschap onder" aria-label="Aanleggen en overzichten">
+  <button data-cat="wegen" title="Wegen: trambanen, haltes, busstations en buslijnen"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 5 21M16 3l3 18M12 4v3M12 10v3M12 16v3"/></svg></span>Wegen</button>
+  <button data-cat="lightrail" title="Lightrail: tram, sneltram en metro (sporen, haltes, stations, lijnen)"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="11" rx="3"/><path d="M9 2h6M12 2v4M9 20l-2 2M15 20l2 2M6 12h12"/></svg></span>Lightrail</button>
+  <button data-cat="trein" title="Trein: spoor, stations, perrons en treinlijnen"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="14" rx="4"/><path d="M5 10h14M9 21l-2-4M15 21l2-4M9 14h.01M15 14h.01"/></svg></span>Trein</button>
+  <button data-cat="boot" title="Boot: steigers en veerlijnen"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15h18l-2 4H5zM6 15V9h12v6M12 9V4"/></svg></span>Boot</button>
+  <button data-cat="vliegen" title="Vliegen: vliegroutes tussen vliegvelden"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13l8-2 4-7 2 1-2 6 6 1 1 2-7 1-2 6-2-1 1-5-8 1z"/></svg></span>Vliegen</button>
+  <hr>
+  <button data-paneel="vloot" title="Je vloot: kopen, kopiëren, tweedehands"><span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="13" height="9" rx="1"/><path d="M16 10h3l2 3v3h-5M7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></svg></span>Vloot</button>
+  <button data-paneel="lijnen" title="Al je lijnen"><span>☰</span>Lijnen</button>
+  <button data-paneel="stations" title="Stations die je aandoet: wachtende reizigers en overstappen"><span>▣</span>Stations</button>
+  <button data-paneel="vracht" title="Goederenvervoer: aanvragen en inplannen"><span>▦</span>Goederen<em id="b-vracht" hidden>0</em></button>
+  <button data-paneel="controle" title="Kaartcontrole en controleploegen"><span>✓</span>Controle</button>
+  <button data-sub="subsidies" title="Subsidies: opdrachten om uit te voeren (opent uiterst rechts, naast een ander venster)"><span>★</span>Subsidies</button>
+  <button data-paneel="geld" title="Geld: inkomsten, uitgaven en subsidies"><span>€</span>Geld</button>
+</nav>
+
+<!-- onzichtbaar: de oude gereedschapsknoppen (de balk onderin en sneltoetsen gebruiken dezelfde functies; de rooktest ook) -->
+<div hidden aria-hidden="true">
+  <button data-paneel="subsidies"></button><button data-tool="kijk"></button><button data-tool="lijn"></button><button data-tool="halte"></button><button data-tool="station"></button><button data-tool="perron"></button><button data-tool="spoor"></button>
+</div>
+
+<aside class="paneel paneel2" id="paneel2" hidden>
+  <button class="sluit" id="paneel2-sluit" type="button" aria-label="Subsidies sluiten">×</button>
+  <div id="paneel2-inhoud"></div>
+</aside>
+<aside class="paneel" id="paneel" hidden>
+  <button class="sluit" id="paneel-sluit" type="button" aria-label="Paneel sluiten">×</button>
+  <div id="paneel-inhoud"></div>
+</aside>
+
+<div class="hint" id="hint" hidden></div>
+<button class="legendaknop" id="b-legenda" type="button" aria-pressed="false" title="Wat betekenen de lijnen en stippen op de kaart?">◧ Legenda</button>
+<div class="legenda-kaart" id="legenda" hidden></div>
+<div class="melding" id="melding" role="status" aria-live="polite"></div>
+<div class="bron" id="bron"></div>
+
+<div id="laadscherm" style="position:fixed;inset:0;z-index:50;background:#13262b;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px">
+  <div id="laad-plaat" style="width:min(92vw,1100px);aspect-ratio:1200/680;border-radius:14px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.5)"></div>
+  <div style="display:flex;gap:12px;align-items:center"><b id="laad-titel" style="color:#f2efe6;font-size:18px;letter-spacing:.04em">Laden…</b>
+  <button id="laad-muziek" type="button" style="background:#2c4249;color:#f2efe6;border:0;border-radius:16px;padding:4px 12px;cursor:pointer" title="Muziek bij het laden aan of uit">♪ Muziek uit</button></div>
+  <div style="width:min(80vw,640px);height:14px;border-radius:7px;background:#2c4249;overflow:hidden"><div id="laad-vol" style="height:100%;width:0;background:linear-gradient(90deg,#f2c14e,#e07a2d);transition:width .25s"></div></div>
+  <p id="laad-tekst" style="color:#c9d3cf;font-size:14px;margin:0;min-height:1.2em"></p>
+</div>
+<div id="deellaad" style="position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:40;background:#13262bf0;color:#f2efe6;border-radius:12px;padding:12px 16px;min-width:320px;max-width:min(90vw,560px);box-shadow:0 6px 24px rgba(0,0,0,.4);display:none">
+  <b id="deellaad-titel">Extra provincies laden</b>
+  <p id="deellaad-lijst" style="margin:6px 0;font-size:13px;color:#c9d3cf"></p>
+  <div style="height:10px;border-radius:5px;background:#2c4249;overflow:hidden"><div id="deellaad-vol" style="height:100%;width:0;background:linear-gradient(90deg,#f2c14e,#e07a2d);transition:width .2s"></div></div>
+  <p id="deellaad-tekst" style="margin:6px 0 0;font-size:12px;color:#9fb0aa"></p>
+</div>
+<dialog id="start">
+  <form method="dialog" id="startform">
+    <h1>Spits<em>uur</em></h1>
+    <p class="lead">Run je eigen OV-bedrijf in Nederland. Leg lijnen aan, maak een dienstregeling, koop materieel en stem je tijden af met andere vervoerders, ProRail en de provincie.</p>
+    <div id="start-opgeslagen"></div>
+    <div id="start-account"></div>
+    <fieldset>
+      <legend>Nieuw spel</legend>
+      <label for="s-jaar">Startjaar <output id="s-jaar-uit">2026</output></label>
+      <input id="s-jaar" type="range" min="1850" max="2026" value="2026">
+      <p class="klein" id="s-jaar-uitleg">Huidige situatie: echte dienstregeling van alle vervoerders.</p>
+      <div class="keuze2" id="s-soort">
+        <button type="button" data-v="blanco" aria-pressed="true"><b>Eigen bedrijf starten</b><span>Je eigen naam en huiskleur, nog geen lijnen</span></button>
+        <button type="button" data-v="bestaand" aria-pressed="false"><b>Spelen met een bestaand bedrijf</b><span>Neem de lijnen en de vloot over van een echt bedrijf</span></button>
+        <button type="button" data-v="leeg" aria-pressed="false"><b>Lege regio</b><span>Een gebied zonder openbaar vervoer: jij legt het aan (omliggend OV rijdt gewoon)</span></button>
+      </div>
+      <div id="s-leeg" hidden>
+        <p class="klein">Kies het gebied: een land, provincie, regio of gemeente (je hoeft niet tot het kleinste niveau). Stations, haltes, havens, sporen en wegen blijven liggen; de lijnen die er stoppen zijn opgeheven.</p>
+        <div class="raster2"><label class="veld">Land<select id="s-leeg-land"></select></label><label class="veld">Provincie<select id="s-leeg-prov"></select></label>
+        <label class="veld">Regio<select id="s-leeg-regio"></select></label><label class="veld">Gemeente<select id="s-leeg-gem"></select></label></div>
+        <p class="klein">Blijft wel rijden in dit gebied:</p>
+        <div class="rij" id="s-leeg-behoud"></div>
+        <p class="klein" id="s-leeg-uitleg"></p>
+      </div>
+      <div id="s-eigen">
+        <label for="s-naam">Naam van je bedrijf</label>
+        <input id="s-naam" value="Mijn OV-bedrijf" maxlength="40" required>
+        <label for="s-kleur">Huiskleur</label>
+      <select id="s-kleur">
+        <option value="#7b1e2b" style="background:#7b1e2b;color:#fff" selected>Bordeauxrood</option>
+        <option value="#1f3a7a" style="background:#1f3a7a;color:#fff">Donkerblauw</option>
+        <option value="#1f5e3a" style="background:#1f5e3a;color:#fff">Donkergroen</option>
+        <option value="#d9731a" style="background:#d9731a;color:#fff">Oranje</option>
+        <option value="#5b2d82" style="background:#5b2d82;color:#fff">Paars</option>
+        <option value="#0f6f7a" style="background:#0f6f7a;color:#fff">Petrol</option>
+        <option value="#6b4226" style="background:#6b4226;color:#fff">Bruin</option>
+        <option value="#2b2d30" style="background:#2b2d30;color:#fff">Antraciet</option>
+      </select>
+      </div>
+      <div id="s-bestaand" hidden>
+        <input id="s-zoek" type="search" placeholder="Zoek een bedrijf…" autocomplete="off" style="width:100%;box-sizing:border-box">
+        <div class="rij" id="s-modi"></div>
+        <div id="s-vervoerders"></div>
+      </div>
+      <div id="s-landkeuze">
+        <label for="s-land">Beginnen in</label>
+        <select id="s-land"><option value="NL" selected>Nederland</option><option value="BE">België</option><option value="LU">Luxemburg</option><option value="DE">Duitsland</option></select>
+        <label class="rij klein"><input type="checkbox" id="s-grens" checked> Grensprovincies van de buurlanden meteen laden (dan kun je direct de grens over)</label>
+        <p class="klein">Andere provincies laad je later met de knop op de kaart, of vanzelf als je een treinlijn erheen aanlegt.</p>
+      </div>
+      <label for="s-kapitaal">Startkapitaal</label>
+      <select id="s-kapitaal"><option value="25e6">€ 25 mln (krap)</option><option value="50e6">€ 50 mln</option><option value="100e6">€ 100 mln</option><option value="200e6" selected>€ 200 mln (normaal: zo'n 4 treinlijnen)</option><option value="400e6">€ 400 mln</option><option value="1e9">€ 1 mld</option><option value="1e12">onbeperkt (zandbak)</option></select>
+    </fieldset>
+    <button id="s-start" class="hoofdknop" type="button">Spel starten</button>
+    <p class="klein" id="s-versie"></p>
+    <p class="klein">Kaart: PDOK en Kadaster-tijdreiskaart. Netwerk: OpenStreetMap. Dienstregeling: OVapi (GTFS).</p>
+  </form>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
+<script type="module" src="js/main.js"></script>
+<div id="versie" class="versie" title="Versie van het spel"></div>
+</body>
+</html>
