@@ -4275,13 +4275,18 @@ async function bewaar(hand) {
   const vorm = opslagVorm();
   const samenvatting = `${spel.naam} · dag ${spel.dag + 1} · ${spel.jaar} · ${spel.lijnen.length} lijnen · ${S.euroKort(spel.geld)}`;
   slot = slot || S.nieuwId('s');
-  const lokaal = Cloud.bewaarLokaal(slot, spel.naam, vorm, samenvatting);
+  const lokaal = await Cloud.bewaarLokaal(slot, spel.naam, vorm, samenvatting);
+  if (lokaal !== true) { console.warn('Lokaal opslaan:', lokaal); if (hand || !opslagGewaarschuwd) { opslagGewaarschuwd = true; if (!Cloud.gebruiker) melding('Opslaan in de browser lukte niet: ' + lokaal, 9000); } }
   if (Cloud.gebruiker && (hand || performance.now() - laatsteOnline > 60000)) {
     laatsteOnline = performance.now();
-    try { await Cloud.bewaarOnline(slot, spel.naam, vorm, samenvatting); if (hand) melding('Opgeslagen in je account.'); }
-    catch (e) { if (hand) melding('Online opslaan mislukte: ' + (e.code === 'permission-denied' ? 'de database-regels voor het spel staan nog niet in Firebase.' : e.message)); }
-  } else if (hand) melding(lokaal ? 'Opgeslagen in deze browser. Log in om op elk apparaat verder te spelen.' : 'Opslaan in de browser lukte niet.');
+    try { await Cloud.bewaarOnline(slot, spel.naam, vorm, samenvatting); onlineGewaarschuwd = false; if (hand) melding('Opgeslagen in je account.'); }
+    catch (e) {
+      console.warn('Online opslaan', e);
+      if (hand || !onlineGewaarschuwd) { onlineGewaarschuwd = true; melding('Online opslaan mislukte: ' + (e.code === 'permission-denied' ? 'de database weigerde het (regels in Firebase).' : e.message) + (lokaal === true ? ' Het spel staat wel in deze browser.' : ''), 9000); }
+    }
+  } else if (hand) melding(lokaal === true ? 'Opgeslagen in deze browser. Log in om op elk apparaat verder te spelen.' : 'Opslaan lukte niet: ' + lokaal, 9000);
 }
+let opslagGewaarschuwd = false, onlineGewaarschuwd = false;
 async function laadSpel(data, nieuwSlot) {
   spel = data; slot = nieuwSlot;
   zetJaar(spel.jaar); spel.series = spel.series || []; registreerSeries(spel.series); zetKlassePrijzen(spel.klassePrijs);
@@ -4558,11 +4563,18 @@ async function toonAccount() {
   const lokaal = Cloud.lijstLokaal().map(s => ({ ...s, waar: 'lokaal' }));
   let online = [];
   if (u) try { online = (await Cloud.lijstOnline()).map(s => ({ ...s, waar: 'online' })); } catch (e) { console.warn(e); }
-  const alle = [...online, ...lokaal.filter(l => !online.some(o => o.slot === l.slot))].slice(0, 6);
-  $('start-opgeslagen').innerHTML = alle.length ? `<div class="opgeslagen"><b>Verder spelen</b>${alle.map(s => `<button type="button" data-slot="${esc(s.slot)}" data-waar="${s.waar}">${esc(s.naam)}<small>${esc(s.samenvatting || '')} · ${s.waar === 'online' ? 'in je account' : 'in deze browser'}</small></button>`).join('')}</div>` : '';
+  const alle = [...online, ...lokaal.filter(l => !online.some(o => o.slot === l.slot))];
+  $('start-opgeslagen').innerHTML = alle.length ? `<div class="opgeslagen"><b>Verder spelen</b>${alle.map(s => `<div class="opgeslagen-rij"><button type="button" data-slot="${esc(s.slot)}" data-waar="${s.waar}">${esc(s.naam)}<small>${esc(s.samenvatting || '')} · ${s.waar === 'online' ? 'in je account' : 'in deze browser'}</small></button><button type="button" class="opgeslagen-wis" title="Dit opgeslagen spel wissen" data-wis="${esc(s.slot)}" data-waar="${s.waar}">✕</button></div>`).join('')}</div>` : '';
   $('start-opgeslagen').querySelectorAll('[data-slot]').forEach(b => b.onclick = async () => {
-    const data = b.dataset.waar === 'online' ? await Cloud.laadOnline(b.dataset.slot) : Cloud.laadLokaal(b.dataset.slot);
+    let data = null;
+    try { data = b.dataset.waar === 'online' ? await Cloud.laadOnline(b.dataset.slot) : await Cloud.laadLokaal(b.dataset.slot); } catch (e) { console.warn(e); melding('Dit spel kon niet worden geladen: ' + e.message, 8000); return; }
     if (data) laadSpel(data, b.dataset.slot); else melding('Dit spel kon niet worden geladen.');
+  });
+  $('start-opgeslagen').querySelectorAll('[data-wis]').forEach(b => b.onclick = async () => {
+    const naam = b.previousElementSibling?.firstChild?.textContent || 'dit spel';
+    if (!confirm(`"${naam}" ${b.dataset.waar === 'online' ? 'uit je account' : 'uit deze browser'} wissen? Dit kan niet ongedaan worden.`)) return;
+    try { if (b.dataset.waar === 'online') await Cloud.wisOnline(b.dataset.wis); else Cloud.wisLokaal(b.dataset.wis); } catch (e) { melding('Wissen mislukte: ' + e.message); }
+    toonAccount();
   });
 }
 

@@ -259,3 +259,8 @@ body.met-submenu .legendaknop { bottom: calc(env(safe-area-inset-bottom, 0px) + 
 .dagbalk b { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--tekst); }
 .dagbalk-uren { position: relative; height: 11px; font: 400 9px/1 var(--f-tekst, sans-serif); color: var(--dof); margin-top: 2px; }
 .dagbalk-uren span { position: absolute; transform: translateX(-50%); }
+.opgeslagen { max-height: 40vh; overflow-y: auto; }
+.opgeslagen-rij { display: flex; gap: 6px; }
+.opgeslagen-rij > button:first-child { flex: 1; }
+.opgeslagen .opgeslagen-wis { flex: none; width: 34px; text-align: center; padding: 0; color: var(--dof); }
+.opgeslagen .opgeslagen-wis:hover { color: #c2412d; }

@@ -46,39 +46,107 @@ export async function uitloggen() { await start(); await A.signOut(auth); }
 
 const pad = slot => ['apps', 'knooppunt', 'spelers', gebruiker.uid, 'spellen', slot];
 
+// ---- compressie: grote spellen (NS: ~4 MB JSON) passen zo in de browser en online
+const KOP = 'GZ1|';
+async function inpakken(obj) {
+  const tekst = JSON.stringify(obj);
+  if (typeof CompressionStream === 'undefined') return tekst;
+  const buf = new Uint8Array(await new Response(new Blob([tekst]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  let b = ''; for (let i = 0; i < buf.length; i += 0x8000) b += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  return KOP + btoa(b);
+}
+async function uitpakken(tekst) {
+  if (tekst == null) return null;
+  if (!tekst.startsWith(KOP)) return JSON.parse(tekst); // oude opslag: gewone JSON
+  const bin = atob(tekst.slice(KOP.length)); const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return JSON.parse(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+}
+
+// ---- online: één document per spel; past het niet (regel: < 900.000 tekens), dan extra delen
+// als losse documenten <slot>_<generatie>_<i>. Eerst de delen, dan het hoofddocument, dan de oude delen weg.
+const STUK = 850000;
+const isDeel = id => /_g[a-z0-9]+_\d+$/.test(id);
+const vorigeDelen = new Map(); // slot -> [ids] van de laatst bekende generatie
+const deelIds = (slot, kop) => { const m = /^DL\|([a-z0-9]+)\|(\d+)\|/.exec(kop || ''); return m ? Array.from({ length: +m[2] }, (_, i) => `${slot}_g${m[1]}_${i + 1}`) : []; };
 export async function bewaarOnline(slot, naam, spel, samenvatting) {
   if (!gebruiker) throw new Error('Niet ingelogd');
-  await F.setDoc(F.doc(db, ...pad(slot)), {
-    naam: String(naam).slice(0, 80), spel: JSON.stringify(spel), bijgewerkt: new Date().toISOString(),
-    versie: 1, samenvatting: String(samenvatting || '').slice(0, 200),
-  });
+  const data = await inpakken(spel);
+  const meta = { naam: String(naam).slice(0, 80), bijgewerkt: new Date().toISOString(), versie: 2, samenvatting: String(samenvatting || '').slice(0, 200) };
+  let hoofd = data, nieuw = [];
+  if (data.length > STUK) {
+    const gen = Date.now().toString(36);
+    const stukken = []; for (let i = STUK; i < data.length; i += STUK) stukken.push(data.slice(i, i + STUK));
+    const kop = `DL|${gen}|${stukken.length}|`;
+    nieuw = deelIds(slot, kop);
+    await Promise.all(stukken.map((st, i) => F.setDoc(F.doc(db, ...pad(nieuw[i])), { naam: '~deel', spel: st, bijgewerkt: meta.bijgewerkt, versie: 2 })));
+    hoofd = kop + data.slice(0, STUK);
+  }
+  await F.setDoc(F.doc(db, ...pad(slot)), { ...meta, spel: hoofd });
+  const oud = (vorigeDelen.get(slot) || []).filter(id => !nieuw.includes(id));
+  vorigeDelen.set(slot, nieuw);
+  await Promise.all(oud.map(id => F.deleteDoc(F.doc(db, ...pad(id))).catch(() => {})));
 }
 export async function lijstOnline() {
   if (!gebruiker) return [];
   const q = await F.getDocs(F.collection(db, 'apps', 'knooppunt', 'spelers', gebruiker.uid, 'spellen'));
-  return q.docs.map(d => ({ slot: d.id, naam: d.get('naam'), bijgewerkt: d.get('bijgewerkt'), samenvatting: d.get('samenvatting') }))
+  return q.docs.filter(d => !isDeel(d.id)).map(d => ({ slot: d.id, naam: d.get('naam'), bijgewerkt: d.get('bijgewerkt'), samenvatting: d.get('samenvatting') }))
     .sort((a, b) => (b.bijgewerkt || '').localeCompare(a.bijgewerkt || ''));
 }
 export async function laadOnline(slot) {
   const d = await F.getDoc(F.doc(db, ...pad(slot)));
-  return d.exists() ? JSON.parse(d.get('spel')) : null;
+  if (!d.exists()) return null;
+  let s = d.get('spel');
+  const ids = deelIds(slot, s);
+  if (ids.length) {
+    const delen = await Promise.all(ids.map(id => F.getDoc(F.doc(db, ...pad(id)))));
+    if (delen.some(x => !x.exists())) throw new Error('Een deel van dit online spel ontbreekt.');
+    s = s.replace(/^DL\|[a-z0-9]+\|\d+\|/, '') + delen.map(x => x.get('spel')).join('');
+  }
+  vorigeDelen.set(slot, ids);
+  return uitpakken(s);
 }
-export async function wisOnline(slot) { await F.deleteDoc(F.doc(db, ...pad(slot))); }
+export async function wisOnline(slot) {
+  const d = await F.getDoc(F.doc(db, ...pad(slot)));
+  const ids = d.exists() ? deelIds(slot, d.get('spel')) : [];
+  await Promise.all([slot, ...ids].map(id => F.deleteDoc(F.doc(db, ...pad(id)))));
+}
 
-// lokaal (zonder inlog, of als reservekopie)
+// ---- lokaal (zonder inlog, of als reservekopie)
 const LS = 'knooppunt-spellen';
 export function lijstLokaal() {
-  try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; }
+  let l = [];
+  try { l = JSON.parse(localStorage.getItem(LS) || '[]'); } catch {}
+  // spellen die wel bewaard zijn maar uit de lijst vielen (vroeger hooguit 10 in de lijst) weer tonen
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k?.startsWith(LS + ':')) continue;
+      const slot = k.slice(LS.length + 1);
+      if (!l.some(s => s.slot === slot)) l.push({ slot, naam: 'Ouder spel', samenvatting: `${Math.round(localStorage.getItem(k).length / 1024)} kB` });
+    }
+  } catch {}
+  return l.filter(s => { try { return localStorage.getItem(LS + ':' + s.slot) != null; } catch { return false; } });
 }
-export function bewaarLokaal(slot, naam, spel, samenvatting) {
+// geeft true, of een foutmelding (tekst) als de browser vol zit
+export async function bewaarLokaal(slot, naam, spel, samenvatting) {
+  let data;
+  try { data = await inpakken(spel); } catch (e) { return 'inpakken mislukte: ' + e.message; }
+  try {
+    localStorage.setItem(LS + ':' + slot, data);
+  } catch {
+    return `de browseropslag is vol (dit spel is ${Math.round(data.length / 1024)} kB). Wis oude spellen in het startscherm of log in.`;
+  }
   try {
     const l = lijstLokaal().filter(s => s.slot !== slot);
     l.unshift({ slot, naam, bijgewerkt: new Date().toISOString(), samenvatting });
-    localStorage.setItem(LS, JSON.stringify(l.slice(0, 10)));
-    localStorage.setItem(LS + ':' + slot, JSON.stringify(spel));
-    return true;
-  } catch { return false; }
+    localStorage.setItem(LS, JSON.stringify(l));
+  } catch {}
+  return true;
 }
-export function laadLokaal(slot) {
-  try { return JSON.parse(localStorage.getItem(LS + ':' + slot)); } catch { return null; }
+export async function laadLokaal(slot) {
+  return uitpakken(localStorage.getItem(LS + ':' + slot));
+}
+export function wisLokaal(slot) {
+  try { localStorage.removeItem(LS + ':' + slot); localStorage.setItem(LS, JSON.stringify(lijstLokaal().filter(s => s.slot !== slot))); } catch {}
 }
