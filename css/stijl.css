@@ -252,3 +252,10 @@ body.met-submenu .legendaknop { bottom: calc(env(safe-area-inset-bottom, 0px) + 
 
 /* verborgen is verborgen, ook als een klasse display zet (de aanwijzing bovenin bleef anders staan) */
 [hidden] { display: none !important; }
+
+/* dagbalk in Vloot → Inzet: 0–24 uur, gekleurde stukken per lijn */
+.dagbalk { position: relative; height: 12px; background: var(--vlak2); border: 1px solid var(--lijn); border-radius: 3px; overflow: hidden; margin: 2px 0; }
+.dagbalk i { position: absolute; top: 0; bottom: 0; }
+.dagbalk b { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--tekst); }
+.dagbalk-uren { position: relative; height: 11px; font: 400 9px/1 var(--f-tekst, sans-serif); color: var(--dof); margin-top: 2px; }
+.dagbalk-uren span { position: absolute; transform: translateX(-50%); }
