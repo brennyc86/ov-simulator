@@ -239,3 +239,16 @@ body.met-sub .paneel:not(.paneel2) { right: min(380px, calc(100vw - 20px)); }
 .ico-keuze button { display: grid; justify-items: center; gap: 6px; padding: 12px 6px; border: 1px solid var(--lijn); border-radius: 12px; background: var(--vlak); color: var(--tekst); font: 600 13px/1.1 var(--f-kop); cursor: pointer; }
 .ico-keuze button:hover { background: var(--vlak2); }
 .ico-keuze svg { width: 36px; height: 36px; }
+
+/* tweede balk (submenu): ook over de volle breedte, direct boven de hoofdbalk, knoppen met naam eronder */
+.submenu { left: 0; right: 0; transform: none; max-width: none; border-radius: 0; border: 0; border-top: 1px solid var(--lijn);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--onderH)); justify-content: center; gap: 2px; padding: 4px 8px; box-shadow: 0 -1px 6px rgba(0,0,0,.06); background: var(--vlak2); }
+.submenu button { width: 76px; height: auto; display: grid; justify-items: center; gap: 2px; padding: 5px 2px; }
+.submenu button b { font: 600 10px/1.1 var(--f-kop); letter-spacing: .04em; text-transform: uppercase; color: var(--dof); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 74px; }
+.submenu button:hover, .submenu button.aan { background: var(--vlak); }
+.submenu button.aan b { color: var(--tekst); }
+body.met-submenu .paneel { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--onderH) + 62px); }
+body.met-submenu .legendaknop { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--onderH) + 72px) !important; }
+
+/* verborgen is verborgen, ook als een klasse display zet (de aanwijzing bovenin bleef anders staan) */
+[hidden] { display: none !important; }

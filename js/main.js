@@ -686,7 +686,7 @@ const KOMT_NOG = wat => () => melding(`${wat} aanleggen komt nog. Voorlopig gebr
 let catNu = null;
 function categorie(c) {
   const sm = $('submenu');
-  if (catNu === c) { catNu = null; sm.hidden = true; zetTool('kijk'); document.querySelectorAll('[data-cat]').forEach(b => b.classList.remove('aan')); return; }
+  if (catNu === c) { catNu = null; sm.hidden = true; document.body.classList.remove('met-submenu'); zetTool('kijk'); document.querySelectorAll('[data-cat]').forEach(b => b.classList.remove('aan')); return; }
   zetTool('kijk'); catNu = c;
   document.querySelectorAll('[data-cat]').forEach(b => b.classList.toggle('aan', b.dataset.cat === c));
   const halte = m => () => { zetTool('halte'); halteModus(m); }, spoor = m => () => { zetTool('spoor'); spoorBegin(m); };
@@ -703,9 +703,17 @@ function categorie(c) {
     boot: ['Boot', [['veer', 1, 'Nieuwe veerlijn', () => lijnBegin('veer')], ['watertaxi', 1, 'Nieuwe watertaxilijn', () => lijnBegin('watertaxi')], ['steiger', 0, 'Steiger (veer)', halte('veer')], ['steiger', 0, 'Steiger (watertaxi)', halte('watertaxi')], ['haven', 0, 'Haven aanleggen (komt nog)', KOMT_NOG('Havens')]]],
     vliegen: ['Vliegen', [['vliegtuig', 1, 'Nieuwe vliegroute', () => lijnBegin('vlucht')], ['vliegveld', 0, 'Vliegveld aanleggen (komt nog)', KOMT_NOG('Vliegvelden')], ['heli', 0, 'Helikopterplatform aanleggen (komt nog)', KOMT_NOG('Helikopterplatforms')]]],
   }[c];
-  if (!menu) { sm.hidden = true; return; }
-  sm.innerHTML = `<span class="titel">${menu[0]}</span>` + menu[1].map(([ic, nw, t], i) => `<button type="button" data-sub-i="${i}" title="${esc(t)}" aria-label="${esc(t)}" class="${/komt nog/.test(t) ? 'uit' : ''}">${ico(ic, !!nw)}</button>`).join('');
-  sm.hidden = false;
+  if (!menu) { sm.hidden = true; document.body.classList.remove('met-submenu'); return; }
+  // korte naam onder het pictogram (zoals bij de hoofdknoppen); de volledige uitleg in het ballonnetje
+  const KORT = { 'Nieuwe buslijn': 'Buslijn', 'Nieuwe snelbuslijn (HOV)': 'HOV-lijn', 'Nieuwe belbus': 'Belbus', 'Bushalte': 'Bushalte', 'Tramhalte': 'Tramhalte', 'Busstation bij een station of halte': 'Busstation',
+    'Trambaan in de weg': 'Trambaan', 'Los tramspoor': 'Tramspoor', 'Trolleybus-bovenleiding': 'Trolley', 'Weg aanleggen (komt nog)': 'Weg', 'Nieuwe tramlijn': 'Tramlijn', 'Nieuwe sneltramlijn': 'Sneltram',
+    'Nieuwe metrolijn': 'Metrolijn', 'Nieuwe monorail (komt nog)': 'Monorail', 'Tramspoor': 'Tramspoor', 'Metrospoor': 'Metrospoor', 'Monorailbaan (komt nog)': 'Monorailbaan', 'Metro- of tramstation': 'Station',
+    'Nieuwe treinlijn': 'Treinlijn', 'Treinspoor': 'Spoor', 'Station bouwen': 'Station', 'Perron of opstelspoor': 'Perron', 'Spoor erbij (2e, 3e, 4e spoor)': 'Spoor erbij', 'Passeerspoor op enkelspoor (1 km)': 'Passeerspoor',
+    'Kruising ongelijkvloers maken': 'Kruising', 'Nieuwe veerlijn': 'Veerlijn', 'Nieuwe watertaxilijn': 'Watertaxi', 'Steiger (veer)': 'Steiger veer', 'Steiger (watertaxi)': 'Steiger taxi', 'Haven aanleggen (komt nog)': 'Haven',
+    'Nieuwe vliegroute': 'Vliegroute', 'Vliegveld aanleggen (komt nog)': 'Vliegveld', 'Helikopterplatform aanleggen (komt nog)': 'Heliplatform' };
+  const kort = t => KORT[t] || (t.startsWith('Halte aan de weg') ? 'Halte weg' : t.split(/[ (]/)[0]);
+  sm.innerHTML = menu[1].map(([ic, nw, t], i) => `<button type="button" data-sub-i="${i}" title="${esc(t)}" aria-label="${esc(t)}" class="${/komt nog/.test(t) ? 'uit' : ''}">${ico(ic, !!nw)}<b>${esc(kort(t))}</b></button>`).join('');
+  sm.hidden = false; document.body.classList.add('met-submenu');
   sm.querySelectorAll('[data-sub-i]').forEach(b => b.onclick = () => { sm.querySelectorAll('button').forEach(x => x.classList.toggle('aan', x === b)); menu[1][+b.dataset.subI][3](); });
 }
 
