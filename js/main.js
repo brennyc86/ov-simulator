@@ -15,7 +15,7 @@ import { SYSTEMEN, spanningVan, systemenVoorSoort, spanningenVan, kanOp, stroomC
 import { LANDEN } from './schets.js';
 import { Perrons, ontwerpPerron, ontwerpVerdubbeling, ontwerpStation, doorsnedeTekst, binnen, perronLangs } from './perron.js';
 import { lijnOpSpoor, rijBanen } from './spoorvolg.js';
-import { maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
+import { planningVan, maakOmloop, voertuigenOmloop, Opstel } from './omloop.js';
 import { planAlles, stationZoeker, stationVinder, zoekAfstemming } from './spoorplan.js';
 import { vluchtRoute } from './vlucht.js';
 import { laad } from './laadscherm.js';
@@ -845,7 +845,7 @@ function groepIndex() {
 function omloopVan(g, lijnen) {
   const c = omlopen.get(g);
   if (c && c.lijnen.length === lijnen.length && c.lijnen.every((l, i) => l === lijnen[i] && c.v[i] === l.vertrek && c.a[i] === l.actief && c.t[i] === (l.tr || l.t) && c.w[i] === l._ritWacht && c.k[i] === l._kruis)) return c.om;
-  const om = maakOmloop(lijnen); om.id = g;
+  const om = maakOmloop(lijnen); om.id = g; for (const x of om.voertuigen) x.pool = g;
   omlopen.set(g, { lijnen: [...lijnen], v: lijnen.map(l => l.vertrek), a: lijnen.map(l => l.actief), t: lijnen.map(l => l.tr || l.t), w: lijnen.map(l => l._ritWacht), k: lijnen.map(l => l._kruis), om });
   for (const l of lijnen) l._omloopN = om.voertuigen.length;
   return om;
@@ -1336,6 +1336,47 @@ function hint(html, knoppen = []) {
 // ---------------------------------------------------------------- voertuig en lijn
 let volg = null, zoomVolg = false; // gevolgd voertuig (omloop-object)
 // ritpaneel voor een voertuigpositie (uit het beeld of uit een lijst)
+// naam van een opstelplek: naam van het spoor uit OSM, anders soort + dichtstbijzijnd station
+function plekNaam(p) {
+  if (!p) return '';
+  if (typeof p === 'string') return p;
+  const soort = p.dienst === 2 ? 'Rangeerterrein' : p.dienst === 3 ? 'Kopspoor' : 'Opstelspoor';
+  let st = null, bd = 4000; for (const s of D.stations || []) { const d = Math.hypot(s.x - p.x, s.y - p.y); if (d < bd) { bd = d; st = s; } }
+  const sn = st ? (st.n || st.naam) : '', bij = sn ? `${bd < 800 ? 'bij' : 'nabij'} ${sn}` : '';
+  // een spoornaam als 'Goudse lijn' zegt niets over de plek: alleen echte namen (bv. 'Emplacement Watergraafsmeer')
+  const echt = p.naam && !/^\d+$/.test(p.naam) && !/lijn\b|spoorweg|bahn\b|strecke|line\b/i.test(p.naam);
+  return echt ? `${p.naam}${bij ? ` (${soort.toLowerCase()} ${bij})` : ''}` : `${soort} ${bij}`.trim();
+}
+// dagplanning van het voertuig: wat het vandaag doet, met tijden en plekken; wat voorbij is grijs, wat nu gebeurt vet
+function planningBlok(v) {
+  const om = v.omloop; if (!om?.ritten?.length) return '';
+  let lijst; try { lijst = planningVan(om, om.pool ?? v.pool ?? '', opstel, lengteVan); } catch { return ''; }
+  const nu = spel.tijd, k = t => t == null ? '' : S.klok(Math.round(t) % 1440);
+  const rij = (x) => {
+    const af = x.tot != null && x.tot < nu, bezig = (x.van ?? -1e9) <= nu && (x.tot == null || nu < x.tot);
+    const tijd = x.van != null ? `${k(x.van)}${x.tot != null && Math.round(x.tot) !== Math.round(x.van) ? '–' + k(x.tot) : ''}` : x.tot != null ? `tot ${k(x.tot)}` : '';
+    let wat;
+    switch (x.soort) {
+      case 'rit': wat = `<span class="lijnnr" style="background:${x.rit.l.ai ? esc(x.rit.l.kleur || '#777') : lijnKleur(x.rit.l)}">${esc(x.rit.l.nr)}</span> ${esc(x.rit.van.naam)} → ${esc(x.rit.naar.naam)}${x.koppel ? ' <span class="chip">gekoppeld (spits)</span>' : ''}`; break;
+      case 'leeg': wat = `Leeg naar ${esc(x.rit.naar.naam)} (zonder reizigers)`; break;
+      case 'keren': wat = `Keren in ${esc(x.plek)}`; break;
+      case 'wacht': wat = `Wacht op het perron in ${esc(x.plek)} op de volgende rit`; break;
+      case 'nacht': wat = `Blijft staan in ${esc(x.plek)} (einde dienst)`; break;
+      case 'klaar': wat = `Staat klaar in ${esc(x.plek)}`; break;
+      case 'rangeer': wat = `Rangeert van ${esc(x.van2)} naar ${esc(plekNaam(x.plek))}`; break;
+      case 'opgesteld': wat = `Opgesteld: ${esc(plekNaam(x.plek))}`; break;
+      case 'nachtOpgesteld': wat = `Opgesteld voor de nacht: ${esc(plekNaam(x.plek))}`; break;
+      case 'naarStart': wat = `Rijdt ${x.plek ? `van ${esc(plekNaam(x.plek))} ` : ''}naar ${esc(x.naar)} voor de volgende rit`; break;
+      default: wat = x.soort;
+    }
+    return `<tr style="${af ? 'opacity:.45' : ''}${bezig ? ';font-weight:700;background:var(--vlak2)' : ''}"><td class="getal" style="white-space:nowrap">${tijd}</td><td>${wat}</td></tr>`;
+  };
+  // rond nu: wat net gebeurd is en wat er nog komt
+  const iNu = Math.max(0, lijst.findIndex(x => x.tot == null || x.tot > nu));
+  const toon = lijst.slice(Math.max(0, iNu - 2), iNu + 10);
+  return `<h3>Planning vandaag</h3><table class="tabel klein">${toon.map(rij).join('')}</table>
+    ${lijst.length > toon.length ? `<details><summary class="klein">Hele dag (${lijst.length} onderdelen)</summary><table class="tabel klein">${lijst.map(rij).join('')}</table></details>` : ''}`;
+}
 function ritData(e) {
   const nv = e.wacht && e.volgende, l = nv ? nv.l : e.lijn;
   return { lijn: l, vertrek: nv ? nv.dep : e.vertrek, r: nv ? nv.r : e.r, wacht: e.wacht, klaarVandaag: !!e.wacht && !nv, omloop: e.omloop, pool: e.pool, selectie: { lijn: l, voertuig: e.omloop } };
@@ -1353,7 +1394,9 @@ function ritBijwerken() {
 }
 // alle voertuigen die vandaag op deze lijn (alle richtingen) rijden, met hun huidige positie
 function voertuigenVanLijn(l) {
-  const groep = lijnGroep(l), c = omlopen.get(groepSleutel(l));
+  const groep = lijnGroep(l), g = groepSleutel(l);
+  if (!omlopen.get(g)) { const ls = groepIndex().get(g); if (ls?.length) omloopVan(g, ls); } // niet in beeld: nu uitrekenen
+  const c = omlopen.get(g);
   if (!c) return [];
   const lijst = c.om.voertuigen.filter(v => v.ritten.some(x => groep.includes(x.l)));
   const pos = voertuigenOmloop({ voertuigen: lijst, id: c.om.id }, spel.tijd, [], opstel, lengteVan);
@@ -1780,6 +1823,7 @@ const PANELEN = {
       ${v.wacht ? `<p class="chip">${{ keren: 'Staat bij het eindpunt en keert voor de volgende rit', wacht: 'Wacht bij het eindpunt', opgesteld: 'Staat opgesteld tot de volgende rit', rangeert: 'Rangeert tussen station en opstelspoor', leeg: 'Rijdt leeg (zonder reizigers) naar het begin van de volgende rit', remise: 'Staat in de remise/stalling tot de volgende rit', instappen: 'Staat klaar: instappen', klaar: 'Staat klaar voor de eerste rit' }[v.wacht] || ''}${v.klaarVandaag ? ' · klaar voor vandaag, staat hier tot morgen' : ''}</p>` : ''}
       ${v.omloop ? `<p class="klein">Voertuig #${v.omloop.nr} (${l._omloopN || '?'} in de pool van ${esc(eigenaar)} met dit materieel) · vandaag ${v.omloop.ritten.filter(x => !x.leeg).length} ritten${v.omloop.ritten.some(x => x.leeg) ? ` (+ ${v.omloop.ritten.filter(x => x.leeg).length} leeg)` : ''}${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size > 1 ? ` op ${new Set(v.omloop.ritten.map(x => x.l.lijnId || x.l.id)).size} lijnen` : ''}: ${v.omloop.ritten.slice(0, 8).map(x => `${x.leeg ? '<i>leeg</i> ' : ''}${S.klok(x.dep)}${x.l.nr && x.l.nr !== l.nr ? ` (${esc(x.l.nr)})` : ''}`).join(', ')}${v.omloop.ritten.length > 8 ? ' …' : ''}</p>` : ''}
       <div class="rij"><button class="knop" data-actie="sel-lijn">☰ Toon lijn</button>${v.omloop ? `<button class="knop ${volg === v.omloop ? 'hoofd' : ''}" data-actie="volg">${volg === v.omloop ? '◉ Stop volgen' : '◎ Volg'}</button>` : ''}</div>
+      ${planningBlok(v)}
       <p>${v.wacht ? (v.klaarVandaag ? 'Laatste rit' : 'Volgende rit') : 'Deze rit'}: vertrek <b>${S.klok(v.vertrek)}</b> uit ${esc(volgorde[0].naam)}, aankomst <b>${S.klok(Math.round(v.vertrek + t[n - 1] / 60))}</b> in ${esc(volgorde[n - 1].naam)}.</p>
       <table class="tabel rittabel"><tr><th>Halte</th><th class="getal">aan</th><th class="getal">vertrek</th><th class="getal" title="instappers + / uitstappers −">in/uit</th><th>${eigen ? 'extra wachten (min)' : ''}</th></tr>${rijen}</table>
       ${reizigersBlok(rr, nuAan, v)}

@@ -97,13 +97,15 @@ export class Opstel {
   constructor(net, jaar) { this.net = net; this.jaar = jaar; this.cache = new Map(); this.bezet = new Map(); }
   wis() { this.cache.clear(); this.bezet.clear(); }
   // geeft {heen: baan, terug: baan, park: baan, s} of null
-  plek(x, y, modus, lengte, sleutel) {
+  plek(x, y, modus, lengte, sleutel, forceer = false) {
     const k = sleutel;
     if (this.cache.has(k)) return this.cache.get(k);
-    if (this.budget !== undefined && this.budget-- <= 0) return undefined; // later; niet onthouden
-    if (this.tot && performance.now() > this.tot) return undefined;    // tijd op voor dit beeld: later
-    if (this.volgende && performance.now() < this.volgende) return undefined; // hooguit één zoektocht per 0,3 s
-    this.volgende = performance.now() + 300;
+    if (!forceer) {
+      if (this.budget !== undefined && this.budget-- <= 0) return undefined; // later; niet onthouden
+      if (this.tot && performance.now() > this.tot) return undefined;    // tijd op voor dit beeld: later
+      if (this.volgende && performance.now() < this.volgende) return undefined; // hooguit één zoektocht per 0,3 s
+      this.volgende = performance.now() + 300;
+    }
     let uit = null;
     const net = this.net, max = ZOEK[modus] || 3000;
     const kand = [];
@@ -117,7 +119,7 @@ export class Opstel {
     }
     kand.sort((a, b) => a.d - b.d);
     for (const { t } of kand.slice(0, 4)) {
-      if (this.tot && performance.now() > this.tot + 20) { this.cache.delete(k); return undefined; }
+      if (!forceer && this.tot && performance.now() > this.tot + 20) { this.cache.delete(k); return undefined; }
       const al = this.bezet.get(t) || 0;
       const s = 15 + al * (lengte + 8) + lengte / 2;
       if (s + lengte / 2 > t.lengte - 5) continue;           // vol
@@ -127,7 +129,7 @@ export class Opstel {
       const terug = net.route([px, py], [x, y], modus, this.jaar);
       if (!terug) continue;
       this.bezet.set(t, al + 1);
-      uit = { heen: baan(heen.pts), terug: baan(terug.pts) };
+      uit = { heen: baan(heen.pts), terug: baan(terug.pts), x: px, y: py, dienst: t.dienst, naam: t.naam >= 0 ? net.namen?.[t.naam] : null };
       break;
     }
     this.cache.set(k, uit);
@@ -173,10 +175,10 @@ export function voertuigenOmloop(omloop, tm, uit, opstel, lengteVan, inZicht = n
     const sleutel = `${v.nr}:${omloop.id}:${Math.round(anker.x / 50)},${Math.round(anker.y / 50)}`;
     const plek = SPOOR.includes(modus) && opstel ? opstel.plek(anker.x, anker.y, modus, lengteVan(l), sleutel) : null;
     if (!plek) {
-      // geen opstelplek (of bus): in de remise/stalling; het voertuig bestaat, maar staat niet op het perron
-      if (plek === undefined || !opstel || (vorige && tm < vorige.arr + 3) || (volgende && tm > volgende.dep - 5)) {
-        uit.push(Object.assign(vorige && tm < vorige.arr + 3 ? eindPunt(vorige) : anker, { staat: true, wacht: vorige && tm < vorige.arr + 3 ? 'wacht' : volgende && tm > volgende.dep - 5 ? 'instappen' : 'remise', verborgen: plek === undefined || undefined, omloop: v, volgende }));
-      } else uit.push(Object.assign(anker, { staat: true, wacht: 'remise', verborgen: true, omloop: v, volgende }));
+      // geen opstelplek (of een bus): blijven staan waar het voertuig is, bij het eindpunt van de vorige rit (perron of
+      // eindhalte); vóór de eerste rit van de dag klaar bij het beginpunt. Een voertuig dat rijdt, verdwijnt nooit.
+      const wachtPlek = vorige ? eindPunt(vorige) : anker;
+      if (wachtPlek) uit.push(Object.assign(wachtPlek, { staat: true, wacht: vorige ? (volgende && tm > volgende.dep - 5 ? 'instappen' : 'wacht') : 'klaar', omloop: v, volgende }));
       continue;
     }
     const vH = rangeerV(plek.heen.lengte), vT = rangeerV(plek.terug.lengte);
@@ -194,6 +196,36 @@ export function voertuigenOmloop(omloop, tm, uit, opstel, lengteVan, inZicht = n
     const [x, y, hoek] = puntOp(baanNu, s);
     uit.push({ x, y, hoek, lijn: l, r: 0, vertrek: (volgende || vorige).dep, f: 0, staat: s >= baanNu.lengte || s <= 0, s, baan: baanNu, omloop: v, volgende,
       wacht: s >= baanNu.lengte && baanNu === plek.heen ? 'opgesteld' : 'rangeert' });
+  }
+  return uit;
+}
+
+// ---------------------------------------------------------------- planning van één voertuig (voor het voertuigscherm)
+// Lijst van wat het voertuig vandaag doet: ritten, lege ritten, keren, wachten bij het perron, rangeren naar een
+// opstelplek en terug. Opstelplekken worden hier zo nodig meteen uitgerekend (één voertuig, dus weinig werk).
+function opstelVoor(v, omloopId, anker, l, opstel, lengteVan) {
+  if (!anker || !SPOOR.includes(l.modus) || !opstel) return null;
+  const sleutel = `${v.nr}:${omloopId}:${Math.round(anker.x / 50)},${Math.round(anker.y / 50)}`;
+  try { return opstel.plek(anker.x, anker.y, l.modus, lengteVan(l), sleutel, true) || null; } catch { return null; }
+}
+export function planningVan(v, omloopId, opstel, lengteVan) {
+  const R = v.ritten, uit = [];
+  if (!R.length) return uit;
+  // vóór de eerste rit: vanaf de opstelplek naar het beginpunt
+  const eerste = R[0], a0 = beginPunt(eerste), p0 = opstelVoor(v, omloopId, a0, eerste.l, opstel, lengteVan);
+  if (p0) { const dT = p0.terug.lengte / rangeerV(p0.terug.lengte) / 60; uit.push({ soort: 'opgesteld', tot: eerste.dep - 5 - dT, plek: p0 }, { soort: 'naarStart', van: eerste.dep - 5 - dT, tot: eerste.dep - 5, naar: eerste.van.naam }); }
+  else uit.push({ soort: 'klaar', tot: eerste.dep, plek: eerste.van.naam });
+  for (let i = 0; i < R.length; i++) {
+    const rit = R[i], volg = R[i + 1], l = rit.l, wacht = volg ? volg.dep - rit.arr : Infinity;
+    uit.push({ soort: rit.leeg ? 'leeg' : 'rit', rit, van: rit.dep, tot: rit.arr, koppel: rit.koppel });
+    if (volg && wacht <= (LANG[l.modus] ?? Infinity)) { uit.push({ soort: 'keren', van: rit.arr, tot: volg.dep, plek: rit.naar.naam }); continue; }
+    const plek = opstelVoor(v, omloopId, eindPunt(rit), l, opstel, lengteVan);
+    if (!plek) { uit.push({ soort: volg ? 'wacht' : 'nacht', van: rit.arr, tot: volg?.dep, plek: rit.naar.naam }); continue; }
+    const dH = plek.heen.lengte / rangeerV(plek.heen.lengte) / 60, dT = plek.terug.lengte / rangeerV(plek.terug.lengte) / 60;
+    if (volg && dH + dT + 8 > wacht) { uit.push({ soort: 'wacht', van: rit.arr, tot: volg.dep, plek: rit.naar.naam }); continue; }
+    uit.push({ soort: 'rangeer', van: rit.arr + 3, tot: rit.arr + 3 + dH, van2: rit.naar.naam, plek });
+    uit.push({ soort: volg ? 'opgesteld' : 'nachtOpgesteld', van: rit.arr + 3 + dH, tot: volg ? volg.dep - 5 - dT : null, plek });
+    if (volg) uit.push({ soort: 'naarStart', van: volg.dep - 5 - dT, tot: volg.dep - 5, naar: volg.van.naam, plek });
   }
   return uit;
 }
